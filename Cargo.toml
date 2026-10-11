@@ -1,0 +1,137 @@
+# kgrust — a Rust compiler toolchain for the Kanagawa HLS language.
+#
+# One query-based core (kg-db) serving many front doors: a batch CLI (kg / kanagawa),
+# a language server (kg-lsp), a formatter (kg-fmt), and a doc generator.
+#
+# Members are globbed so a new crate needs no edit here; shared dependency versions
+# live in [workspace.dependencies] and are referenced as `foo.workspace = true`.
+
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+# What `cargo build` and `cargo test` mean without `-p` or `--workspace`: the
+# tools and every crate they are made of, which build from this checkout
+# alone (sprint W8.4). Left out: `kg-ptrace`, the interposer that records the
+# reference's own runs, whose build script reads the reference's headers
+# through bindgen and libclang; `kg-abi-gen`, which only it and `xtask
+# codegen` use; and `xtask`, reached as `cargo xtask`. The gates run
+# `--workspace`, which builds and tests all of them. A new crate is listed
+# here by hand — a glob cannot leave one out — or a plain `cargo test`
+# skips its tests.
+default-members = [
+    "crates/kg-alloc",
+    "crates/kg-backend-sys",
+    "crates/kg-base",
+    "crates/kg-cli",
+    "crates/kg-config",
+    "crates/kg-const",
+    "crates/kg-db",
+    "crates/kg-diag",
+    "crates/kg-doc",
+    "crates/kg-fmt",
+    "crates/kg-hir",
+    "crates/kg-lsp",
+    "crates/kg-parser",
+    "crates/kg-ptbridge",
+    "crates/kg-pttrace",
+    "crates/kg-resolve",
+    "crates/kg-sem",
+    "crates/kg-syntax",
+    "crates/kg-ty",
+    "crates/kg-vfs",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+authors = ["Parker Mitchell", "The kgrust contributors"]
+
+[workspace.dependencies]
+# --- internal ---
+kg-base     = { path = "crates/kg-base" }
+kg-diag     = { path = "crates/kg-diag" }
+kg-doc      = { path = "crates/kg-doc" }
+kg-parser   = { path = "crates/kg-parser" }
+kg-syntax   = { path = "crates/kg-syntax" }
+kg-fmt      = { path = "crates/kg-fmt" }
+kg-vfs      = { path = "crates/kg-vfs" }
+kg-config   = { path = "crates/kg-config" }
+kg-resolve  = { path = "crates/kg-resolve" }
+kg-hir      = { path = "crates/kg-hir" }
+kg-sem      = { path = "crates/kg-sem" }
+kg-const    = { path = "crates/kg-const" }
+kg-ty       = { path = "crates/kg-ty" }
+kg-alloc    = { path = "crates/kg-alloc" }
+kg-db       = { path = "crates/kg-db" }
+kg-lsp      = { path = "crates/kg-lsp" }
+kg-abi-gen  = { path = "crates/kg-abi-gen" }
+kg-backend-sys = { path = "crates/kg-backend-sys" }
+kg-cli         = { path = "crates/kg-cli" }
+kg-pttrace  = { path = "crates/kg-pttrace" }
+kg-ptbridge = { path = "crates/kg-ptbridge" }
+
+# --- syntax tree ---
+rowan     = "0.17"
+text-size = "1.1"
+smol_str  = "0.3"
+ungrammar = "1.16"
+
+# --- data structures ---
+rustc-hash = "2.1"
+indexmap   = "2"
+memchr     = "2"
+num-bigint = "0.5"
+
+# --- infra ---
+anyhow    = "1"
+thiserror = "2"
+serde     = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml      = "1"
+camino    = "1"
+rayon     = "1"
+mimalloc  = { version = "0.1", default-features = false }
+clap      = { version = "4", features = ["derive"] }
+
+# --- lsp ---
+lsp-server = "0.10"
+lsp-types  = "0.97"
+crossbeam-channel = "0.5"
+
+# --- the ParseTree C ABI ---
+bindgen    = "0.73"
+libloading = "0.8"
+syn        = { version = "2", features = ["full"] }
+quote      = "1"
+flate2     = "1"
+
+# --- testing ---
+libtest-mimic = "0.8"
+expect-test   = "1.5"
+insta         = "1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+print_stdout = "allow"
+
+[profile.release]
+debug = 1
+
+# Building the reference corpus tooling is slow in debug; tests over 480 files are not.
+[profile.dev.package."*"]
+opt-level = 2
+
+# The inner loop: a test rebuild after a one-line edit, with `debug_assert!`
+# kept. `dev` leaves the workspace crates unoptimised and the corpus tests
+# crawl; `release` rebuilds a crate from scratch per edit. Measured against
+# both before it was kept — see `docs/journal.md`, 2026-09-08.
+[profile.quick]
+inherits = "dev"
+opt-level = 1
+incremental = true

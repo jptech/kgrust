@@ -1,0 +1,10 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"/*|\\n\\\n         RISC-V ISA types, constants and helper functions.\\n\\\n         \\n\\\n         \\x20   indented example line\\n\\\n         */\\n\\\n         module processor.risc_v.isa { Base }\\n\")"
+---
+/*|
+RISC-V ISA types, constants and helper functions.
+
+    indented example line
+*/
+module processor.risc_v.isa { Base }

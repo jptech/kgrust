@@ -1,0 +1,32 @@
+{
+  "about": "cargo xtask mem's budgets: MiB of peak memory per program and use case, each its blessed peak plus a quarter (xtask/src/mem.rs)",
+  "budgets": {
+    "test/library/data/array.k": {
+      "check": 350,
+      "editor-edits": 620,
+      "editor-open": 380
+    },
+    "test/library/data/cache.k": {
+      "check": 120,
+      "editor-edits": 250,
+      "editor-open": 140
+    },
+    "test/library/numeric/float.k": {
+      "check": 370,
+      "editor-edits": 640,
+      "editor-open": 390
+    },
+    "test/library/processor/risc-v.k": {
+      "check": 970,
+      "editor-edits": 1820,
+      "editor-open": 1110
+    },
+    "tiny.k": {
+      "check": 50,
+      "editor-edits": 90,
+      "editor-open": 50
+    }
+  },
+  "keystrokes": 5,
+  "metric": "footprint"
+}

@@ -1,0 +1,39 @@
+loop profile: 33 modules, 1 rounds; per pass: all / idle visits (nothing appended since the pass last ran) / the root
+  addLambdaWrappers        0.000s  idle   0.000s (22/66 visits)  root   0.000s
+  carry types              0.000s  idle   0.000s (401/462 visits)  root   0.000s
+  census                   0.000s  idle   0.000s (30/66 visits)  root   0.000s
+  closureCalls             0.000s  idle   0.000s (24/66 visits)  root   0.000s
+  deduceTemplateArgs       0.002s  idle   0.000s (44/99 visits)  root   0.000s
+  inferType walk           0.002s  idle   0.001s (504/561 visits)  root   0.000s  (inside its whole step)
+  instantiate              0.000s  idle   0.000s (0/33 visits)  root   0.000s
+  prefix                   0.000s  idle   0.000s (22/66 visits)  root   0.000s
+  census's symbols         0.000s  (whole program)
+  deduce's snapshot        0.000s  (whole program)
+  deduce's symbols         0.001s  (whole program)
+  inferType                0.004s  (whole program)
+  wrappers' snapshot       0.000s  (whole program)
+  wrappers' symbols        0.001s  (whole program)
+  in all                   0.010s  idle   0.000s (3%)
+per round, ms:   round      all   prefix   census instant.   deduce wrappers closures    infer  symbols    other     root
+                before      4.0      0.0      0.0      0.0      0.9      0.0      0.0      2.1      0.6      0.4      0.0
+                     0      4.4      0.4      0.0      0.4      0.5      0.2      0.1      1.6      0.9      0.3      0.0
+                     1      1.4      0.0      0.0      0.0      0.5      0.2      0.1      0.3      0.3      0.0      0.0
+kg phases: CST passes 0.018s, the loop 0.018s, item_tree 0.003s, program 0.003s, parse 0.003s, sorted module 0.003s, copies' check 0.001s, looped 0.000s, global_symbols 0.000s, sorted lowering 0.000s
+        0.05 real         0.04 user         0.00 sys
+            43368448  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                2853  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  10  involuntary context switches
+           765766968  instructions retired
+           199732527  cycles elapsed
+            39125496  peak memory footprint

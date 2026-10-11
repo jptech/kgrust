@@ -1,0 +1,37 @@
+[package]
+name = "kg-ptbridge"
+description = "The frontend's real output: the walk of a lowered program into the ParseTree C ABI, through a Backend trait with a trace-writing and a real implementation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-hir.workspace = true
+kg-ty.workspace = true
+kg-const.workspace = true
+kg-resolve.workspace = true
+kg-db.workspace = true
+kg-sem.workspace = true
+kg-backend-sys.workspace = true
+kg-pttrace.workspace = true
+rustc-hash.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+kg-config.workspace = true
+
+# No build script: the `Backend` trait and its implementations are
+# `src/backend.rs`, written by `cargo xtask codegen` (sprint W8.4).
+
+# `Real` calls into C; `unsafe` lives in the generated `impl` only.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+dbg_macro = "warn"

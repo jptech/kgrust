@@ -1,0 +1,10 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"class crc\\n\\\n         {\\n\\\n         public:\\n\\\n         \\x20   uint8 compute(uint8 identifier, uint8 input, bool reset);   //< Which of the CRCs to update, and whether to reset it before processing the input.\\n\\\n         \\x20   uint8 peek(uint8 identifier);                               //< Read without updating.\\n\\\n         }\\n\")"
+---
+class crc
+{
+public:
+    uint8 compute(uint8 identifier, uint8 input, bool reset);   //< Which of the CRCs to update, and whether to reset it before processing the input.
+    uint8 peek(uint8 identifier);                               //< Read without updating.
+}

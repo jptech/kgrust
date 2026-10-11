@@ -1,0 +1,22 @@
+[package]
+name = "kg-config"
+description = "The kanagawa.toml workspace manifest: discovery, parsing, and the settings every front door needs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-diag.workspace = true
+serde.workspace = true
+toml.workspace = true
+camino = { workspace = true, features = ["serde1"] }
+indexmap.workspace = true
+
+[lints]
+workspace = true

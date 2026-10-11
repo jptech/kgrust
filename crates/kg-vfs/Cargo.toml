@@ -1,0 +1,18 @@
+[package]
+name = "kg-vfs"
+description = "Virtual file system with in-memory overlays, so the language server can compile unsaved buffers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+camino.workspace = true
+
+[lints]
+workspace = true

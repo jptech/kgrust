@@ -1,0 +1,25 @@
+[package]
+name = "kg-fmt"
+description = "A comment-preserving formatter for Kanagawa, over the lossless CST."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-config.workspace = true
+kg-syntax.workspace = true
+smol_str.workspace = true
+
+[dev-dependencies]
+kg-base.workspace = true
+expect-test.workspace = true
+insta.workspace = true
+
+[lints]
+workspace = true

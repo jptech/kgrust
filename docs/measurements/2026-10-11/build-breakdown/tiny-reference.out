@@ -1,0 +1,16 @@
+Device name: mock
+Running internal consistency checks.
+Compilation times:
+Step,Time(seconds)
+Enumerate function instances,0.000506209
+Generate IR,0.000171666
+InsertGlobalViews,1.833e-06
+Lowering (inclusive),0.0006855
+MemToArray,2.876e-06
+Middle-end (inclusive),0.00252196
+RemoveEmptyAtomicBlocks,2.09e-07
+RemoveUnusedGlobals,5.01e-07
+Sparse to dense pipeline registers,1.25e-07
+SubstituteLiterals,2.1415e-05
+Type Check,0.000440167
+Virtual Placement,1.2709e-05

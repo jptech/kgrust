@@ -1,0 +1,55 @@
+building the timing oracle in target/oracle-bench (about two minutes)
+# 1737ca6, reference on every core(s), load 2.36 3.14 3.74
+# program side real user rss_mib footprint_mib exit
+tiny.k haskell 1.13 0.70 2143 2136 0
+tiny.k rust 0.29 0.07 41 37 0
+tiny.k haskell 0.63 0.69 2143 2136 0
+tiny.k rust 0.05 0.04 41 37 0
+tiny.k haskell 0.62 0.69 2144 2137 0
+tiny.k rust 0.05 0.04 41 37 0
+cache.k haskell 1.97 5.37 2235 2227 0
+cache.k rust 0.23 0.22 101 97 0
+cache.k haskell 1.83 5.26 2234 2226 0
+cache.k rust 0.22 0.21 101 97 0
+cache.k haskell 1.89 5.35 2230 2222 0
+cache.k rust 0.22 0.21 101 97 0
+bits.k haskell 2.17 6.91 2222 2214 0
+bits.k rust 0.26 0.25 122 118 0
+bits.k haskell 2.35 7.03 2227 2219 0
+bits.k rust 0.26 0.25 122 118 0
+bits.k haskell 2.18 6.88 2221 2213 0
+bits.k rust 0.26 0.25 122 118 0
+vector.k haskell 6.12 21.43 2267 2259 0
+vector.k rust 0.77 0.73 256 252 0
+vector.k haskell 6.08 21.15 2262 2254 0
+vector.k rust 0.69 0.67 256 252 0
+vector.k haskell 6.12 21.58 2263 2255 0
+vector.k rust 0.69 0.67 256 252 0
+array.k haskell 13.21 27.58 2253 2245 0
+array.k rust 0.87 0.84 304 300 0
+array.k haskell 13.14 27.44 2278 2270 0
+array.k rust 0.85 0.83 304 300 0
+array.k haskell 13.09 27.64 2292 2284 0
+array.k rust 0.84 0.81 304 300 0
+float.k haskell 10.79 32.36 2322 2314 0
+float.k rust 0.66 0.64 296 292 0
+float.k haskell 10.73 32.39 2370 2362 0
+float.k rust 0.67 0.65 296 292 0
+float.k haskell 10.73 32.38 2354 2346 0
+float.k rust 0.74 0.70 296 292 0
+risc-v.k haskell 25.29 70.53 3032 3024 0
+risc-v.k rust 2.00 1.94 776 767 0
+risc-v.k haskell 25.08 70.57 3178 3170 0
+risc-v.k rust 1.98 1.92 776 767 0
+risc-v.k haskell 24.98 69.41 2921 2913 0
+risc-v.k rust 2.09 2.01 776 768 0
+# load after: 5.40 4.13 4.01
+
+best of 3:  program  haskell  rust  faster  rss haskell→rust (MiB)
+  tiny.k          0.62s   0.05s    12x    2143 → 41
+  cache.k         1.83s   0.22s     8x    2230 → 101
+  bits.k          2.17s   0.26s     8x    2221 → 122
+  vector.k        6.08s   0.69s     9x    2262 → 256
+  array.k        13.09s   0.84s    16x    2253 → 304
+  float.k        10.73s   0.66s    16x    2322 → 296
+  risc-v.k       24.98s   1.98s    13x    2921 → 776

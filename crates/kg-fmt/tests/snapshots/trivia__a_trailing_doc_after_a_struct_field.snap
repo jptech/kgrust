@@ -1,0 +1,10 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"struct Decoded\\n\\\n         {\\n\\\n         \\x20   uint8 rd;      //< Destination register.\\n\\\n         \\x20   uint8 rs1;     //< First operand.\\n\\\n         \\x20   uint8 rs2;     //< Second operand.\\n\\\n         }\\n\")"
+---
+struct Decoded
+{
+    uint8 rd;      //< Destination register.
+    uint8 rs1;     //< First operand.
+    uint8 rs2;     //< Second operand.
+}

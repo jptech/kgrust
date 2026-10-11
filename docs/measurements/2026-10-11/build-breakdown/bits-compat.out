@@ -1,0 +1,44 @@
+Device name: mock
+Running internal consistency checks.
+Compilation times:
+Step,Time(seconds)
+AddToOr,0.00490679
+AlgebraicIdentities,0.00265296
+BitConstantPropagation,0.504969
+CommonSubexpressionElimination,0.00510984
+ComputeClockGating,4.0626e-05
+ConditionalIgnoreConstantProp,4.798e-06
+ConstSelectBits,0.00602362
+ConstantPropagation,0.00851937
+DecomposeWideOps,0.000706455
+Enumerate function instances,0.0831794
+FixupLutOps,0.003723
+GatherToMove,0.000782037
+Generate IR,0.109937
+GlobalDataPropagation,0.00344242
+InsertGlobalViews,0.000319709
+KillMoves,0.00879125
+LocalDataPropagation,0.00180879
+Lowering (inclusive),4.45661
+MemToArray,0.000378956
+Middle-end (inclusive),4.81848
+NarrowLiterals,0.00127071
+PackLuts,0.00833817
+ParallelConditionalIgnore,0.00347063
+Pipeline,0.0040485
+PredicateFalsities,0.00191521
+PredicateIdentities,0.000817795
+RemoveDeadJumps,0.000869797
+RemoveDeadOperations,0.586211
+RemoveEmptyAtomicBlocks,0.000203625
+RemoveUnusedGlobals,0.859752
+RemoveUnusedStrings,0.00232946
+Report files,0.0193094
+ScheduleBasicBlock,2.12352
+SelectIndexPropagation,0.00541109
+Sparse to dense pipeline registers,4.17e-07
+SubstituteLiterals,0.00278988
+Type Check,0.00452271
+ValidateIR,0.030956
+Virtual Placement,0.00262288
+Write Output,0.262921

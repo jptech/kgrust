@@ -1,0 +1,76 @@
+# 1737ca6, 16 cores, load 3.55 3.73 3.86
+# program side real user rss_mib footprint_mib exit
+tiny.k haskell-1 0.62 0.60 171 162 0
+tiny.k haskell-N 0.72 0.77 2141 2134 0
+tiny.k rust 0.20 0.04 41 37 0
+tiny.k haskell-1 0.63 0.60 171 162 0
+tiny.k haskell-N 0.62 0.69 2143 2136 0
+tiny.k rust 0.05 0.04 41 37 0
+tiny.k haskell-1 0.61 0.59 171 162 0
+tiny.k haskell-N 0.62 0.69 2143 2136 0
+tiny.k rust 0.05 0.04 41 37 0
+cache.k haskell-1 4.68 4.60 273 264 0
+cache.k haskell-N 1.84 5.31 2237 2229 0
+cache.k rust 0.22 0.21 101 97 0
+cache.k haskell-1 4.62 4.56 273 264 0
+cache.k haskell-N 1.85 5.21 2230 2222 0
+cache.k rust 0.22 0.21 101 97 0
+cache.k haskell-1 4.63 4.59 273 264 0
+cache.k haskell-N 1.84 5.23 2232 2224 0
+cache.k rust 0.22 0.21 101 97 0
+bits.k haskell-1 6.34 6.28 262 253 0
+bits.k haskell-N 2.26 6.85 2220 2212 0
+bits.k rust 0.26 0.25 122 118 0
+bits.k haskell-1 6.36 6.30 262 253 0
+bits.k haskell-N 2.32 6.96 2219 2211 0
+bits.k rust 0.28 0.26 122 118 0
+bits.k haskell-1 6.35 6.30 262 253 0
+bits.k haskell-N 2.12 6.73 2221 2213 0
+bits.k rust 0.26 0.25 122 118 0
+vector.k haskell-1 21.60 21.32 424 415 0
+vector.k haskell-N 6.14 21.42 2260 2252 0
+vector.k rust 0.70 0.67 256 252 0
+vector.k haskell-1 21.55 21.26 424 415 0
+vector.k haskell-N 6.20 21.43 2261 2253 0
+vector.k rust 0.67 0.65 256 252 0
+vector.k haskell-1 20.95 20.73 424 415 0
+vector.k haskell-N 5.92 21.01 2264 2256 0
+vector.k rust 0.67 0.65 256 252 0
+array.k haskell-1 28.26 27.90 526 517 0
+array.k haskell-N 13.16 27.24 2278 2270 0
+array.k rust 0.81 0.78 304 300 0
+array.k haskell-1 28.22 27.85 526 517 0
+array.k haskell-N 12.90 27.38 2289 2281 0
+array.k rust 0.80 0.78 304 300 0
+array.k haskell-1 28.29 27.91 526 517 0
+array.k haskell-N 12.79 26.92 2253 2245 0
+array.k rust 0.92 0.84 304 300 0
+float.k haskell-1 30.43 30.03 596 587 0
+float.k haskell-N 10.69 32.11 2341 2333 0
+float.k rust 0.66 0.64 296 292 0
+float.k haskell-1 30.38 29.99 596 587 0
+float.k haskell-N 10.61 32.04 2315 2307 0
+float.k rust 0.66 0.64 296 292 0
+float.k haskell-1 30.39 30.01 596 587 0
+float.k haskell-N 10.58 31.70 2319 2311 0
+float.k rust 0.73 0.68 296 292 0
+risc-v.k haskell-1 54.03 53.43 1068 1059 0
+risc-v.k haskell-N 24.72 69.12 2823 2815 0
+risc-v.k rust 2.05 1.95 776 767 0
+risc-v.k haskell-1 54.04 53.45 1068 1059 0
+risc-v.k haskell-N 24.61 68.19 2850 2842 0
+risc-v.k rust 2.06 1.96 776 768 0
+risc-v.k haskell-1 54.64 53.97 1068 1059 0
+risc-v.k haskell-N 24.84 69.42 2999 2991 0
+risc-v.k rust 1.95 1.89 776 767 0
+# load after: 14.52 5.67 4.25
+
+best of 3, seconds (× = the reference's time over ours), peak RSS MiB:
+  program      hs 1 core    hs all    rust    ×1  ×all   rss hs 1 / hs all / rust
+  tiny.k           0.61s     0.62s   0.05s   12x   12x   171 / 2141 / 41
+  cache.k          4.62s     1.84s   0.22s   21x    8x   273 / 2230 / 101
+  bits.k           6.34s     2.12s   0.26s   24x    8x   262 / 2219 / 122
+  vector.k        20.95s     5.92s   0.67s   31x    9x   424 / 2260 / 256
+  array.k         28.22s    12.79s   0.80s   35x   16x   526 / 2253 / 304
+  float.k         30.38s    10.58s   0.66s   46x   16x   596 / 2315 / 296
+  risc-v.k        54.03s    24.61s   1.95s   28x   13x   1068 / 2823 / 776

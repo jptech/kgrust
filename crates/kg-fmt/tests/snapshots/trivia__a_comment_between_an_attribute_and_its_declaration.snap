@@ -1,0 +1,11 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"class hal\\n\\\n         {\\n\\\n         public:\\n\\\n         \\x20   [[latency(LATENCY)]]\\n\\\n         \\x20   // The device supplies this.\\n\\\n         \\x20   float32 op(float32 x, float32 y);\\n\\\n         }\\n\")"
+---
+class hal
+{
+public:
+    [[latency(LATENCY)]]
+    // The device supplies this.
+    float32 op(float32 x, float32 y);
+}

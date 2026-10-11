@@ -1,0 +1,9 @@
+# kg build's 'walk and the backend' (KG_PHASES), system allocator vs DYLD_INSERT_LIBRARIES=/opt/homebrew/lib/libjemalloc.2.dylib (loaded in parent and worker, DYLD_PRINT_LIBRARIES), interleaved, 1737ca6, load ~4
+bits 1 system: 4.937s
+bits 1 jemalloc: 4.806s
+bits 2 system: 5.186s
+bits 2 jemalloc: 4.805s
+array 1 system: 10.942s
+array 1 jemalloc: 11.559s
+array 2 system: 10.923s
+array 2 jemalloc: 11.670s

@@ -1,0 +1,13 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"inline void f()\\n\\\n         {\\n\\\n         \\x20   // nothing to do yet\\n\\\n         }\\n\\\n         \\n\\\n         inline void g()\\n\\\n         {\\n\\\n         \\x20   /* nor here */\\n\\\n         }\\n\")"
+---
+inline void f()
+{
+    // nothing to do yet
+}
+
+inline void g()
+{
+    /* nor here */
+}

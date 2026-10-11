@@ -1,0 +1,22 @@
+[package]
+name = "kg-hir"
+description = "The lowered, rewritable IR that pass 8 instantiates. Mirrors the reference's ExpF."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-syntax.workspace = true
+kg-diag.workspace = true
+kg-const.workspace = true
+kg-ty.workspace = true
+kg-resolve.workspace = true
+
+[lints]
+workspace = true

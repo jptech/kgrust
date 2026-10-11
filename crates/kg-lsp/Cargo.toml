@@ -1,0 +1,43 @@
+[package]
+name = "kg-lsp"
+description = "The Kanagawa language server: document sync, diagnostics, symbols, folding, selection and CST-accurate semantic tokens."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+# The `kg-lsp` binary's allocator; the library never names one.
+kg-alloc.workspace = true
+kg-base.workspace = true
+kg-config.workspace = true
+kg-fmt.workspace = true
+kg-db.workspace = true
+kg-diag.workspace = true
+kg-parser.workspace = true
+# `hover` reads a declaration's `DefKind` and renders its `Ty` with the same
+# `showPretty` the diagnostics use, so it names both crates directly.
+kg-resolve.workspace = true
+kg-syntax.workspace = true
+kg-ty.workspace = true
+kg-vfs.workspace = true
+
+lsp-server.workspace = true
+lsp-types.workspace = true
+crossbeam-channel.workspace = true
+
+anyhow.workspace = true
+camino.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Only the end-to-end test names `Deserialize` directly, to decode the server's
+# own responses the way a real client would.
+serde.workspace = true
+
+[lints]
+workspace = true

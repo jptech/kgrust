@@ -1,0 +1,9 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"inline void f()\\n{\\n}\\n\\n// the last word, unterminated\")"
+---
+inline void f()
+{
+}
+
+// the last word, unterminated

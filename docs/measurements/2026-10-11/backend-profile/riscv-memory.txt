@@ -1,0 +1,27 @@
+worker 38729
+0 s rss 112 MiB
+10 s rss 2494 MiB
+20 s rss 4837 MiB
+30 s rss 4838 MiB
+40 s rss 5365 MiB
+50 s rss 6945 MiB
+60 s rss 8943 MiB
+70 s rss 9983 MiB
+80 s rss 10256 MiB
+90 s rss 10394 MiB
+100 s rss 10478 MiB
+110 s rss 10483 MiB
+120 s rss 10483 MiB
+130 s rss 10483 MiB
+140 s rss 10483 MiB
+150 s rss 10485 MiB
+160 s rss 10486 MiB
+170 s rss 10486 MiB
+180 s rss 10488 MiB
+190 s rss 10489 MiB
+200 s rss 10489 MiB
+210 s rss 10489 MiB
+220 s rss 10489 MiB
+230 s rss 10489 MiB
+240 s rss 10489 MiB
+stopped

@@ -1,0 +1,17 @@
+[package]
+name = "kg-pttrace"
+description = "The ParseTree call-trace format (docs/spec/abi.md §14.1): writer, logical ids, and reader. Shared by the interposer that records the reference and the bridge that replays."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+rustc-hash.workspace = true
+
+[lints]
+workspace = true

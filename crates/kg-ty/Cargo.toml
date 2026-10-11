@@ -1,0 +1,23 @@
+[package]
+name = "kg-ty"
+description = "The Kanagawa type model: width algebra, subtyping, and the node key."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-syntax.workspace = true
+kg-diag.workspace = true
+kg-const.workspace = true
+num-bigint.workspace = true
+rustc-hash.workspace = true
+indexmap.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,51 @@
+cabal-version:       3.0
+name:                oracle
+version:             1.0.0
+synopsis:            A differential oracle for the Rust port
+build-type:          Simple
+
+library
+  ghc-options:         -w
+  hs-source-dirs:      lib
+  default-extensions:  FlexibleContexts
+                     , RecordWildCards
+                     , PatternSynonyms
+                     , OverloadedStrings
+  exposed-modules:     Language.Kanagawa.Closure
+                       Language.Kanagawa.Constexpr
+                       Language.Kanagawa.Desugar
+                       Language.Kanagawa.Error
+                       Language.Kanagawa.Frontend
+                       Language.Kanagawa.Function
+                       Language.Kanagawa.Internal
+                       Language.Kanagawa.Mangle
+                       Language.Kanagawa.Parser
+                       Language.Kanagawa.Parser.IO
+                       Language.Kanagawa.Parser.Lexer
+                       Language.Kanagawa.Parser.Options
+                       Language.Kanagawa.Parser.Pattern
+                       Language.Kanagawa.Parser.SymbolTable
+                       Language.Kanagawa.Parser.Syntax
+                       Language.Kanagawa.Parser.Syntax.FixPattern
+                       Language.Kanagawa.Parser.Syntax.Pattern
+                       Language.Kanagawa.Parser.Syntax.TH
+                       Language.Kanagawa.PrettyPrint
+                       Language.Kanagawa.Recursion
+                       Language.Kanagawa.Symbols
+                       Language.Kanagawa.Template
+                       Language.Kanagawa.Type
+                       Language.Kanagawa.Type.Inference
+                       Language.Kanagawa.TypeCheck
+                       Language.Kanagawa.Warning
+  build-depends:       base, containers, hashable, unordered-containers
+                     , directory, filepath, integer-logarithms, megaparsec
+                     , mtl, splitmix, edit-distance, parallel
+                     , parser-combinators, prettyprinter, template-haskell, text
+  default-language:    Haskell2010
+
+executable kg-oracle
+  ghc-options:         -w
+  main-is:             Main.hs
+  hs-source-dirs:      driver
+  build-depends:       base, oracle, prettyprinter, mtl, containers, text, filepath, megaparsec, directory
+  default-language:    Haskell2010

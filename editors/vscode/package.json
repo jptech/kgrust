@@ -1,0 +1,71 @@
+{
+  "name": "kanagawa-kgrust",
+  "displayName": "Kanagawa",
+  "description": "Kanagawa language support, backed by the kgrust language server.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:kanagawa"],
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "kanagawa",
+        "aliases": ["Kanagawa", "kanagawa"],
+        "extensions": [".k"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kanagawa",
+        "scopeName": "source.kanagawa",
+        "path": "./syntaxes/kanagawa.tmLanguage.json"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "kanagawa",
+        "$comment": "`punctuation` is not in the standard LSP legend; the server defines it so it can say the `<` in `Foo<T>` is a bracket and the `<` in `a < b` is not. Themes without semantic colouring need it mapped back to a TextMate scope.",
+        "scopes": {
+          "punctuation": ["punctuation.definition.typeparameters.kanagawa"],
+          "comment.documentation": ["comment.line.documentation.kanagawa"]
+        }
+      }
+    ],
+    "configuration": {
+      "title": "Kanagawa",
+      "properties": {
+        "kanagawa.server.path": {
+          "type": "string",
+          "default": "kg",
+          "markdownDescription": "Executable to launch. The default is the `kg` multi-tool on `PATH`; set it to a `kg-lsp` binary (and clear `#kanagawa.server.args#`) to run the server directly."
+        },
+        "kanagawa.server.args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["lsp"],
+          "markdownDescription": "Arguments passed to `#kanagawa.server.path#`. `kg` needs the `lsp` subcommand; a bare `kg-lsp` binary needs none."
+        },
+        "kanagawa.server.extraEnv": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "description": "Extra environment variables for the server process."
+        }
+      }
+    },
+    "commands": [
+      { "command": "kanagawa.restartServer", "title": "Kanagawa: Restart Language Server" },
+      { "command": "kanagawa.showServerLog", "title": "Kanagawa: Show Server Log" }
+    ]
+  },
+  "dependencies": { "vscode-languageclient": "^9.0.1" },
+  "devDependencies": { "@types/node": "^16.18.0", "@types/vscode": "^1.75.0", "typescript": "^5.4.0" }
+}

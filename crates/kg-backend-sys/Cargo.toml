@@ -1,0 +1,28 @@
+[package]
+name = "kg-backend-sys"
+description = "Raw bindings to libkanagawa-backend's ParseTree C ABI, loaded at runtime, plus the Options marshalling — docs/spec/abi.md made checkable."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+# No build script: the bindings are `src/bindings.rs`, written by `cargo
+# xtask codegen` (sprint W8.4), so building this crate needs neither the
+# reference's headers nor libclang.
+[dependencies]
+libloading.workspace = true
+# `OptionValues` crosses to the backend worker (`kg-ptbridge::isolate`).
+serde.workspace = true
+
+# The one crate in the workspace that talks to C. Everything above it is safe
+# Rust over what this crate loads; `unsafe` never escapes it and `kg-ptbridge`
+# is where the safe surface lives.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+dbg_macro = "warn"

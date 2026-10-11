@@ -1,0 +1,269 @@
+diff --git a/crates/kg-db/src/passes/conversion.rs b/crates/kg-db/src/passes/conversion.rs
+index 5a05b94..e3e3928 100644
+--- a/crates/kg-db/src/passes/conversion.rs
++++ b/crates/kg-db/src/passes/conversion.rs
+@@ -1210,4 +1210,36 @@ inline void assert(string tag, bool cond)
+             ["Invalid conversion from `uint32` to `int32`\nInsert an explicit cast to silence this issue `cast<int32>()`"]
+         );
+     }
++    /// `setTypeOfTemplateCall`'s stamp does not cross the read-back seam.
++    ///
++    /// The stamp is a deduction hint about one round's tree — a synthetic
++    /// `TFunction FreeFunction mempty t mempty` planted on a callee the round
++    /// could not resolve, so the expected type can flow backwards into it
++    /// (`Type.hs:1120-1129`, [`kg_ty::infer::TypeTable::stamp_template_call`]).
++    /// Its parameter list is empty whatever the callee's arity is.
++    ///
++    /// Pass 8's twin fails to resolve things the user's module resolves: here
++    /// `captureThis` rewrites `Helper(tid)` to `$this.Helper(tid)` and the twin
++    /// spells the receiver `__kg_mN.Helper` on a capture whose type is a
++    /// `decltype` declared inside `run`, which nothing at the twin's file scope
++    /// can link. So the twin stamps `Helper` — and the read-back carried the
++    /// stamp home onto the *written* callee's key, where this pass read it as a
++    /// nullary free function and reported "Invalid number of arguments,
++    /// expected 0" about a program the reference compiles.
++    ///
++    /// Red with the stamp skip cut from `kg_hir::readback::read_back`. What it
++    /// does not see: that the stamp still reaches deduction inside the twin —
++    /// that is `conformance`'s (`template-argument-deduction.k::7,8,10,15`).
++    #[test]
++    fn a_template_calls_stamp_does_not_cross_the_read_back_seam() {
++        let text = "template <typename I>\ninline void Go(auto count, (I) -> void body)\n{\n}\n\n\
++            class C\n{\nprivate:\nnoinline uint32 Helper(uint32 x)\n{\nreturn x + 1;\n}\npublic:\n\
++            void run(uint32 tag)\n{\nGo(1024, [tag](uint32 tid)\n{\nuint32 result = Helper(tid);\n});\n}\n}\n\n\
++            export C;\n";
++        let reports: Vec<String> = crate::tests::program(&[("main.k", text)])
++            .into_iter()
++            .map(|(m, at, _)| format!("{m} @ {at}"))
++            .collect();
++        assert_eq!(reports, Vec::<String>::new());
++    }
+ }
+diff --git a/crates/kg-hir/src/readback.rs b/crates/kg-hir/src/readback.rs
+index 0e4f8e0..1a762e6 100644
+--- a/crates/kg-hir/src/readback.rs
++++ b/crates/kg-hir/src/readback.rs
+@@ -146,6 +146,9 @@ pub struct ReadBack {
+     /// a donor's, so neither key is answerable. The blind spot: an invented
+     /// node's type is never read back, only ever re-derived.
+     pub donated: u32,
++    /// Twin entries dropped because they are `setTypeOfTemplateCall`'s stamp
++    /// (`TypeTable::stamp_template_call`) rather than an inferred type.
++    pub stamped: u32,
+ }
+ 
+ /// Read every paired type out of `twin_types` and write it home into `out`.
+@@ -182,6 +185,17 @@ pub fn read_back(
+             report.absent += 1;
+             continue;
+         };
++        // `setTypeOfTemplateCall`'s stamp is a deduction hint about the twin's
++        // own round, not a type (`TypeTable::stamp_template_call`). The twin
++        // fails to resolve things the user's module resolves — a captured
++        // receiver is a `decltype` the twin cannot link — so a stamp here is
++        // routinely planted where the original program has a perfectly good
++        // member, and its empty parameter list is what pass 19's arity check
++        // would then read.
++        if twin_types.is_stamp(key) {
++            report.stamped += 1;
++            continue;
++        }
+         if !ty.resolved() {
+             report.unresolved += 1;
+             continue;
+diff --git a/crates/kg-ty/src/infer.rs b/crates/kg-ty/src/infer.rs
+index db78285..891d68d 100644
+--- a/crates/kg-ty/src/infer.rs
++++ b/crates/kg-ty/src/infer.rs
+@@ -330,6 +330,16 @@ pub struct TypeTable {
+     /// round never visits (a lambda body, `Inference.hs:48-69`) has no entry
+     /// here and must still count as unresolved.
+     resolved: kg_base::FxHashMap<FileId, u64>,
++    /// Keys whose entry is `setTypeOfTemplateCall`'s stamp rather than an
++    /// inferred type — see [`TypeTable::stamp_template_call`].
++    ///
++    /// Deliberately **not** journalled: [`TypeTable::rollback`] can leave a key
++    /// marked whose type it took back, and the only consumer
++    /// ([`TypeTable::is_stamp`]) reads the mark to *decline* to carry a type
++    /// across the read-back seam. Over-marking is therefore silence, which is
++    /// the direction this port fails in (`CLAUDE.md`, "Where you cannot be
++    /// exact, fail toward silence").
++    stamped: kg_base::FxHashSet<TypeKey>,
+ }
+ 
+ /// A point in [`TypeTable`]'s undo journal.
+@@ -506,6 +516,36 @@ impl TypeTable {
+         self.write(key, TyRef::new(next));
+     }
+ 
++    /// [`TypeTable::set_type_of`], recording that the entry is
++    /// `setTypeOfTemplateCall`'s stamp (`Type.hs:1120-1129`) rather than a type
++    /// the algebra inferred.
++    ///
++    /// The stamp is a **deduction hint about one round's tree**: a synthetic
++    /// `TFunction FreeFunction mempty t mempty` whose only reader is deduction's
++    /// third source (`Type.hs:1479-1480`), planted on a callee the round could
++    /// not resolve so that the expected type can flow backwards into it. It is
++    /// not a claim about the callee — its parameter list is empty whatever the
++    /// callee's arity is.
++    ///
++    /// The mark exists because pass 8's read-back would otherwise carry one home
++    /// across the twin seam, where a *twin-specific* failure to resolve becomes a
++    /// verdict about the user's own text: in
++    /// `crates/kg-db/src/elaborate.rs`'s twin the captured receiver of
++    /// `$this.Helper(tid)` is a `decltype` the twin cannot link, so `Helper` is
++    /// unresolved there and gets a stamp — and pass 19's `checkArguments` read it
++    /// as a nullary free function and reported "Invalid number of arguments,
++    /// expected 0" about a program the reference compiles
++    /// (`docs/journal.md`, 2026-09-19 "The settling round's second blocker").
++    pub fn stamp_template_call(&mut self, key: TypeKey, ty: Ty) {
++        self.set_type_of(key, ty);
++        self.stamped.insert(key);
++    }
++
++    /// Whether `key`'s entry came from [`TypeTable::stamp_template_call`].
++    pub fn is_stamp(&self, key: TypeKey) -> bool {
++        self.stamped.contains(&key)
++    }
++
+     /// `resetTypeOf` (`Type.hs:1062-1063`): overwrite, no `TInstance` threading.
+     pub fn reset_type_of(&mut self, key: TypeKey, ty: Ty) {
+         self.write(key, TyRef::new(ty));
+@@ -604,6 +644,14 @@ struct Round<'a> {
+     dollar: Name,
+     /// See [`InferFile::dead`].
+     dead: &'a [kg_base::TextRange],
++    /// Whether this is a **settling** round — see [`infer_program`]'s own note.
++    /// It relaxes exactly one guard: `Inference.hs:58`'s postponement of a body
++    /// whose parameters are still unresolved.
++    settling: bool,
++    /// Whether this round took `Inference.hs:58` — i.e. whether a settling
++    /// round has anything to do. Read by [`infer_program`], which runs no
++    /// settling round for a program that postponed nothing.
++    postponed: bool,
+ }
+ 
+ impl<'a> Round<'a> {
+@@ -613,6 +661,7 @@ impl<'a> Round<'a> {
+         types: &'a mut TypeTable,
+         file: FileId,
+         dead: &'a [kg_base::TextRange],
++        settling: bool,
+     ) -> Round<'a> {
+         Round {
+             closure_template: Ty::closure_template_path(interner),
+@@ -622,6 +671,8 @@ impl<'a> Round<'a> {
+             types,
+             file,
+             dead,
++            settling,
++            postponed: false,
+         }
+     }
+ 
+@@ -755,7 +806,17 @@ impl<'a> Round<'a> {
+             VisitPolicy::Skip
+         } else {
+             self.types.commit(checkpoint);
+-            if !param_types.iter().all(Ty::resolved) {
++            // `Inference.hs:58` postpones the body of a function whose parameters
++            // are not all resolved, on the premise that a later round will
++            // resolve them. Where the type that never resolves is an alias to an
++            // instance of an *imported* template — `using tag_t = newtype<uint32>`
++            // — no round ever does, and the whole body stays untyped: this port
++            // decides an instance mention in the census and the route, not in the
++            // table. A settling round visits such a body once the fixpoint has
++            // stopped, which is what the reference's one whole-program symbol map
++            // buys it for free. See [`infer_program`].
++            if !param_types.iter().all(Ty::resolved) && !self.settling {
++                self.postponed = true;
+                 VisitPolicy::ParamsOnly
+             } else if is_local_scope(scope, self.interner) {
+                 VisitPolicy::ParamsAndReturn
+@@ -1072,7 +1133,7 @@ impl<'a> Round<'a> {
+             ret: TyRef::new(t.clone()),
+             params: Vec::new(),
+         };
+-        self.types.set_type_of(self.key(&instance), typ);
++        self.types.stamp_template_call(self.key(&instance), typ);
+     }
+ }
+ 
+@@ -3259,6 +3320,8 @@ pub fn infer_program(
+         files.iter().map(|f| f.root.descendants().count() as u64).collect();
+     let mut prev = RoundSignature::default();
+     let mut rounds: u32 = 0;
++    // Off until the ordinary fixpoint converges; see the `prev == sig` arm.
++    let mut settling = false;
+     loop {
+         rounds += 1;
+         // `symbols = getSymbols' TemplateDecl p` (`Inference.hs:37`) — inside the
+@@ -3266,9 +3329,11 @@ pub fn infer_program(
+         // outer fixpoint in `kg-db`, which ran this whole loop to convergence for
+         // every rebuild: `outer x inner` walks where the reference does `outer`.
+         let env = source.rebuild(types);
++        let mut postponed = false;
+         for f in files {
+-            let mut round = Round::new(&*env, interner, types, f.file, &f.dead);
++            let mut round = Round::new(&*env, interner, types, f.file, &f.dead, settling);
+             round.visit(&f.scope, &f.root.clone());
++            postponed |= round.postponed;
+         }
+         let sig = RoundSignature {
+             unresolved_per_file: files
+@@ -3294,9 +3359,21 @@ pub fn infer_program(
+                     .all(|(before, after)| after <= before),
+             "the unresolved count must be monotonically decreasing (Inference.hs:36)"
+         );
+-        if prev == sig {
++        // One settling round, and the loop is over: it is an addition to the
++        // reference's fixpoint, not a second fixpoint.
++        if settling {
+             return InferOutcome { signature: sig, rounds };
+         }
++        if prev == sig {
++            // `!postponed` keeps the reference's own shape where there is
++            // nothing to settle: an empty program still returns after one round
++            // (`Inference.hs:27-32`), and a program every one of whose
++            // parameters resolved pays for no extra walk.
++            if !postponed {
++                return InferOutcome { signature: sig, rounds };
++            }
++            settling = true;
++        }
+         prev = sig;
+     }
+ }
+@@ -3854,6 +3931,32 @@ mod tests {
+         assert_eq!(f.outcome.signature.unresolved_per_file.len(), 1);
+     }
+ 
++    /// `Inference.hs:58` postpones the body of a function whose parameters are
++    /// not all resolved, on the premise that a later round resolves them. Where
++    /// the type never resolves — an alias to an instance of an *imported*
++    /// template, which this port decides in the census and the route rather
++    /// than in the table — no round ever does, and nothing in the body is ever
++    /// typed. The settling round visits such a body once the ordinary fixpoint
++    /// has stopped ([`infer_program`]).
++    ///
++    /// Red with the settling round cut — the postponement then stands for
++    /// good and nothing under the `{}` is typed at all.
++    #[test]
++    fn a_settling_round_types_a_body_whose_parameter_never_resolves() {
++        let f = run("inline void f(Never x)\n{\n    uint32 y = 7;\n}\n");
++        assert_eq!(
++            f.ty(&f.nth(SyntaxKind::PARAM, 0)),
++            Ty::Unresolved,
++            "the parameter's own type is what no round can settle"
++        );
++        assert_eq!(
++            f.ty(&f.nth(SyntaxKind::VAR_DECL, 0)),
++            Ty::Unsigned(32),
++            "the settling round types the body anyway"
++        );
++        assert!(f.outcome.rounds >= 3, "rounds = {}", f.outcome.rounds);
++    }
++
+     #[test]
+     fn an_empty_program_stops_after_one_round() {
+         // `loop [] []`: `sig` is `[]`, which *does* equal `prevSig`, so the

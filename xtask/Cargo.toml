@@ -1,0 +1,43 @@
+[package]
+name = "xtask"
+description = "The kgrust scoreboard driver: codegen, conformance, difftest, bisect, bench."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+clap = { workspace = true, features = ["env"] }
+ungrammar.workspace = true
+kg-base.workspace = true
+kg-parser.workspace = true
+kg-syntax.workspace = true
+kg-hir.workspace = true
+# `FunctionKind::LambdaFunction` — `kg-hir` takes it from here and does not
+# re-export it, and `ir.rs`'s lambda ledger has to name the kind the reference
+# gives a desugared lambda (`Function.hs:248`).
+kg-ty.workspace = true
+kg-db.workspace = true
+kg-sem.workspace = true
+kg-fmt.workspace = true
+kg-config.workspace = true
+camino.workspace = true
+kg-diag.workspace = true
+kg-pttrace.workspace = true
+kg-ptbridge.workspace = true
+kg-backend-sys.workspace = true
+# `options_agree`: the compat binary's reading of a command line, against
+# the conformance gate's (sprint W6).
+kg-cli.workspace = true
+# `codegen` writes the ABI's bindings through it; bindgen needs libclang
+# only when that runs, not to build this crate.
+kg-abi-gen.workspace = true
+flate2.workspace = true
+serde.workspace = true
+kg-alloc.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,24 @@
+[package]
+name = "kg-doc"
+description = "API documentation from Kanagawa's doc comments: the site `kg doc` writes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-db.workspace = true
+kg-syntax.workspace = true
+camino.workspace = true
+serde_json.workspace = true
+# CommonMark to HTML, MIT-licensed and pure Rust; the reference's own
+# generator shells out to pandoc instead.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+
+[dev-dependencies]
+kg-config.workspace = true

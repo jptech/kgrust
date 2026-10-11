@@ -1,0 +1,30 @@
+[package]
+name = "kg-ptrace"
+description = "The interposer of docs/spec/abi.md §14: a shim libkanagawa-backend that logs every ParseTree call the reference front end makes, then forwards it to the real library."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+crate-type = ["cdylib"]
+
+[dependencies]
+kg-backend-sys.workspace = true
+kg-pttrace.workspace = true
+libloading.workspace = true
+
+[build-dependencies]
+kg-abi-gen.workspace = true
+syn.workspace = true
+quote.workspace = true
+
+# A shim over C is unsafe by construction; see kg-backend-sys.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+dbg_macro = "warn"

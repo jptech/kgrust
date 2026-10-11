@@ -1,0 +1,23 @@
+[package]
+name = "kg-resolve"
+description = "Module graph, import resolution, scopes and name binding."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-syntax.workspace = true
+kg-diag.workspace = true
+kg-config.workspace = true
+kg-vfs.workspace = true
+rustc-hash.workspace = true
+indexmap.workspace = true
+
+[lints]
+workspace = true

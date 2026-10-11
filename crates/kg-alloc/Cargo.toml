@@ -1,0 +1,25 @@
+[package]
+name = "kg-alloc"
+description = "The binaries' allocator, chosen and tuned in one place."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+mimalloc.workspace = true
+
+# Two calls into mimalloc's C option table (`purge_eagerly`, and its test),
+# and `Counting`'s forwarding to mimalloc. `unsafe` never escapes this crate:
+# a binary sees one safe function and two allocator types.
+[lints.rust]
+unsafe_code = "allow"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+dbg_macro = "warn"
+print_stdout = "allow"

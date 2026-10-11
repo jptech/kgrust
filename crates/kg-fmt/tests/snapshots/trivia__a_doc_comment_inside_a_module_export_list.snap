@@ -1,0 +1,10 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"module data.array\\n\\\n         \\x20   { array\\n\\\n         \\x20   , //| # Constructing arrays\\n\\\n         \\x20     indices\\n\\\n         \\x20   , copy_array\\n\\\n         \\x20   }\\n\")"
+---
+module data.array
+    { array
+    , //| # Constructing arrays
+      indices
+    , copy_array
+    }

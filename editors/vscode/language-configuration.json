@@ -1,0 +1,29 @@
+{
+  "comments": {
+    "lineComment": "//",
+    "blockComment": ["/*", "*/"]
+  },
+  "brackets": [["{", "}"], ["[", "]"], ["(", ")"]],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" },
+    { "open": "[", "close": "]" },
+    { "open": "(", "close": ")" },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] },
+    { "open": "/*", "close": " */", "notIn": ["string"] }
+  ],
+  "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""]],
+  "$comment": "No angle-bracket pair. `<` is a comparison at least as often as it opens a template argument list, and auto-closing it into `a <> b` while someone types `a < b` is worse than not helping.",
+  "wordPattern": "(-?\\d[\\d_]*(?:\\.[\\d_]+)?(?:[eE][-+]?\\d+)?(?:[iu]\\d+)?)|([A-Za-z_][A-Za-z0-9_]*)",
+  "indentationRules": {
+    "$comment": "Allman braces: the house style puts `{` on its own line, so the increase must trigger on the line that opens the block, not on the declaration above it.",
+    "increaseIndentPattern": "^\\s*\\{[^}\"']*$|^.*\\{[^}\"']*$",
+    "decreaseIndentPattern": "^\\s*\\}"
+  },
+  "onEnterRules": [
+    {
+      "$comment": "Continue a `//|` or `//<` doc-comment run. The lexer treats every comment after the first as part of the same doc comment (`Parser/Lexer.hs:82-84`), so the continuation is a plain `//`.",
+      "beforeText": "^\\s*//[|<].*$",
+      "action": { "indentAction": "none", "appendText": "// " }
+    }
+  ]
+}

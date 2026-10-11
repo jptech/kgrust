@@ -1,0 +1,20 @@
+[package]
+name = "kg-syntax"
+description = "The Kanagawa syntax tree: a rowan-based lossless CST plus the generated typed AST accessor layer."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-parser.workspace = true
+kg-diag.workspace = true
+rowan.workspace = true
+
+[lints]
+workspace = true

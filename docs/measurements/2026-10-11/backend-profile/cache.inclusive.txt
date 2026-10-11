@@ -1,0 +1,400 @@
+cache.sample.txt: 230 threads, 9005 samples in all
+     8519  Thread_17477138
+       11  Thread_17479007
+       10  Thread_17480173:
+       10  Thread_17480174:
+       10  Thread_17480175:
+       10  Thread_17480176:
+
+inclusive, all threads (top 100000):
+     8519  94.6%  start  [dyld]
+     8518  94.6%  main  [kg]
+     8518  94.6%  std::rt::lang_start_internal::h1e9a2dfabf97dcbe  [kg]
+     8518  94.6%  std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h7eb03b298bfdfc23  [kg]
+     8518  94.6%  std::sys::backtrace::__rust_begin_short_backtrace::hd380858748bd2127  [kg]
+     8518  94.6%  kg::main::h46e5f15ecf81af83  [kg]
+     8518  94.6%  kg_cli::backend_worker::h299131267c562131  [kg]
+     8518  94.6%  kg_ptbridge::isolate::worker_main::hba00f7c3e06da6c0  [kg]
+     8518  94.6%  kg_ptbridge::record::Recording::replay::h6cb30e98215e317a  [kg]
+     8518  94.6%  kg_ptbridge::generated::replay_call::h9fd658d3a2b386be  [kg]
+     8518  94.6%  _$LT$kg_ptbridge..real..Real$u20$as$u20$kg_ptbridge..generated..Backend$GT$::Codegen::h13a32d02d07e0266  [kg]
+     8518  94.6%  Codegen
+     7649  84.9%  Compiler::GenerateIR  []
+     7647  84.9%  OptimizeScheduleAndPipeline
+     6986  77.6%  RemoveDeadOperationsImpl  []
+     6970  77.4%  Optimize
+     5129  57.0%  ForEachOperationReverse  []
+     4267  47.4%  std::__function::__func<RemoveDeadOperationsImpl  []
+     4185  46.5%  RemoveUnusedGlobals
+     3083  34.2%  ???
+     2825  31.4%  RemoveDeadOperations  []
+      821   9.1%  CompileVerilog  []
+      793   8.8%  operator  []
+      787   8.7%  VerilogCompiler::Compile
+      691   7.7%    []
+      547   6.1%  _xzm_free_tc  [libsystem_malloc.dylib]
+      517   5.7%  MlirModule::Generate
+      507   5.6%  mlir::PassManager::run
+      507   5.6%  mlir::detail::OpToOpPassAdaptor::run  []
+      486   5.4%  thread_start  [libsystem_pthread.dylib]
+      485   5.4%  _pthread_start  [libsystem_pthread.dylib]
+      464   5.2%  __xzm_xzone_free_to_freelist_chunk  [libsystem_malloc.dylib]
+      436   4.8%  _xzm_malloc_tc  [libsystem_malloc.dylib]
+      421   4.7%  std::condition_variable::wait  [libc++.1.dylib]
+      421   4.7%  _pthread_cond_wait  [libsystem_pthread.dylib]
+      420   4.7%  __psynch_cvwait  [libsystem_kernel.dylib]
+      389   4.3%  RemoveDeadOperationsFromFunction  []
+      297   3.3%  std::__thread_proxy[abi:ne200100]<std::tuple<std::unique_ptr<std::__thread_struct>,  []
+      297   3.3%  ThreadPool::ThreadFunction
+      290   3.2%  _free  [libsystem_malloc.dylib]
+      206   2.3%  BitConstantPropagation  []
+      203   2.3%  mlir::verify  []
+      201   2.2%  llvm::function_ref<void  []
+      184   2.0%  MlirModule::VerifyRoundTrip
+      173   1.9%  ???  [<unknown binary>]
+      172   1.9%  DYLD-STUB$$operator  []
+      171   1.9%  malloc_type_malloc  [libsystem_malloc.dylib]
+      160   1.8%  llvm::thread::ThreadProxy<std::tuple<llvm::StdThreadPool::grow
+      160   1.8%  llvm::StdThreadPool::processTasks
+      150   1.7%  DataFlowAnalysis<std::map<unsigned  []
+      127   1.4%  PlaceNodes
+      126   1.4%  Placement::Run  []
+      111   1.2%  mlir::applyPatternsGreedily  []
+      111   1.2%  mlir::detail::OpToOpPassAdaptor::runPipeline  []
+       98   1.1%  mlir::parseSourceString  []
+       98   1.1%  mlir::parseSourceFile  []
+       98   1.1%  mlir::parseAsmSourceFile  []
+       96   1.1%  mlir::detail::OpToOpPassAdaptor::runOnOperationImpl
+       90   1.0%  ForEachOperationForward  []
+       89   1.0%  ScheduleBasicBlock  []
+       87   1.0%  mlir::ModuleOp::parse  []
+       81   0.9%  mlir::applyPartialConversion  []
+       81   0.9%  applyConversion  []
+       81   0.9%  mlir::Operation::print  []
+       80   0.9%  mlir::OperationConverter::applyConversion
+       76   0.8%  mlir::PatternApplicator::matchAndRewrite  []
+       72   0.8%  mlir::detail::StorageUniquerImpl::getOrCreate  []
+       70   0.8%  mlir::RegisteredOperationName::Model<mlir::ModuleOp>::verifyRegionInvariants
+       70   0.8%  mlir::Op<mlir::ModuleOp,  []
+       70   0.8%  JsonWriter::~JsonWriter
+       69   0.8%  exportVerilogImpl  []
+       68   0.8%  std::__tree<std::__value_type<unsigned  []
+       68   0.8%  mlir::detail::verifySymbolTable
+       68   0.8%  JsonValue::ToString  []
+       68   0.8%  JsonValue::WriteToStream  []
+       65   0.7%  walkSymbolTable  []
+       65   0.7%  std::__put_character_sequence[abi:ne200100]<char>  []
+       63   0.7%  mlir::OperationConverter::convert  []
+       61   0.7%  ConstraintScheduler::Schedule  []
+       57   0.6%  llvm::function_ref<std::optional<mlir::WalkResult>  []
+       55   0.6%  mlir::RegisteredOperationName::Model<mlir::ModuleOp>::printAssembly  []
+       55   0.6%  llvm::detail::UniqueFunctionBase<void,  []
+       55   0.6%  mlir::ModuleOp::print
+       54   0.6%  llvm::raw_ostream::write  []
+       53   0.6%  mlir::detail::walk<mlir::ForwardIterator>  []
+       51   0.6%  circt::ExportVerilog::SharedEmitterState::emitOps  []
+       51   0.6%  emitOperation  []
+       48   0.5%  WritePathLengthReport  []
+       47   0.5%  std::invoke_result<  []
+       47   0.5%  ReportBuilder<2ul,  []
+       45   0.5%  std::__function::__func<RemoveUnusedGlobals  []
+       45   0.5%  circt::kanagawa::detail::ScopeOpInterfaceInterfaceTraits::Model<circt::kanagawa::ContainerOp>::lookupInnerSym  []
+       45   0.5%  llvm::detail::DenseSetImpl<  []
+       44   0.5%  circt::kanagawa::PathOp::canonicalize  []
+       44   0.5%  mlir::StringAttr::get  []
+       44   0.5%  circt::kanagawa::DesignOp::parse  []
+       44   0.5%  circt::kanagawa::ContainerOp::parse  []
+       43   0.5%  mlir::detail::SymbolUserOpInterfaceInterfaceTraits::Model<circt::hw::InstanceOp>::verifySymbolUses  []
+       43   0.5%  circt::hw::InstanceOp::verifySymbolUses
+       43   0.5%  circt::hw::instance_like_impl::verifyInstanceOfHWModule  []
+       43   0.5%  circt::hw::HWModuleOp::parse  []
+       42   0.5%  VerilogCompiler::CompileBasicBlock  []
+       40   0.4%  std::__function::__func<ScheduleBasicBlock  []
+       40   0.4%  std::__function::__func<void  []
+       39   0.4%  ControlFlowGraph::ControlFlowGraph  []
+       38   0.4%  llvm::function_ref<mlir::WalkResult  []
+       36   0.4%  _xzm_xzone_thread_cache_fill_and_malloc  [libsystem_malloc.dylib]
+       36   0.4%  LocalDataPropagation  []
+       36   0.4%  VerilogCompiler::DeclareCore  []
+       36   0.4%  std::__function::__func<IntegerBranchAndBoundImpl  []
+       35   0.4%  KillMoves  []
+       35   0.4%  OptimizePropagations  []
+       35   0.4%  IntegerBranchAndBoundSparse  []
+       34   0.4%  IntegerBranchAndBoundImpl  []
+       34   0.4%  VerilogCompiler::~VerilogCompiler
+       33   0.4%  ControlFlowGraphPrePipeline::ControlFlowGraphPrePipeline  []
+       32   0.4%  circt::pretty::PrettyPrinter::add
+       32   0.4%  std::__pad_and_output[abi:ne200100]<char>  []
+       31   0.3%  _platform_memmove  [libsystem_platform.dylib]
+       31   0.3%  mlir::OpInterface<circt::hw::InnerSymbolOpInterface,  []
+       31   0.3%  std::basic_string<char>::append  []
+       30   0.3%  SafeInsert<unsigned  []
+       30   0.3%  circt::SeqToSVPass::runOnOperation
+       30   0.3%  mlir::RegisteredOperationName::Model<circt::kanagawa::DesignOp>::printAssembly  []
+       30   0.3%  circt::kanagawa::DesignOp::print
+       30   0.3%  mlir::RegisteredOperationName::Model<circt::kanagawa::ContainerOp>::printAssembly  []
+       30   0.3%  circt::kanagawa::ContainerOp::print
+       29   0.3%  _xzm_xzone_malloc_from_freelist_chunk  [libsystem_malloc.dylib]
+       28   0.3%  std::__tree<std::__value_type<std::basic_string<char>,  []
+       27   0.3%  _pthread_exit  [libsystem_pthread.dylib]
+       26   0.3%  std::__function::__func<Optimize  []
+       26   0.3%  _platform_memset  [libsystem_platform.dylib]
+       26   0.3%  JsonValue::EscapeString  []
+       25   0.3%  ConstantPropagation  []
+       25   0.3%  mlir::RegisteredOperationName::Model<circt::hw::HWModuleOp>::printAssembly  []
+       25   0.3%  circt::hw::HWModuleOp::print
+       25   0.3%  _pthread_terminate_invoke  [libsystem_pthread.dylib]
+       24   0.3%  circt::pretty::PrettyPrinter::checkStream
+       24   0.3%  circt::pretty::PrettyPrinter::advanceLeft
+       24   0.3%  llvm::function_ref<bool  []
+       24   0.3%  VerilogCompiler::CompileOperationsCirct  []
+       23   0.3%  std::__function::__func<ControlFlowGraphPrePipeline::ControlFlowGraphPrePipeline  []
+       23   0.3%  mlir::Operation::getAttrDictionary
+       23   0.3%  circt::ExportVerilog::prepareHWModule  []
+       23   0.3%  mlir::AsmState::AsmState  []
+       22   0.2%  llvm::formatted_raw_ostream::write_impl  []
+       21   0.2%  circt::hw::instance_like_impl::resolveParametricTypes  []
+       21   0.2%  mlir::ConversionTarget::isLegal  []
+       20   0.2%  InsertAndCheckForChange<BasicBlock*,  []
+       20   0.2%  ValidateLocalsAreWritten  []
+       20   0.2%  mlir::Operation::fold
+       20   0.2%  mlir::op_definition_impl::hasTrait<mlir::OpTrait::ZeroRegions,  []
+       20   0.2%  std::basic_streambuf<char>::xsputn  []
+       19   0.2%  _xzm_xzone_find_and_malloc_from_freelist_chunk  [libsystem_malloc.dylib]
+       19   0.2%  mlir::OpBuilder::create  []
+       19   0.2%  mlir::NamedAttrList::getDictionary  []
+       19   0.2%  legalizeHWModule  []
+       19   0.2%  circt::hw::evaluateParametricType  []
+       19   0.2%  mlir::ConversionPattern::matchAndRewrite  []
+       19   0.2%  VerilogCompiler::InstantiateBasicBlocks  []
+       18   0.2%  mlir::DictionaryAttr::getWithSorted  []
+       18   0.2%  circt::hw::evaluateParametricAttr  []
+       17   0.2%  llvm::ilist_detail::SpecificNodeAccess<llvm::ilist_detail::node_options<mlir::Operation,  []
+       17   0.2%  llvm::function_ref<llvm::ParseResult  []
+       17   0.2%  parsePipelineOp  []
+       16   0.2%  mlir::detail::constant_op_binder<mlir::Attribute>::match
+       15   0.2%  DataFlowWorkList::AddPredecessors
+       15   0.2%  std::__function::__func<BitConstantPropagation  []
+       15   0.2%  ThreadPool::ThreadPool
+       15   0.2%  circt::ExportVerilog::legalizeGlobalNames  []
+       15   0.2%  circt::ExportVerilog::GlobalNameResolver::GlobalNameResolver  []
+       15   0.2%  circt::hw::getModuleType
+       15   0.2%  circt::hw::ModuleType::getFuncType
+       15   0.2%  mlir::FileLineColRange::get  []
+       15   0.2%  mlir::detail::AsmStateImpl::initializeAliases
+       15   0.2%  std::__function::__func<IntegerBranchAndBoundSparse  []
+       15   0.2%  std::__function::__func<OptimizePropagations  []
+       14   0.2%  _pthread_create  [libsystem_pthread.dylib]
+       14   0.2%  mlir::Operation::create  []
+       14   0.2%  mlir::parallelForEach<mlir::detail::op_iterator<circt::hw::HWEmittableModuleLike,  []
+       14   0.2%  mlir::detail::verifyInferredResultTypes
+       14   0.2%  mlir::RegisteredOperationName::Model<circt::pipeline::ScheduledPipelineOp>::printAssembly  []
+       14   0.2%  circt::pipeline::ScheduledPipelineOp::print
+       14   0.2%  mlir::detail::AsmStateImpl::AsmStateImpl  []
+       13   0.1%  std::__function::__func<ConstantPropagation  []
+       13   0.1%  mlir::NamedAttribute::NamedAttribute  []
+       13   0.1%  mlir::FunctionType::get  []
+       13   0.1%  llvm::ilist_traits<mlir::Operation>::transferNodesFromList  []
+       13   0.1%  _platform_memcmp  [libsystem_platform.dylib]
+       13   0.1%  mlir::detail::Parser::parseAttribute
+       13   0.1%  VerilogCompiler::CompileOperationCirct  []
+       13   0.1%  ConvertOpToCirct  []
+       12   0.1%  _xzm_xzone_malloc_tiny  [libsystem_malloc.dylib]
+       12   0.1%  LocationEmitter::LocationEmitter  []
+       12   0.1%  llvm::formatted_raw_ostream::UpdatePosition  []
+       12   0.1%  mlir::detail::walk<mlir::ForwardDominanceIterator<false>>  []
+       12   0.1%  mlir::DominanceInfo::properlyDominates  []
+       12   0.1%  mlir::ConversionPatternRewriter::startOpModification
+       12   0.1%  mlir::ConversionTarget::getOpInfo  []
+       11   0.1%  SafeInsert<std::pair<BasicBlock*,  []
+       11   0.1%  ControlFlowGraphPrePipeline::~ControlFlowGraphPrePipeline
+       11   0.1%  LowerToLut  []
+       11   0.1%  std::__function::__func<KillMoves  []
+       11   0.1%  AssertUnscheduledOperationsHaveLocations  []
+       11   0.1%  LocationEmitter::emitLocationSetInfo  []
+       11   0.1%  mlir::TypeRange::dereference_iterator  []
+       11   0.1%  mlir::eliminateCommonSubExpressions  []
+       11   0.1%  mlir::Lexer::lexPrefixedIdentifier  []
+       11   0.1%  mlir::AsmPrinter::Impl::printAttributeImpl  []
+       11   0.1%  OperationToCirctLocation  []
+       11   0.1%  decltype  []
+       10   0.1%  ControlFlowGraph::GetPredecessors
+       10   0.1%  boost::container::list<Operation,  []
+       10   0.1%  __bsdthread_create  [libsystem_kernel.dylib]
+       10   0.1%  LocationEmitter::Impl::emitLocationInfo
+       10   0.1%  llvm::SmallVectorBase<unsigned  []
+       10   0.1%  mlir::Op<circt::sv::ReadInOutOp,  []
+       10   0.1%  mlir::OpConversionPattern<circt::seq::CompRegOp>::matchAndRewrite  []
+       10   0.1%  mlir::ConversionPattern::dispatchTo1To1<mlir::OpConversionPattern<circt::seq::CompRegOp>,  []
+       10   0.1%  mlir::simplifyRegions  []
+       10   0.1%  llvm::hashing::detail::hash_combine_range_impl<llvm::detail::indexed_accessor_range_base<mlir::TypeRange,  []
+       10   0.1%  mlir::detail::Parser::parseCommaSeparatedList  []
+       10   0.1%  FileAndLineNumberToCirctLocation  []
+       10   0.1%  std::basic_ostream<char>::sentry::~sentry  [libc++.1.dylib]
+        9   0.1%  mlir::OpTrait::impl::verifyIsIsolatedFromAbove
+        9   0.1%  circt::hw::detail::verifyInnerRefNamespace
+        9   0.1%  mlir::detail::AsmParserImpl<mlir::OpAsmParser>::parseAttribute  []
+        9   0.1%  VerilogCompiler::CompileWriteGlobalCirct  []
+        9   0.1%  VerilogCompiler::OpenCirctBasicBlock
+        9   0.1%  ModuleInstanceHelper::Generate
+        9   0.1%  std::vector<JsonValue>::__init_with_size[abi:ne200100]<JsonValue*,  []
+        9   0.1%  VerilogCompiler::InstantiateFifos
+        9   0.1%  std::basic_ostream<char>::sentry::sentry  [libc++.1.dylib]
+        8   0.1%  ControlFlowGraphPrePipeline::RenameLocalToSuccessor  []
+        8   0.1%  AddToOr  []
+        8   0.1%  mach_absolute_time  [libsystem_kernel.dylib]
+        8   0.1%  ThreadPool::~ThreadPool
+        8   0.1%  mlir::wouldOpBeTriviallyDead
+        8   0.1%  circt::pretty::PrettyPrinter::print  []
+        8   0.1%  mlir::detail::DominanceInfoBase<false>::properlyDominatesImpl  []
+        8   0.1%  mlir::RegisteredOperationName::Model<circt::hw::HWModuleOp>::verifyRegionInvariants
+        8   0.1%  mlir::Op<circt::hw::HWModuleOp,  []
+        8   0.1%  propagateLiveness  []
+        8   0.1%  mlir::RegisteredOperationName::Model<circt::pipeline::ScheduledPipelineOp>::verifyInvariants
+        8   0.1%  mlir::Op<circt::pipeline::ScheduledPipelineOp,  []
+        8   0.1%  circt::pipeline::ScheduledPipelineOp::verify
+        8   0.1%  mlir::RegisteredOperationName::Model<circt::sv::VerbatimExprOp>::printAssembly  []
+        8   0.1%  CallStackToCirctLocation  []
+        7   0.1%  IsLiveOperation  []
+        7   0.1%  ConvertSelectOpToLut  []
+        7   0.1%  std::thread::join  [libc++.1.dylib]
+        7   0.1%  _pthread_join  [libsystem_pthread.dylib]
+        7   0.1%  CompactRegisterTable
+        7   0.1%  mlir::OpBuilder::tryFold  []
+        7   0.1%  llvm::DenseMapBase<llvm::DenseMap<mlir::TypeID,  []
+        7   0.1%  mlir::RegisteredOperationName::Model<circt::sv::ReadInOutOp>::verifyRegionInvariants
+        7   0.1%  mlir::detail::Parser::parseNonFunctionType
+        7   0.1%  mlir::detail::Parser::parseToken  []
+        7   0.1%  llvm::PrettyStackTraceFormat::PrettyStackTraceFormat  []
+        7   0.1%  circt::sv::VerbatimExprOp::print
+        7   0.1%  GetFullyQualifiedInnerSymAttr  []
+        7   0.1%  GetFullyQualifiedStringAttr  []
+        7   0.1%  SafeInsert<std::basic_string<char>,  []
+        7   0.1%  JsonValue::AddMember  []
+        7   0.1%  JsonValue::PushBack  []
+        6   0.1%  FunctionNode::GetInstance  []
+        6   0.1%  LocalDefUseTracker::HandleOperation  []
+        6   0.1%  ScoreSchedule  []
+        6   0.1%  ThreadPool::WaitForIdle
+        6   0.1%  DetermineConstantBits
+        6   0.1%  hasAdditionalAttributes<circt::hw::WireOp>  []
+        6   0.1%  llvm::raw_ostream::operator<<  []
+        6   0.1%  _realloc  [libsystem_malloc.dylib]
+        6   0.1%  mlir::Operation::setAttr  []
+        6   0.1%  mlir::op_definition_impl::hasTrait<mlir::OpTrait::OneRegion,  []
+        6   0.1%  mlir::ConversionPatternRewriter::cancelOpModification
+        6   0.1%  mlir::Operation::setAttrs
+        6   0.1%  llvm::StringMapImpl::FindKey  []
+        6   0.1%  llvm::ScopedHashTable<mlir::Operation*,  []
+        6   0.1%  mlir::RegisteredOperationName::Model<circt::sv::BPAssignOp>::verifyInvariants
+        6   0.1%  mlir::Op<circt::sv::BPAssignOp,  []
+        6   0.1%  mlir::Operation::getDiscardableAttrDictionary
+        6   0.1%  circt::sv::AlwaysCombOp::parse  []
+        6   0.1%  mlir::Lexer::getEncodedSourceLocation
+        6   0.1%  circt::sv::VerbatimExprOp::parse  []
+        6   0.1%  mlir::AsmPrinter::Impl::printEscapedString
+        6   0.1%  llvm::printEscapedString  []
+        6   0.1%  mlir::OpState::printOpName  []
+        6   0.1%  mlir::RegisteredOperationName::Model<circt::sv::VerbatimOp>::printAssembly  []
+        6   0.1%  circt::sv::VerbatimOp::print
+        6   0.1%  VerilogCompiler::SourceOperandToMlirValue  []
+        6   0.1%  ClampedSymAttr  []
+        6   0.1%  std::map<std::basic_string<char>,  []
+        6   0.1%  VerilogCompiler::GlobalRegKey::GetFieldSymbol  []
+        6   0.1%  VerilogCompiler::GlobalRegKey::Name  []
+        6   0.1%  std::list<IntegerBranchAndBoundImpl  []
+        5   0.1%  DataFlowWorkList::Pop
+        5   0.1%  xzm_chunk_mark_used  [libsystem_malloc.dylib]
+        5   0.1%  GetSourceOperandDescriptions  []
+        5   0.1%  IsLocalRegisterType
+        5   0.1%  ComputeLiveInMap  []
+        5   0.1%  std::__tree<std::__value_type<Operation  []
+        5   0.1%  SelectIndexPropagation  []
+        5   0.1%  DetermineUnusedBits
+        5   0.1%  DetermineUnusedBitsForFunction  []
+        5   0.1%  llvm::allocate_buffer  []
+        5   0.1%  malloc_type_aligned_alloc  [libsystem_malloc.dylib]
+        5   0.1%  llvm::hashing::detail::hash_short  []
+        5   0.1%  mlir::RegisteredOperationName::Model<circt::sv::VerbatimExprOp>::hasTrait
+        5   0.1%  write_unsigned_impl<unsigned  []
+        5   0.1%  std::basic_string<char>::__grow_by_and_replace  []
+        5   0.1%  _malloc_zone_realloc  [libsystem_malloc.dylib]
+        5   0.1%  xzm_malloc_zone_malloc_type_realloc  [libsystem_malloc.dylib]
+        5   0.1%  circt::sv::WireOp::create  []
+        5   0.1%  mlir::RegisteredOperationName::Model<circt::sv::ReadInOutOp>::verifyInvariants
+        5   0.1%  mlir::OpInterface<mlir::SymbolUserOpInterface,  []
+        5   0.1%  mlir::detail::ConversionPatternRewriterImpl::notifyOperationInserted  []
+        5   0.1%  mlir::detail::ConversionPatternRewriterImpl::applyRewrites
+        5   0.1%  mlir::OperationEquivalence::computeHash  []
+        5   0.1%  circt::hw::InnerSymbolTable::walkSymbols  []
+        5   0.1%  llvm::StringMapImpl::hash
+        5   0.1%  mlir::detail::InferTypeOpInterfaceTrait<circt::sv::ReadInOutOp>::refineReturnTypes  []
+        5   0.1%  DYLD-STUB$$memcmp
+        5   0.1%  circt::kanagawa::PathOp::parse  []
+        5   0.1%  mlir::AsmParser::parseAttribute<mlir::ArrayAttr>  []
+        5   0.1%  mlir::detail::Parser::parseCommaSeparatedListUntil  []
+        5   0.1%  mlir::detail::Parser::parseExtendedAttr
+        5   0.1%  mlir::detail::Parser::parseExtendedType
+        5   0.1%  llvm::SourceMgr::SrcBuffer::getLineNumberSpecialized<unsigned  []
+        5   0.1%  std::basic_string<char>::push_back  [libc++.1.dylib]
+        5   0.1%  llvm::StringMap<llvm::SmallVector<  []
+        5   0.1%  mlir::RegisteredOperationName::Model<circt::kanagawa::PathOp>::printAssembly  []
+        5   0.1%  mlir::AsmPrinter::Impl::printDialectType
+        5   0.1%  mlir::detail::OpAsmOpInterfaceInterfaceTraits::Model<circt::kanagawa::GetPortOp>::getAsmResultNames  []
+        5   0.1%  circt::kanagawa::GetPortOp::getAsmResultNames  []
+        5   0.1%  Compiler::GetSourceFileNameWithoutLeadingPath  []
+        5   0.1%  std::basic_stringbuf<char>::overflow  [libc++.1.dylib]
+        5   0.1%  Compiler::ClampStringLength  []
+        5   0.1%  std::num_put<char,  []
+        5   0.1%  std::__variant_detail::__assignment<std::__variant_detail::__traits<std::nullptr_t,  []
+        5   0.1%  addPipelineSrcs
+        4   0.0%  std::__murmur2_or_cityhash<unsigned  []
+        4   0.0%  DataFlowWorkList::AddBasicBlock
+        4   0.0%  SafeInsert<BasicBlock*,  []
+        4   0.0%  _xzm_reclaim_mark_used  [libsystem_malloc.dylib]
+        4   0.0%  OperationUsesOnlyLocalReg  []
+        4   0.0%  const&  []
+        4   0.0%  ConvertPointwiseOpToLut  []
+        4   0.0%  PredicateFalsities  []
+        4   0.0%  RemoveOperations  []
+        4   0.0%  boost::intrusive::list_impl<boost::intrusive::bhtraits<boost::container::base_node<Operation,  []
+        4   0.0%  boost::intrusive::circular_list_algorithms<boost::intrusive::list_node_traits<void*>>::stable_partition<boost:  []
+        4   0.0%  CommonSubexpressionElimination  []
+        4   0.0%  PackLuts  []
+        4   0.0%  __ulock_wait  [libsystem_kernel.dylib]
+        4   0.0%  mlir::Dialect::getRegisteredInterfaceForOp  []
+        4   0.0%  llvm::DenseMapBase<llvm::SmallDenseMap<llvm::StringRef,  []
+        4   0.0%  llvm::DenseMapInfo<llvm::StringRef,  []
+        4   0.0%  mlir::RegisteredOperationName::Model<circt::hw::WireOp>::foldHook  []
+        4   0.0%  llvm::detail::UniqueFunctionBase<llvm::LogicalResult,  []
+        4   0.0%  circt::hw::WireOp::fold
+        4   0.0%  mlir::OperationFolder::insertKnownConstant  []
+        4   0.0%  llvm::raw_ostream::indent  []
+        4   0.0%  LocationEmitter::Impl::emitLocationSetInfoImpl  []
+        4   0.0%  llvm::interleave<mlir::Attribute  []
+        4   0.0%  circt::ExportVerilog::isVerilogExpression
+        4   0.0%  circt::sv::legalizeName  []
+        4   0.0%  mlir::Block::getParent  []
+        4   0.0%  mlir::detail::FunctionTypeStorage::operator==  []
+        4   0.0%  mlir::detail::DominanceInfoBase<false>::getDominanceInfo  []
+        4   0.0%  circt::sv::RegOp::create  []
+        4   0.0%  mlir::detail::ConversionPatternRewriterImpl::lookupOrDefault  []
+        4   0.0%  mlir::TypeRange::TypeRange
+        4   0.0%  llvm::function_ref<llvm::LogicalResult  []
+        4   0.0%  llvm::xxh3_64bits  []
+        4   0.0%  mlir::RegisteredOperationName::Model<circt::sv::LogicOp>::verifyInvariants
+        4   0.0%  mlir::OpTrait::impl::verifySameOperandsAndResultType
+        4   0.0%  mlir::AsmParser::parseAttribute<mlir::StringAttr>  []
+        4   0.0%  llvm::function_ref<mlir::StorageUniquer::BaseStorage*  []
+        4   0.0%  mlir::detail::Parser::parseAttributeDict
+        4   0.0%  circt::hw::InstanceOp::parse  []
+        4   0.0%  llvm::StringMapImpl::RehashTable  []
+        4   0.0%  llvm::StringMap<llvm::EmptyStringSetTag,  []
+        4   0.0%  _vsnprintf  [libsystem_c.dylib]
+        4   0.0%  __vfprintf  [libsystem_c.dylib]
+        4   0.0%  llvm::DenseMapBase<llvm::DenseMap<  []
+        4   0.0%  circt::kanagawa::PathOp::print
+        4   0.0%  llvm::interleaveComma<llvm::ArrayRef<mlir::Attribute>,  []
+        4   0.0%  llvm::Twine::str  []
+        4   0.0%  mlir::RegisteredOperationName::Model<circt::kanagawa::GetPortOp>::printAssembly  []
+        4   0.0%  mlir::RegisteredOperationName::Model<circt::hw::InstanceOp>::printAssembly  []

@@ -1,0 +1,23 @@
+[package]
+name = "kg-abi-gen"
+description = "Reads the reference's ParseTree C headers through bindgen, once, for everything that crosses the ABI: the checked-in bindings `cargo xtask codegen` writes, and the interposer's build script."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+# bindgen loads libclang when it runs (`runtime`, its default), not when it
+# builds: a crate that depends on this one builds without libclang, and only
+# `cargo xtask codegen` and `kg-ptrace`'s build script need it.
+[dependencies]
+bindgen.workspace = true
+syn.workspace = true
+quote.workspace = true
+
+[lints]
+workspace = true

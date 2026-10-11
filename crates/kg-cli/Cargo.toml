@@ -1,0 +1,43 @@
+[package]
+name = "kg-cli"
+description = "The two front doors: `kg`, the modern multi-tool, and `kanagawa`, the argv-compatible legacy shim."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kg"
+path = "src/bin/kg.rs"
+
+[[bin]]
+name = "kanagawa"
+path = "src/bin/kanagawa.rs"
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-config.workspace = true
+kg-db.workspace = true
+kg-resolve.workspace = true
+kg-ptbridge.workspace = true
+kg-backend-sys.workspace = true
+kg-vfs.workspace = true
+kg-diag.workspace = true
+kg-doc.workspace = true
+kg-fmt.workspace = true
+kg-hir.workspace = true
+kg-lsp.workspace = true
+kg-parser.workspace = true
+kg-syntax.workspace = true
+camino.workspace = true
+clap.workspace = true
+toml.workspace = true
+serde.workspace = true
+kg-alloc.workspace = true
+
+[lints]
+workspace = true

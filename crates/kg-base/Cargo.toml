@@ -1,0 +1,21 @@
+[package]
+name = "kg-base"
+description = "Foundational types shared by every kgrust crate: file ids, text ranges, line indexing, and string interning."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+text-size.workspace = true
+rustc-hash.workspace = true
+indexmap.workspace = true
+smol_str.workspace = true
+camino.workspace = true
+
+[lints]
+workspace = true

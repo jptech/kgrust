@@ -1,0 +1,24 @@
+[package]
+name = "kg-sem"
+description = "Type inference over the lowered IR: the reference's inferType, transcribed onto the tree it runs on."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-syntax.workspace = true
+kg-const.workspace = true
+kg-ty.workspace = true
+kg-hir.workspace = true
+kg-resolve.workspace = true
+kg-diag.workspace = true
+num-bigint.workspace = true
+
+[lints]
+workspace = true

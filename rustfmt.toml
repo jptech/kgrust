@@ -1,0 +1,19 @@
+# This project is hand-formatted, and `cargo fmt` is therefore switched off.
+#
+# That is a deliberate choice, not an oversight. The tree is written in a compact
+# style rustfmt does not produce and cannot be configured into: single-line struct
+# literals, `else { continue }` kept inline, and signatures broken by meaning
+# rather than by column. Running default rustfmt over it rewrites 93 files and
+# 2,500 lines — enough to bury any real change in review, and it does not stop at
+# the crates: it reformats `xtask/src/conformance.rs`, which is the scoreboard the
+# compiler is graded against and must not move for unrelated reasons.
+#
+# The closest width-based configuration still disagrees with roughly 455 places,
+# so there is no setting that makes the tool agree with the code. Rather than
+# leave a loaded footgun for the next contributor — or the next agent, which is
+# how this was found — the tool is disabled outright and says so here.
+#
+# If you want automated formatting, that is a real proposal: reformat the whole
+# tree in one commit that changes nothing else, land the config, and gate it in
+# CI. What must not happen is a reformat riding along inside a behaviour change.
+disable_all_formatting = true

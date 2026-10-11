@@ -1,0 +1,16 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"inline void f()\\n\\\n         {\\n\\\n         \\x20   switch (x)\\n\\\n         \\x20   {\\n\\\n         \\x20       case 0:\\n\\\n         \\x20           // fall through to the assignment\\n\\\n         \\x20           y = 1;\\n\\\n         \\x20           break;\\n\\\n         \\x20       default:  // nothing else is legal\\n\\\n         \\x20           break;\\n\\\n         \\x20   }\\n\\\n         }\\n\")"
+---
+inline void f()
+{
+    switch (x)
+    {
+        case 0:
+            // fall through to the assignment
+            y = 1;
+            break;
+        default: // nothing else is legal
+            break;
+    }
+}

@@ -1,0 +1,5 @@
+[alias]
+# `cargo xtask …` is what every document in this repo says to type, and until now
+# nothing made it true. Release because the two gates that matter — `conformance`
+# and `bench` — run the whole reference corpus and are minutes slower in debug.
+xtask = "run --release -p xtask --"

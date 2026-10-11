@@ -1,0 +1,630 @@
+// =============================================================================
+// kanagawa.ungram -- the concrete syntax tree grammar of the Kanagawa HLS
+// language, in `ungrammar` notation.
+//
+// This file is the single input to `cargo xtask codegen`, which turns it into
+// `crates/kg-syntax/src/ast/generated.rs`: one typed wrapper per rule over an
+// untyped `rowan` `SyntaxNode`.
+//
+// Ground truth is `docs/spec/grammar.md`, a line-cited extraction of the
+// reference Haskell parser (`compiler/hs/lib/Language/Kanagawa/Parser.hs`,
+// `.../Parser/Syntax.hs`, `.../Parser/Lexer.hs`). Section numbers in the
+// comments below refer to that document.
+//
+// Two invariants hold throughout:
+//
+//   1. Every bare `CamelCase` name is a node and corresponds 1:1 to a node
+//      variant of `SyntaxKind` (`crates/kg-parser/src/syntax_kind.rs`), under
+//      the CamelCase -> SCREAMING_SNAKE_CASE spelling the codegen applies.
+//      No rule invents a kind that enum does not already have.
+//
+//   2. The grammar is *context free*. Every place the reference consults its
+//      symbol table to decide the shape of the tree (spec section 6) is
+//      collapsed here into one syntactic node that name resolution later
+//      reinterprets. Concretely: there is one `Path`, used for values, types,
+//      templates and callees alike; `TemplateArgList` holds `Expr`s, and an
+//      `Expr` may be a `Type`; and a declaration in statement position is a
+//      `DeclStmt` wrapping the same `Item` the top level uses.
+//
+// Notation reminder (ungrammar 1.16): `'tok'` is a token, `CamelCase` is a
+// node, juxtaposition is sequence, `|` alternation, `?` optional, `*`
+// repetition, `(...)` grouping, `label:` names a field. There is no `+`.
+// Node names may not contain digits.
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// Files, modules, imports -- spec section 3.1, 3.2
+// -----------------------------------------------------------------------------
+
+// A file is an optional module header, then imports, then declarations.
+// The module header does *not* brace-enclose the declarations that follow it
+// (`Parser.hs:185-189`): its `{...}` is the export list, and the module body is
+// simply the rest of the file. Imports may appear only here, never interleaved
+// with declarations (`Parser.hs:194-202, 243`).
+SourceFile =
+  ModuleDecl?
+  ImportDecl*
+  Item*
+
+// `module a.b { X, Y }` and, as an export-list entry, the bare `module a.b`
+// and the difference form `module a.b \ c.d` (`Parser.hs:191-192`). The nested
+// use has no export list of its own, which is what distinguishes the two.
+ModuleDecl =
+  'module' ModulePath ('\\' rhs:ModulePath)? ModuleExportList?
+
+// `{ X, module a.b, module a.b \ c.d }` -- `exposedItem` of `Parser.hs:187`.
+ModuleExportList =
+  '{' ((ModuleDecl | NameRef) (',' (ModuleDecl | NameRef))*)? '}'
+
+// `dotSepName` (`Lexer.hs:230-233`) plus the two synthetic modules `.cmdargs`
+// and `.options` (`Parser.hs:179-183`). Components admit `-`, so
+// `intel.arria-10.config` is one path, not an expression.
+ModulePath =
+  '.'? 'ident' (('.' | '-') ('ident' | 'int_number'))*
+
+// `import a.b.c` / `import a.b.c as d` -- no terminating `;`.
+ImportDecl =
+  'import' ModulePath ('as' alias:Name)?
+
+
+// -----------------------------------------------------------------------------
+// Items -- spec sections 3.3, 3.4, 3.9
+// -----------------------------------------------------------------------------
+
+// One `Item` covers all three declaration positions the reference distinguishes
+// -- `decl` (`Parser.hs:245-251`), `memberDecl` (`:341-350`) and the
+// declaration half of `statementOrDecl` (`:471-479`). Which subset is legal
+// where is a resolution-time rule, not a syntactic one.
+Item =
+  ClassDecl
+| StructDecl
+| UnionDecl
+| EnumDecl
+| FnDecl
+| FnProto
+| VarDecl
+| AliasDecl
+| TemplateDecl
+| ExportDecl
+| ExternDecl
+| StaticAssertDecl
+| Visibility
+| StaticIfStmt
+| EmptyStmt
+
+// The `{ ... }` member list of a class, struct or union. Struct and union
+// members are `VarDecl`s and nothing else (`Parser.hs:299,305,449`); class
+// members may be anything.
+//
+// An `enum` body reuses this node rather than having one of its own, so it also
+// holds `EnumVariant`s. The vocabulary of `SyntaxKind` is frozen, and a list of
+// variants is a list of members; inventing `ENUM_VARIANT_LIST` to say the same
+// thing would buy nothing.
+DeclList =
+  '{' (Item | EnumVariant)* '}'
+
+ClassDecl =
+  'class' Name DeclList
+
+StructDecl =
+  'struct' Name DeclList
+
+UnionDecl =
+  'union' Name DeclList
+
+// The `: type` underlying-type clause is mandatory (`Parser.hs:284`) and the
+// body must hold at least one variant (`:289-292`). Trailing commas are not
+// accepted.
+//
+// The underlying type hangs directly off the declaration. An earlier revision
+// wrapped it in a `BaseList`, borrowing C++'s name for an enum-base — but the
+// parser never emitted one (Kanagawa has no inheritance, and `BASE_LIST` is
+// asserted unreachable by `kg-parser`'s `node_kind_coverage`), so the generated
+// `base_list()` and `enum_variants()` accessors returned nothing on every enum
+// in existence. Two separate consumers were silently broken by that before it
+// was caught.
+EnumDecl =
+  'enum' Name ':' Type DeclList
+
+EnumVariant =
+  Name ('=' Expr)?
+
+AliasDecl =
+  'using' Name '=' Type ';'
+
+// `export T;` / `[[name("s")]] export T;` (`Parser.hs:278`). `T` is a type or
+// an uninstantiated template name -- both are a `PathType` here.
+ExportDecl =
+  AttrList* 'export' Type ';'
+
+// `extern T;` (`Parser.hs:280`). Unlike `export`, never registered as a symbol.
+ExternDecl =
+  AttrList* 'extern' Type ';'
+
+// Both spellings of the same thing (`Parser.hs:571-574`). `assert` is *not* a
+// reserved word: the reference matches it with `keyword2`, so it lexes as an
+// identifier and is a contextual keyword here.
+StaticAssertDecl =
+  ('static_assert' | 'static' 'assert') '(' Expr ')' ';'
+
+Visibility =
+  ('public' | 'private') ':'
+
+// The single variable-declaration node, covering every `VariableF` flavour of
+// `Parser.hs:449-465`:
+//
+//   global / local   `T x;`  `T x = e;`
+//   static local     `static T x = e;`
+//   class member     `[[name("s")]] T x = e;`
+//   struct field     `T x`             -- no attrs, no init, `;` is a separator
+//   loop induction   `const T i`       -- no `;` at all, inside `for (...)`
+//   default init     `default = e;` / `static default = e;`  (`Parser.hs:314`)
+//
+// The `default` form has no dedicated `SyntaxKind`; it is a default
+// initialization of the *enclosing* aggregate and rides here. See the codegen
+// report for the recommended `DEFAULT_INIT_DECL` addition.
+VarDecl =
+  AttrList* 'static'? (Type Name | 'default') ('=' Expr)? ';'?
+
+// A function with a body. The `inline`/`noinline` modifier is legal only here,
+// never on a prototype (`Parser.hs:418-419`).
+FnDecl =
+  AttrList* FnModifier? ret:Type Name ParamList body:BlockStmt
+
+// A member-function signature with no body (`FunctionDeclF`).
+FnProto =
+  AttrList* ret:Type Name ParamList ';'
+
+FnModifier =
+  'inline' | 'noinline'
+
+ParamList =
+  '(' (Param (',' Param)*)? ')'
+
+Param =
+  AttrList* Type Name
+
+// `template<...> <decl>` (`Parser.hs:373-375`). The wrapped declaration is a
+// class, struct, union, alias or function.
+TemplateDecl =
+  TemplateParamList decl:Item
+
+// At least one parameter: `template<>` is a syntax error (`Parser.hs:361-364`).
+// Contrast `TemplateArgList`, which may be empty.
+TemplateParamList =
+  'template' '<' (TypeParam | ValueParam) (',' (TypeParam | ValueParam))* '>'
+
+// `typename T`, `typename T = D`, and -- with the leading parameter list -- the
+// template-template form `template <typename, auto> typename Memory = memory`
+// (`Parser.hs:366,368,370-371`). `Name` is optional because the inner list of a
+// template-template parameter carries bare kinds with no names.
+TypeParam =
+  TemplateParamList? 'typename' Name? ('=' default_type:Type)?
+
+// A non-type parameter: `uint32 N`, `auto Size = 8`, `(bool) -> void Do`
+// (`Parser.hs:367`). `Name` is optional for the same reason as in `TypeParam`.
+ValueParam =
+  Type Name? ('=' default_value:Expr)?
+
+
+// -----------------------------------------------------------------------------
+// Attributes -- spec section 4
+// -----------------------------------------------------------------------------
+
+// One `[[ ... ]]` group. `[[a]] [[b]]` and `[[a, b]]` are equivalent
+// (`Parser.hs:163-165`); the first is two `AttrList` nodes, the second is one
+// with two `Attr`s, which is why every attributed construct above says
+// `AttrList*` rather than `AttrList?`.
+//
+// `[[` and `]]` are not single tokens: the reference builds them from two
+// brackets (`Lexer.hs:279`), and so does the lexer here.
+AttrList =
+  '[' '[' Attr (',' Attr)* ']' ']'
+
+// Attribute names are matched with `L.symbol`, not as keywords
+// (`Parser.hs:171-177`), so every source-writable attribute name lexes as a
+// plain identifier. An unknown name is a resolution error, not a parse error.
+//
+// The name is a bare token, not a `Name` node: the parser has no reason to wrap
+// it, and claiming otherwise here made the generated `Attr::name()` return
+// `None` for every attribute ever written.
+Attr =
+  'ident' AttrArgs?
+
+// Every argument-taking attribute takes exactly one argument: an expression
+// (`latency`, `schedule`, `fifo_depth`, ...), a path (`ecc`) or a string
+// literal (`name`). All three are `Expr`.
+AttrArgs =
+  '(' Expr ')'
+
+
+// -----------------------------------------------------------------------------
+// Statements -- spec section 3.9
+// -----------------------------------------------------------------------------
+
+Stmt =
+  BlockStmt
+| ExprStmt
+| AssignStmt
+| DeclStmt
+| IfStmt
+| StaticIfStmt
+| ForStmt
+| StaticForStmt
+| WhileStmt
+| DoWhileStmt
+| SwitchStmt
+| ReturnStmt
+| BreakStmt
+| BarrierStmt
+| ReorderStmt
+| AtomicStmt
+| AnnotatedStmt
+| EmptyStmt
+
+// `{ ... }` -- a `NestedScopeF` in the reference (`Parser.hs:469`). Also the
+// body of a function, a lambda, and a braced `static if` branch.
+BlockStmt =
+  '{' Stmt* '}'
+
+ExprStmt =
+  Expr ';'
+
+// A declaration in statement position: local variables, but also local classes,
+// structs, aliases and functions, which `statementOrDecl` all admits.
+DeclStmt =
+  Item
+
+// Assignment, compound assignment and increment/decrement, all of which the
+// reference lowers to `AssignF` (`Parser.hs:607-638`). There is deliberately no
+// `<<=` and no `>>=`: the reference list at `Parser.hs:617-629` is complete.
+AssignStmt =
+  ( lhs:Expr op:('=' | '+=' | '-=' | '*=' | '/=' | '%='
+                | '&=' | '|=' | '^=' | '&&=' | '||=' | '^^=') rhs:Expr
+  | lhs:Expr op:('++' | '--')
+  | op:('++' | '--') lhs:Expr
+  ) ';'
+
+// Both branches are a `Stmt`, never an `Item`: a declaration in an unbraced
+// branch is a syntax error (`test/syntax/statement.k:11-17`).
+IfStmt =
+  'if' '(' cond:Expr ')' then_branch:Stmt ElseBranch?
+
+// `static if` branches, by contrast, take whatever the enclosing context takes
+// -- items at item level, statements inside a body, `SwitchCase`s inside a
+// `switch`. `DeclStmt` is what makes the item case expressible as a `Stmt`.
+StaticIfStmt =
+  'static' 'if' '(' cond:Expr ')' then_branch:Stmt ElseBranch?
+
+ElseBranch =
+  'else' Stmt
+
+// `for (const T i : limit) body` -- the induction variable is a mandatory
+// `const` declaration with no initializer and no `;` (`Parser.hs:451,584`).
+ForStmt =
+  AttrList* 'for' '(' VarDecl ':' limit:Expr ')' body:Stmt
+
+StaticForStmt =
+  'static' 'for' '(' VarDecl ':' limit:Expr ')' body:Stmt
+
+// RESERVED, NEVER PARSED. The reference has no standalone `while` loop: the
+// `while` keyword appears only as the tail of a `do ... while`
+// (`Parser.hs:580-589`), and no corpus file uses any other form. This rule
+// exists solely because `WHILE_STMT` is in the frozen `SyntaxKind` vocabulary;
+// a parser should never produce it. See `UNROLLED_FOR_STMT`, which is dead in
+// the same way and is therefore absent from this file entirely.
+WhileStmt =
+  'while' '(' cond:Expr ')' body:Stmt
+
+// The production has no trailing `;` (`Parser.hs:587-589`); one is commonly
+// written anyway and swallowed by the enclosing `";"*`, so it is optional here.
+// `do ; while (cond);` -- an empty body -- is idiomatic in the corpus.
+DoWhileStmt =
+  AttrList* 'do' body:Stmt 'while' '(' cond:Expr ')' ';'?
+
+SwitchStmt =
+  'switch' '(' Expr ')' '{' (SwitchCase | SwitchDefault | StaticIfStmt)* '}'
+
+// The terminating `break ;` is mandatory (`Parser.hs:602-603`) and is the only
+// place `break` may appear. There is no `continue`.
+SwitchCase =
+  'case' Expr ':' Stmt* BreakStmt
+
+SwitchDefault =
+  'default' ':' Stmt* BreakStmt
+
+ReturnStmt =
+  'return' Expr? ';'
+
+BreakStmt =
+  'break' ';'
+
+BarrierStmt =
+  'barrier' ';'
+
+// Takes a statement, not a declaration: `reorder bool x;` is an error.
+ReorderStmt =
+  'reorder' Stmt
+
+// Desugars to `[[atomic]] stmt` at the FFI boundary; `[[atomic]]` itself is
+// never written in source (`Parser.hs:559-561`).
+AtomicStmt =
+  'atomic' Stmt
+
+// A statement carrying a leading attribute group -- in practice `[[schedule(e)]]`
+// (`Parser.hs:563-567`). Loop attributes attach to `ForStmt` / `DoWhileStmt`
+// directly instead.
+AnnotatedStmt =
+  AttrList* Stmt
+
+// A lone `;`. Also stands in for the stray semicolons that `Parser.hs`'s `";"*`
+// accepts after any declaration, which is why it is an `Item` too.
+EmptyStmt =
+  ';'
+
+
+// -----------------------------------------------------------------------------
+// Expressions -- spec sections 3.10, 3.12
+// -----------------------------------------------------------------------------
+
+// `Expr` includes `Type` because the reference's `term` includes
+// `try (typ' False)` (`Parser.hs:843`) -- that is how `Foo<uint32>` passes a
+// type as a template argument, and how `static assert(decltype(F::mul) ==
+// (float32, float32) -> float32)` compares two types with `==`
+// (`library/base.k:52`). Deciding which reading applies is name resolution's
+// job, not the parser's.
+Expr =
+  Literal
+| InterpolatedString
+| Path
+| ParenExpr
+| PrefixExpr
+| BinExpr
+| TernaryExpr
+| CallExpr
+| IndexExpr
+| FieldExpr
+| CastExpr
+| ConcatExpr
+| MuxExpr
+| FanOutExpr
+| StaticExpr
+| BitOffsetExpr
+| ByteOffsetExpr
+| LutMulExpr
+| InitListExpr
+| LambdaExpr
+| Type
+
+// `'string_literal'` is a complete `"..."` with no hole. A string with holes
+// is an `InterpolatedString`.
+Literal =
+  'int_number' | 'float_number' | 'string_literal' | 'true' | 'false'
+
+// A string with holes (`Parser.hs:883-903`), lexed in pieces: the text up to
+// the first hole (opening quote included) is a `'string_text'`, so is the
+// text between two holes, and the text after the last hole (closing quote
+// included) is the `'string_end'`. Each hole is an ordinary expression.
+InterpolatedString =
+  'string_text' (Interpolation | 'string_text')* 'string_end'
+
+// `{expr}`, `{expr=}`, `{expr, align}`, `{expr:b3}` and combinations
+// (`Parser.hs:888-899`). `=` echoes the expression's source text before its
+// value; `,` introduces an alignment; `:` a format specifier.
+Interpolation =
+  '{' Expr '='? (',' align:Expr)? (':' FormatSpec)? '}'
+
+// One of `b o d x X` and an optional decimal precision (`Parser.hs:900`),
+// lexed as code: `b3` is one identifier, `d 10` an identifier and a number.
+// The parser takes whatever stands before the `}`, and the format's own
+// grammar is checked by `kg_db`'s pass 0, at the character the reference
+// reports.
+FormatSpec =
+  'ident' 'int_number'?
+
+// The escape hatch that re-enables `<` `>` `<<` `>>` inside a template argument
+// list (`Parser.hs:845,910-912`).
+ParenExpr =
+  '(' Expr ')'
+
+// The six `UnaryOp`s (`Parser/Syntax.hs:107-122`). `bitsizeof`, `bytesizeof`
+// and `clog2` are prefix operators at a *looser* precedence than `!`/`~`/`-`,
+// so `-bitsizeof x` does not parse but `bitsizeof -x` does.
+PrefixExpr =
+  op:('-' | '!' | '~' | 'bitsizeof' | 'bytesizeof' | 'clog2') Expr
+
+// The 19 symbolic `BinaryOp`s. `LutMul` is the twentieth and has no symbol --
+// it is spelled `lutmul(a, b)` and gets its own node.
+BinExpr =
+  lhs:Expr
+  op:( '*' | '/' | '%'
+     | '+' | '-'
+     | '<<' | '>>'
+     | '<' | '>' | '<=' | '>='
+     | '==' | '!='
+     | '&' | '^' | '|'
+     | '&&' | '^^' | '||' )
+  rhs:Expr
+
+// Source syntax even though the reference immediately desugars it to
+// `MuxF cond (Seq [else, then])` -- note the reversed arms (`Parser.hs:968`).
+// The CST keeps source order.
+TernaryExpr =
+  cond:Expr '?' then_branch:Expr ':' else_branch:Expr
+
+// The callee is a `Path` for a free function and a `FieldExpr` for a method;
+// `AttrList*` carries `call_rate`, `fifo_depth`, `transaction_size`.
+CallExpr =
+  AttrList* callee:Expr ArgList
+
+ArgList =
+  '(' (Expr (',' Expr)*)? ')'
+
+IndexExpr =
+  base:Expr '[' index:Expr ']'
+
+// `a.b`, and also `obj.template Go<uint32>`: the segment carries the optional
+// `template` disambiguator and the optional argument list (`Parser.hs:646,814`).
+FieldExpr =
+  base:Expr '.' PathSegment
+
+CastExpr =
+  'cast' '<' Type '>' '(' Expr ')'
+
+// At least one argument (`sepBy1`, `Parser.hs:867`).
+ConcatExpr =
+  'concat' '(' Expr (',' Expr)* ')'
+
+// At least two arguments (`Parser.hs:870`); the first is the selector and the
+// rest are the cases, indexed by its value.
+MuxExpr =
+  'mux' '(' Expr (',' Expr)* ')'
+
+FanOutExpr =
+  'fan_out' '<' count:Expr '>' '(' value:Expr ')'
+
+StaticExpr =
+  'static' '(' Expr ')'
+
+BitOffsetExpr =
+  'bitoffsetof' '(' Type ',' NameRef ')'
+
+ByteOffsetExpr =
+  'byteoffsetof' '(' Type ',' NameRef ')'
+
+LutMulExpr =
+  'lutmul' '(' lhs:Expr ',' rhs:Expr ')'
+
+// Both initializer-list forms (`Parser.hs:856-863`). They do not mix, and
+// trailing commas are rejected; `{}` is the empty designated form.
+InitListExpr =
+  '{' ((Expr | Designator) (',' (Expr | Designator))*)? '}'
+
+Designator =
+  '.' NameRef '=' Expr
+
+// `[captures] (params)? (-> type)? { body }` (`Parser.hs:436-447`). The
+// parameter list and the return type are both optional; the default return type
+// is `auto`.
+LambdaExpr =
+  CaptureList ParamList? ('->' ret:Type)? body:BlockStmt
+
+CaptureList =
+  '[' (Capture (',' Capture)*)? ']'
+
+// Captures are bare identifiers: no `&`, no `=`, no `this`.
+Capture =
+  NameRef
+
+
+// -----------------------------------------------------------------------------
+// Paths and names -- spec section 3.11
+// -----------------------------------------------------------------------------
+
+// `a::b::c`, flat rather than left-nested, per the porting recommendation in
+// spec section 6.4.
+Path =
+  PathSegment ('::' PathSegment)*
+
+PathSegment =
+  'template'? NameRef TemplateArgList?
+
+// May be empty -- `Foo<>` parses (`sepBy`, `Parser.hs:697`). Arguments are
+// `Expr`s, and since `Expr` subsumes `Type` that covers type arguments,
+// template-template arguments and value arguments alike.
+//
+// `>` is always a single token: `Foo<Bar<T>>` closes with two independent
+// `rangle`s (`Lexer.hs:268-273`), so no maximal-munch fixup is needed.
+TemplateArgList =
+  '<' (Expr (',' Expr)*)? '>'
+
+// A name being introduced by a declaration.
+Name =
+  'ident'
+
+// A bare identifier used as a value or as a path component.
+NameRef =
+  'ident'
+
+
+// -----------------------------------------------------------------------------
+// Types -- spec section 3.8
+// -----------------------------------------------------------------------------
+
+Type =
+  VoidType
+| BoolType
+| FloatType
+| StringType
+| AutoType
+| TypenameType
+| IntType
+| ParamIntType
+| ConstType
+| ArrayType
+| PathType
+| FnType
+| DecltypeType
+
+VoidType =
+  'void'
+
+BoolType =
+  'bool'
+
+// The keyword is `float32`; `float` alone is not reserved.
+FloatType =
+  'float32'
+
+StringType =
+  'string'
+
+AutoType =
+  'auto'
+
+// The C++ `typename` disambiguator: forces the path to be read as a type even
+// when it is unresolved (`Parser.hs:547`).
+TypenameType =
+  'typename' PathType
+
+// `int32`, `uint8`, ... -- one token, because the reference's lexer reserves
+// `int<decimal>` and `uint<decimal>` outright (`Lexer.hs:241-243`). `int 5`
+// with a space is not this.
+IntType =
+  'int_type' | 'uint_type'
+
+// `int<Expr>` / `uint<Expr>` (`Parser.hs:544-545`).
+ParamIntType =
+  ('int' | 'uint') '<' Expr '>'
+
+// Legal only at the outermost level of a type, in a function-type parameter,
+// and on a loop induction variable (`Parser.hs:519,554,451`).
+ConstType =
+  'const' Type
+
+// `T[N]`, `T[N][M]`. Dimensions are collected flat, left to right, matching
+// `ArrayF attr elem (Seq dims)` (`Parser.hs:533-538`). The attributed form
+// (`[[memory]] T[N]`) accepts exactly one dimension in the reference
+// (`Parser.hs:529`); that restriction is semantic here.
+ArrayType =
+  AttrList* elem:Type ('[' Expr ']')*
+
+// A named, possibly template-instantiated type.
+PathType =
+  Path
+
+// `(params) -> R` (`Parser.hs:551-557`). A function type may not appear as its
+// own parameter or return type, so `((uint32) -> void) -> void` does not parse.
+FnType =
+  AttrList* FnTypeParamList '->' ret:Type
+
+FnTypeParamList =
+  '(' (FnTypeParam (',' FnTypeParam)*)? ')'
+
+// Parameter names are optional here, unlike in a `ParamList`.
+FnTypeParam =
+  AttrList* Type Name?
+
+DecltypeType =
+  'decltype' '(' Expr ')'

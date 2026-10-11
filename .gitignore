@@ -1,0 +1,13 @@
+/target
+**/*.rs.bk
+.baseline/
+*.profraw
+
+# macOS
+.DS_Store
+
+# Node (the VS Code client; see editors/vscode/.gitignore for the rest)
+node_modules/
+
+# Agent worktrees (EnterWorktree / Workflow isolation)
+.claude/worktrees/

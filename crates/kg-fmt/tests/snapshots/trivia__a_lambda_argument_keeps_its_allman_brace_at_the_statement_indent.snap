@@ -1,0 +1,12 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"inline void add_with_carry_test(unit::tag_t tag)\\n\\\n         {\\n\\\n         \\x20   pipelined_for(16, [tag](uint8 itr){\\n\\\n         \\x20       uint32 a = rng1(itr);   // first\\n\\\n         \\x20       uint32 b = rng2(itr);\\n\\\n         \\x20   });\\n\\\n         }\\n\")"
+---
+inline void add_with_carry_test(unit::tag_t tag)
+{
+    pipelined_for(16, [tag](uint8 itr)
+    {
+        uint32 a = rng1(itr); // first
+        uint32 b = rng2(itr);
+    });
+}

@@ -1,0 +1,7 @@
+# The reference checkout every xtask gate grades against (xtask/src/guard.rs).
+# Each command that reads it checks first: HEAD is this commit, nothing
+# under library/ or test/ differs from it or is untracked, and every file
+# there hashes to `inputs`. Move it only on purpose, after a reference sync:
+# `cargo xtask pin-reference --write`, and every ratchet re-read.
+commit 98a2d8cbe16b74bf15a46c46a19b319c1a0bf78e
+inputs 4326a190a1b71978e0725a3a6cfb168e

@@ -1,0 +1,20 @@
+kg phases: CST passes 0.018s, the loop 0.016s, item_tree 0.003s, sorted module 0.003s, parse 0.003s, program 0.003s, copies' check 0.002s, looped 0.000s, global_symbols 0.000s, sorted lowering 0.000s
+kg phases: the walk and the backend 0.014s
+        0.06 real         0.05 user         0.00 sys
+            52576256  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                4454  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   6  voluntary context switches
+                  52  involuntary context switches
+           786213968  instructions retired
+           211317902  cycles elapsed
+            47858168  peak memory footprint

@@ -1,0 +1,151 @@
+diff --git a/crates/kg-db/src/elaborate.rs b/crates/kg-db/src/elaborate.rs
+index dc45218..3f91d96 100644
+--- a/crates/kg-db/src/elaborate.rs
++++ b/crates/kg-db/src/elaborate.rs
+@@ -560,6 +560,53 @@ fn calls_a_known_template(
+     })
+ }
+ 
++/// `setTypeOfInstance`'s notes, keyed the way a twin's [`ModuleTypes`] keys
++/// the copies they are about.
++///
++/// The writes come back from `instantiate` keyed on the *arena* — file, range,
++/// kind and expansion — because that is what the read-back needs. A module's
++/// finished map is keyed by qualified name, so each write is matched back to
++/// the declaration it was made for and re-keyed under the name the twin gives
++/// it. Top-level declarations only: `Template.hs:115` puts every copy beside
++/// its template, and a nested one would need the twin's own scope walk.
++fn instance_notes(
++    renamed: &ModuleIr,
++    writes: &[(kg_ty::infer::TypeKey, kg_ty::Ty)],
++    scope: &SymbolPath,
++) -> FxHashMap<SymbolPath, kg_ty::Ty> {
++    let mut out = FxHashMap::default();
++    if writes.is_empty() {
++        return out;
++    }
++    let by_key: FxHashMap<kg_ty::infer::TypeKey, &kg_ty::Ty> =
++        writes.iter().map(|(k, t)| (*k, t)).collect();
++    for item in top_level_items(renamed) {
++        let name = match &renamed.arena[item].exp {
++            Exp::Class { name, .. }
++            | Exp::Struct { name, .. }
++            | Exp::Union { name, .. }
++            | Exp::Enum { name, .. }
++            | Exp::Alias { name, .. }
++            | Exp::Function { name, .. } => *name,
++            _ => continue,
++        };
++        let Exp::Identifier(sym) = renamed.arena[name].exp else { continue };
++        let node = &renamed.arena[item];
++        let range = node.src.head.range;
++        let key = kg_ty::infer::TypeKey {
++            file: node.src.head.file,
++            offset: range.start(),
++            end: range.end(),
++            kind: node.kind,
++            via: node.src.via,
++        };
++        if let Some(ty) = by_key.get(&key) {
++            out.insert(scope.child(sym), (*ty).clone());
++        }
++    }
++    out
++}
++
+ /// How many passes over phase 2 a program gets: each pass hands the twins'
+ /// foreign decisions to their owners, and a program whose twins keep
+ /// deciding new instances of each other's copies is the reference's
+@@ -1111,6 +1158,15 @@ fn elaborate_module(
+         &imported,
+     );
+ 
++    // `setTypeOfInstance`'s notes at the twin's own keys. The reference writes
++    // them before `inferType`; this route infers the twin whole, so the
++    // threading is after ([`crate::passes::types::ModuleTypes::thread_instances`]).
++    let twin_names = twin_names.thread_instances(&instance_notes(
++        &renamed,
++        &ireport.type_writes,
++        &crate::passes::types::module_scope(&twin_tree),
++    ));
++
+     // Home: the base table extended, never rewritten — `resolveTypeOf`'s own
+     // monotonicity. `setTypeOfInstance`'s writes go in first so the read-back
+     // threads each concrete type into its `TInstance` wrapper, the composition
+diff --git a/crates/kg-db/src/instances.rs b/crates/kg-db/src/instances.rs
+index 0d00c02..52f6297 100644
+--- a/crates/kg-db/src/instances.rs
++++ b/crates/kg-db/src/instances.rs
+@@ -1628,6 +1628,11 @@ fn named_type_at(env: &Env<'_>, arg: ExpId) -> Option<Ty> {
+         return None;
+     }
+     let t = env.fold.type_at(node.src.head.range)?;
++    // Through `setTypeOfInstance`'s wrapper: the reference's `tIsStruct` and
++    // its siblings see through a `TInstance` (`maybeInner`, `Type.hs:607-640`),
++    // and a copy's own declaration now wears one
++    // (`ModuleTypes::thread_instances`).
++    let t = t.concrete().clone();
+     match &t {
+         Ty::Enum(..) | Ty::Struct(..) | Ty::Union(..) | Ty::Class(..) if t.resolved() => Some(t),
+         // A written array type — `A<uint32[2]>`, `FnT<uint32[2][3]>` — is
+diff --git a/crates/kg-db/src/passes/types.rs b/crates/kg-db/src/passes/types.rs
+index fb5536c..0091907 100644
+--- a/crates/kg-db/src/passes/types.rs
++++ b/crates/kg-db/src/passes/types.rs
+@@ -185,6 +185,56 @@ impl ModuleTypes {
+         ModuleTypes { names: Arc::new(names) }
+     }
+ 
++    /// `setTypeOf`'s `TInstance` threading (`Type.hs:1050-1058`) applied to a
++    /// twin's finished map: where `notes` has `setTypeOfInstance`'s note for a
++    /// key this map resolved, the resolved type becomes the note's concrete
++    /// half.
++    ///
++    /// The reference writes the note *before* `inferType`, so the concrete
++    /// type is threaded into the wrapper as it is computed and every reader
++    /// sees a `TInstance`. This route infers the twin first — the twin is a
++    /// file, and a file is inferred whole — so the threading happens here
++    /// instead. Without it a copy is a plain struct named after itself:
++    /// `using tag_t = newtype<uint32>` came home as `type.newtype::newtype
++    /// <|$uint@32|>` where the reference prints `newtype<uint32>`
++    /// (`Type.hs:402-406` prints a `TInstance` from its arguments), which
++    /// `xtask ir`'s type-agreement line reads as a disagreement and the
++    /// backend walk reads as a copy with no instance note.
++    pub(crate) fn thread_instances(&self, notes: &FxHashMap<SymbolPath, Ty>) -> ModuleTypes {
++        if notes.is_empty() {
++            return self.clone();
++        }
++        let mut names: FxHashMap<SymbolPath, Ty> = (*self.names).clone();
++        for (key, note) in notes {
++            let Ty::Instance { template, args, .. } = note else { continue };
++            let Some(Ty::Type(inner)) = names.get(key) else { continue };
++            // Only an aggregate. The reference's `TInstance` is transparent to
++            // every predicate that matters for a scalar — `pretty` falls
++            // through for a function, an error and an unresolved inner
++            // (`Type.hs:402-405`) — but this port's `Ty::Instance` is not, and
++            // wrapping an alias template's `using U = uint32` copy made the
++            // backend walk emit a base list where the reference emits
++            // `ParseUintType 32` (145 programs, measured 2026-09-20). The
++            // aggregates are where the note is read anyway: `ParseClass`'s
++            // third argument is `parseInstanceType (theType expr)`.
++            if !inner.resolved()
++                || !matches!(
++                    &**inner,
++                    Ty::Struct(..) | Ty::Class(..) | Ty::Union(..) | Ty::Enum(..)
++                )
++            {
++                continue;
++            }
++            let threaded = Ty::Type(kg_ty::TyRef::new(Ty::Instance {
++                concrete: inner.clone(),
++                template: template.clone(),
++                args: args.clone(),
++            }));
++            names.insert(key.clone(), threaded);
++        }
++        ModuleTypes { names: Arc::new(names) }
++    }
++
+     /// Whether these are the **same** converged map, not merely an equal one.
+     ///
+     /// Identity is what a memo key wants and it is what is cheap: two builds of

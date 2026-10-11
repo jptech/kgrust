@@ -1,0 +1,4 @@
+lib/
+# No trailing slash: `scripts/worktree.sh link` makes it a symlink, which a
+# directory-only pattern does not match.
+dist-newstyle

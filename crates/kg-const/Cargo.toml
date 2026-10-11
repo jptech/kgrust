@@ -1,0 +1,18 @@
+[package]
+name = "kg-const"
+description = "Compile-time constant values and the fold's tables."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+num-bigint.workspace = true
+
+[lints]
+workspace = true

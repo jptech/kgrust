@@ -1,0 +1,14 @@
+---
+source: crates/kg-fmt/tests/trivia.rs
+expression: "stable(\"//| Basic FIFO.\\n\\\n         //\\n\\\n         // The second paragraph is a bare `//` line, which the lexer folds\\n\\\n         // into the same doc comment.\\n\\\n         \\n\\\n         // A separate, ordinary comment.\\n\\\n         // Still ordinary.\\n\\\n         class FIFO\\n\\\n         {\\n\\\n         }\\n\")"
+---
+//| Basic FIFO.
+//
+// The second paragraph is a bare `//` line, which the lexer folds
+// into the same doc comment.
+
+// A separate, ordinary comment.
+// Still ordinary.
+class FIFO
+{
+}

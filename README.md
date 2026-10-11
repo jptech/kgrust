@@ -1,0 +1,175 @@
+<div align="center">
+
+# kgrust
+
+**A fast, modern toolchain for [Kanagawa](https://github.com/microsoft/kanagawa), the hardware design language — written in Rust.**
+
+[Install](#install) · [Quick start](#quick-start) · [Editor](#editor) · [Build from source](#build-from-source) · [Parity and speed](#parity-and-speed) · [Development](#development)
+
+</div>
+
+---
+
+kgrust reimplements the Kanagawa compiler's frontend and builds the tools a designer
+lives in around it — a language server, a formatter, a documentation generator — on one
+shared core. It compiles every existing `.k` program, unchanged, to the same
+SystemVerilog as the reference compiler, through the reference's own code generator, and
+checks a design **8–16× faster** than the reference does on all cores, in a fraction of
+the memory.
+
+| Command | What it does |
+|---|---|
+| `kg check` | Parse, resolve and type-check a design; diagnostics with source excerpts |
+| `kg build` | Compile to SystemVerilog through Kanagawa's code generator |
+| `kg lsp` | The language server: live diagnostics, inferred bit widths, navigation, rename |
+| `kg fmt` | Format sources, every comment kept |
+| `kg doc` | A searchable documentation site from your doc comments |
+| `kg explain` | The reference for an error code or a warning |
+| `kanagawa` | A drop-in replacement for the reference compiler's command line |
+
+## Install
+
+Unpack a release archive and put its `bin` on your `PATH`:
+
+```sh
+tar -xzf kgrust-0.1.0-aarch64-apple-darwin.tar.gz
+export PATH="$PWD/kgrust-0.1.0-aarch64-apple-darwin/bin:$PATH"
+kg --version
+```
+
+An archive holds everything: `kg`, `kanagawa`, the code generator beside them, and
+Kanagawa's standard library, which `kg` finds on its own. To make one for your platform,
+see [Build from source](#build-from-source).
+
+## Quick start
+
+```cpp
+// adder.k
+//| Adds one, every cycle.
+class adder
+{
+public:
+    //| `x + 1`, one bit wider so nothing is lost.
+    uint33 add_one(uint32 x)
+    {
+        return x + 1;
+    }
+}
+
+export adder;
+```
+
+```sh
+kg check adder.k             # diagnose
+kg build adder.k -o out/     # → out/adder.sv
+kg doc adder.k --open        # browse its documentation
+kg fmt adder.k               # format in place
+```
+
+A project keeps its settings in a `kanagawa.toml` at its root, which every command and
+the editor read:
+
+```toml
+[package]
+name = "my-design"
+
+[project]
+sources = ["src"]
+import-dirs = ["lib"]        # searched before the standard library
+target-device = "mock"
+
+[warnings]
+shadow = "deny"
+```
+
+`kg check` with no arguments then checks the whole project; `kg --help` shows the rest.
+
+## Editor
+
+The language server answers every editor feature from the compiler's own analysis, so
+what it shows is what `kg build` will do:
+
+- **Diagnostics as you type**, cancelled and recomputed on every edit
+- **Inferred bit widths** as inlay hints and on hover — `a - b` is signed, `a << b` widens
+- **Hover with documentation**, completion, signature help
+- **Go to definition**, find references and rename across the project
+- **Inside templates**, each instance's types, side by side
+- Semantic highlighting, document and workspace symbols, folding, quick fixes, formatting
+
+**VS Code:** the extension is in [`editors/vscode`](editors/vscode). Build it with
+`npm install && npx @vscode/vsce package`, install the `.vsix`, and keep `kg` on
+your `PATH`.
+
+**Any other editor:** point its LSP client at `kg lsp` (stdio) for `*.k` files.
+
+## Build from source
+
+```sh
+git clone <this repository> kgrust && cd kgrust
+cargo build --release                       # kg and kanagawa → target/release
+```
+
+That is all `kg check`, `fmt`, `lsp` and `doc` need: Rust (`rust-toolchain.toml` pins
+1.92; rustup installs it) and a C compiler. `kg build` also needs Kanagawa's code
+generator, a C++ library built from the pinned [upstream submodule](third_party):
+
+```sh
+git submodule update --init third_party/kanagawa
+scripts/build-backend.sh                    # → target/backend/dist/bin/libkanagawa-backend.*
+cargo xtask dist                            # → target/dist/kgrust-<version>-<target>.tar.gz
+```
+
+`build-backend.sh` compiles LLVM, MLIR and CIRCT with the backend — about half an hour on
+16 cores the first time, incremental after — and needs CMake ≥ 3.30, Ninja and Boost ≥ 1.88
+(`brew install cmake ninja boost`). It builds only what the backend links, never
+Kanagawa's Haskell frontend. Built and tested on macOS (Apple silicon); Linux is expected
+to work.
+
+## Parity and speed
+
+kgrust is graded against the reference compiler on the reference's own test corpus, in
+gates that run on every milestone:
+
+| | |
+|---|---|
+| Frontend verdicts | **2,681 / 2,681** decidable assertions agree |
+| Upstream's own test runner | **72 / 72** syntax test files pass |
+| Code generation | the same RTL as the reference on every program both compile, source-location comments aside |
+| Command line | **25 / 25** upstream CLI tests pass with `kanagawa` |
+
+Checking a design, against the reference frontend ([details](docs/plans/performance.md#11-standing-against-the-reference-re-measured-2026-10-11-one-core-every-core)):
+
+| Program | Reference, 1 core | Reference, 16 cores | kgrust | Faster |
+|---|---:|---:|---:|---:|
+| `data/array.k` | 28.2 s | 12.8 s | 0.80 s | 16× |
+| `numeric/float.k` | 30.4 s | 10.6 s | 0.66 s | 16× |
+| `processor/risc-v.k` | 54.0 s | 24.6 s | 1.95 s | 13× |
+
+A whole build is mostly the shared code generator, so `kg build` finishes 1.5–2× sooner
+end to end ([where the time goes](docs/plans/backend-survey.md)). Deliberate differences
+from the reference are listed, each with its reason, in
+[`docs/known-divergences.md`](docs/known-divergences.md).
+
+## Development
+
+```sh
+cargo test --workspace --profile quick      # every test
+scripts/fast.sh                             # the gates a change can move
+scripts/gates.sh                            # every gate, graded against the reference
+```
+
+The parity gates run the reference compiler itself: `scripts/build-backend.sh
+--reference` builds it from the submodule (it needs GHC, via
+[ghcup](https://www.haskell.org/ghcup/)). [`docs/README.md`](docs/README.md) maps the
+documentation — [`architecture`](docs/architecture.md), [`status`](docs/status.md),
+[`roadmap`](docs/roadmap.md) and the [`journal`](docs/journal.md) of decisions — and
+[`CLAUDE.md`](CLAUDE.md) holds the working rules.
+
+## License
+
+[MIT](LICENSE) © 2026 Parker Mitchell and the kgrust contributors.
+
+Kanagawa — the code generator and standard library kgrust builds from — is © Microsoft
+Corporation, MIT. Release archives carry `THIRD-PARTY-NOTICES.md` for everything they
+include. The whole toolchain is permissively licensed: `kg doc` renders Markdown with
+`pulldown-cmark` rather than pandoc.

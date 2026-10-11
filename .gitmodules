@@ -1,0 +1,4 @@
+[submodule "third_party/kanagawa"]
+	path = third_party/kanagawa
+	url = https://github.com/microsoft/kanagawa.git
+	ignore = dirty
