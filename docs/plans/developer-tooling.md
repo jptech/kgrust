@@ -50,8 +50,9 @@ depends on; none is scheduled.
 
 - **No published release.** *Built 2026-10-11:* the archive
   (`cargo xtask dist`) and the backend from the submodule
-  (`scripts/build-backend.sh`), proven on macOS. Left: publishing — the
-  remote, a CI building the archive per platform (Linux untested), and
+  (`scripts/build-backend.sh`), proven on macOS; the repository public
+  since 2026-10-11, its CI testing the Rust tools on Linux and macOS. Left:
+  a release archive per platform (the backend untested on Linux) and
   signing/notarisation on macOS.
 - **The extension is not published.** A Marketplace / Open VSX release
   that bundles or downloads `kg` per platform is what puts the editor in

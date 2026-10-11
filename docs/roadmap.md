@@ -39,8 +39,9 @@ Independent options, roughly in the order recommended.
    …); seed 20261010's five; divergences #39–#41. Each lands with
    `kg-oracle --errors` evidence and a mutant-proven test; then new seeds
    until a run's silent and false-alarm buckets are empty.
-2. **Publishing.** A release per platform (`cargo xtask dist`; Linux
-   untested), the VS Code extension on a marketplace (its publisher and
+2. **Publishing.** A release per platform (`cargo xtask dist`; the backend
+   build and the archive are untested on Linux, where CI tests the Rust
+   tools), the VS Code extension on a marketplace (its publisher and
    name are open, below), doc tests for Markdown code blocks like
    upstream's `chkdoc` ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
 3. **The loop on more than one core, and its tail rounds.** The loop runs

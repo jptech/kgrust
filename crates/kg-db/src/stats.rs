@@ -265,21 +265,27 @@ mod tests {
     use super::*;
 
     /// A nested phase's time is its own, not its parent's too: the parent's
-    /// exclusive time is its wall time less the child's. Red with the
-    /// nested time left unsubtracted.
+    /// exclusive time is its wall time less the child's, so the two add up
+    /// to the parent's wall time and never to more than the block took. Red
+    /// with the nested time left unsubtracted, when they add up to more by
+    /// the child's 40 ms. Bounded by the test's own clock, never by how long
+    /// a sleep took: a CI runner slept 20 ms for 56 (2026-10-11), and the
+    /// earlier "the parent's own time is under the child's" failed there.
     #[test]
     fn a_phase_is_timed_exclusive_of_the_phases_inside_it() {
         let stats = Stats::default();
+        let block = Instant::now();
         {
             let _outer = stats.phase(Phase::Loop);
             std::thread::sleep(std::time::Duration::from_millis(20));
             let _inner = stats.missed(Query::Sorted);
             std::thread::sleep(std::time::Duration::from_millis(40));
         }
+        let block = block.elapsed().as_secs_f64();
         let s = stats.snapshot();
-        assert!(s.seconds(Phase::Query(Query::Sorted)) >= 0.040);
-        let outer = s.seconds(Phase::Loop);
-        assert!(outer >= 0.020 && outer < s.seconds(Phase::Query(Query::Sorted)), "the loop's own time was {outer}");
+        let (outer, inner) = (s.seconds(Phase::Loop), s.seconds(Phase::Query(Query::Sorted)));
+        assert!(outer >= 0.020 && inner >= 0.040, "the loop's own time was {outer}, the query's {inner}");
+        assert!(outer + inner <= block, "the loop's own {outer} s and the query's {inner} s, in a block of {block} s");
         assert_eq!(s.misses(Query::Sorted), 1);
         assert_eq!(s.since(&s), Snapshot::default());
     }

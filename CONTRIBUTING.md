@@ -35,8 +35,9 @@ about half an hour on 16 cores, once).
 The parity gates run the reference compiler itself, and need far more: GHC
 via ghcup, ≥ 32 GB of RAM (64 GB recommended), ~25 GB of disk and about an
 hour of one-time setup — the steps are in [`AGENTS.md`](AGENTS.md#setup).
-You do not need them to contribute. macOS is the tested platform; Linux is
-untested, and reports are welcome.
+You do not need them to contribute. CI tests the Rust code on Linux and
+macOS; the backend build and the parity gates are tested on macOS only so
+far, and reports from Linux are welcome.
 
 ## Making a change
 
@@ -46,10 +47,12 @@ untested, and reports are welcome.
    ([the tiers](AGENTS.md#the-loop-fastest-first)).
 3. Open a pull request whose description says what changed and the
    evidence: which test or gate moved, from what to what.
-4. CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the
-   light tier on macOS: build, clippy, the quick tests, `conformance`,
-   `corpus`, `fmt-check`, `lint` and the link check. The maintainer runs
-   the parity gates before merging.
+4. CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs
+   [`scripts/ci.sh`](scripts/ci.sh) on Linux — the quick tests, `corpus`,
+   `conformance`, `fmt-check`, `lint`, clippy and the link check, with no
+   backend build — and checks `main` on macOS too. `scripts/ci.sh` runs the
+   same on your machine. The maintainer runs the parity gates before
+   merging.
 5. Pull requests are squash-merged: `main` keeps one commit per piece of work.
 
 ## The rules, in brief

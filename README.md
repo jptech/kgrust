@@ -126,9 +126,10 @@ cargo xtask dist                            # → target/dist/kgrust-<version>-<
 
 `build-backend.sh` compiles LLVM, MLIR and CIRCT with the backend — about half an hour on
 16 cores the first time, incremental after — and needs CMake ≥ 3.30, Ninja and Boost ≥ 1.88
-(`brew install cmake ninja boost`). It builds only what the backend links, never
-Kanagawa's Haskell frontend. Built and tested on macOS (Apple silicon); Linux is expected
-to work.
+(`brew install cmake ninja boost`; where your Boost is older, as Ubuntu 24.04's is,
+`--fetch-boost` installs its headers). It builds only what the backend links, never
+Kanagawa's Haskell frontend. CI builds and tests the Rust tools on Linux and macOS; the
+backend build is tested on macOS (Apple silicon), and reports from Linux are welcome.
 
 ## Parity and speed
 

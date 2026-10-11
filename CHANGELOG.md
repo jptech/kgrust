@@ -10,8 +10,12 @@ Notable changes to kgrust, newest first. The format follows
 
 - `AGENTS.md`, the working rules for people and coding agents alike, and
   `CONTRIBUTING.md`; `docs/gates.md`, every gate in one place.
-- A light CI on GitHub Actions: build, clippy, tests, the corpus-only gates
-  and the documentation's links.
+- CI on GitHub Actions, sized for the free runners: `scripts/ci.sh`, the
+  tests and corpus gates in one job and clippy and the links in another, on
+  Linux for every push and pull request and on macOS for `main`. It builds
+  neither the backend nor the reference compiler.
+- `scripts/build-backend.sh --fetch-boost` installs Boost 1.88's headers
+  where the system's are older (Ubuntu 24.04 ships 1.83).
 - Repository metadata on every crate; `publish = false` across the
   workspace. The VS Code extension gains its repository, license, bug
   tracker and a `kanagawa.trace.server` setting.
@@ -38,6 +42,9 @@ Notable changes to kgrust, newest first. The format follows
   (2,088 conformance failures); a relative root is now made absolute.
 - The VS Code extension's `.vsix` left out its language client
   (`node_modules` was excluded), so a packaged extension would not load.
+- A timing test in `kg-db` failed on a loaded machine (a 20 ms sleep took
+  56); it now holds however long a sleep takes.
+- `scripts/vs-haskell.sh` runs on Linux (GNU `time`, `find`, `sed`).
 
 ## 0.1.0 — first published state, 2026-10-11
 

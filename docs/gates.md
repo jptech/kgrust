@@ -25,6 +25,16 @@ Pick the smallest tier that can see the change (the table is in
   loop. Workspace tests are not run here; run them before committing.
 - `scripts/gates.sh` — everything, below.
 
+CI is a lighter tier beside these, not one of them:
+[`scripts/ci.sh`](../scripts/ci.sh) — the quick tests, `corpus`,
+`conformance`, `fmt-check`, `lint`, clippy, the links — which GitHub runs on
+every push and pull request, sized for its free runners. It covers this
+repository's Rust code and builds neither the backend nor the reference, so
+it runs none of the gates below that need them — `errors`, `ir` and
+`loop-left` (kg-oracle), `ptdiff`, `backend`, `output`, `repoint`, `cli`
+and `edit-identity` (the reference's build) — nor `resilience`, `bench` or
+`mem`.
+
 `probe.sh`, `quick.sh` and the diagnostics tier take no lock. The walk and
 loop tiers, `gates.sh`, `scripts/identity.sh` and `scripts/build-backend.sh`
 take the machine-wide heavy lock ([Memory](#memory)). Every script runs

@@ -109,7 +109,8 @@ Prerequisites: zsh (every script); python3 (`repoint`, `cli`, `mutant.sh`,
 `check-links.py`); libclang (`codegen --check`, `kg-ptrace`, so `cargo test
 --workspace`); CMake ≥ 3.30, Ninja, a C++17 compiler and Boost ≥ 1.88;
 ≥ 32 GB RAM for the full gates, 64 GB recommended; ~25 GB of disk for the
-backend and reference builds. macOS is the tested platform; Linux is untested.
+backend and reference builds. The Rust code is tested on Linux and macOS
+(CI); the backend build and the parity gates, on macOS only so far.
 
 ## Workflow
 
@@ -132,12 +133,18 @@ backend and reference builds. macOS is the tested platform; Linux is untested.
 
 Never commit to `main` directly, and never force-push or rewrite it. Never
 push the local `dev` branch (the pre-publication history, which older commit
-hashes in the docs name) or a `worktree-agent-*` branch. CI
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the light
-tier on macOS — build, clippy, `cargo test --profile quick`, `conformance`,
-`corpus`, `fmt-check`, `lint`, `check-links.py`; the parity gates stay
-local. After moving or renaming a doc, run `python3 scripts/check-links.py`;
+hashes in the docs name) or a `worktree-agent-*` branch. After moving or
+renaming a doc, run `python3 scripts/check-links.py`;
 the documentation's own rules close [`docs/README.md`](docs/README.md).
+
+**CI** is [`scripts/ci.sh`](scripts/ci.sh), which
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs as two jobs —
+on Linux for every push and pull request, on macOS for `main` — sized for
+GitHub's free runners: `test` (the quick tests, `corpus`, `conformance`,
+`fmt-check`, `lint`) and `lint` (clippy, `check-links.py`). It covers this
+repository's Rust code, and builds neither the backend nor the reference
+— keep it that way; the parity gates stay local. `scripts/ci.sh` runs the
+same on your machine.
 
 **Worktrees.** `scripts/worktree.sh add <path>`, or `scripts/worktree.sh
 link` inside an existing one, links the gates' data stores from the primary

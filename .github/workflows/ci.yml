@@ -1,25 +1,34 @@
-# The light tier: what a pull request can be graded on without the reference
-# compiler. The parity gates (ptdiff, backend, output, repoint, cli, errors,
-# loop-left, edit-identity) need the reference built — GHC, LLVM and CIRCT,
-# ~17 GB at their peak — and run locally before a branch is merged
-# (`scripts/gates.sh --snapshot`; AGENTS.md, CONTRIBUTING.md).
+# scripts/ci.sh as two jobs, sized for GitHub's free runners: this
+# repository's Rust code — the tests, the corpus gates, clippy, the links.
+# Nothing builds or runs the C++ backend (LLVM, MLIR, CIRCT) or the
+# reference compiler (GHC); the tests that need them skip. The parity gates
+# need both and run locally (`scripts/gates.sh`; AGENTS.md).
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  light:
-    name: Build, test, corpus gates
-    # The platform the project is developed and measured on.
-    runs-on: macos-14
-    timeout-minutes: 90
+  test:
+    name: test (${{ matrix.os }})
+    # Linux on every push and pull request; macOS, where the project is
+    # developed and measured, on `main` and by hand — its runners queue longer.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "macos-14"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,17 +38,17 @@ jobs:
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cargo build --locked
-      - name: Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
-      - name: Tests
-        run: cargo test --locked --profile quick
-      - name: Corpus gates
-        run: |
-          cargo xtask corpus
-          cargo xtask conformance
-          cargo xtask fmt-check
-          cargo xtask lint
-      - name: Documentation links
-        run: python3 scripts/check-links.py
+      - name: Tests and corpus gates
+        run: scripts/ci.sh test
+
+  lint:
+    name: clippy and links
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy and links
+        run: scripts/ci.sh lint
