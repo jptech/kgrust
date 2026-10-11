@@ -1,5 +1,15 @@
 # Kanagawa — Complete Specification of Modules, Imports, Scoping and Symbol Tables
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`). The import machinery
+> (`Parser/IO.hs`, `SymbolTable.hs`, `Symbols.hs`) did not change since; of the
+> files cited here `compiler/hs/app/Main.hs` and `CmdArgs.hs` did — upstream
+> added the `list-deps` mode (#136), which runs exactly this spec's parse and
+> import resolution and prints the program's files — and their citations are
+> re-derived at the pin. §11 ("Proposed Rust design") is pre-implementation
+> design; where it and the code differ, `crates/kg-resolve/src/lib.rs` and
+> `crates/kg-db/src/lib.rs` are authoritative.
+
 Extracted from the reference Kanagawa HLS compiler for the purpose of a Rust rewrite.
 
 **All paths below are relative to `third_party/kanagawa/`** unless written
@@ -15,11 +25,11 @@ from the source is marked **UNVERIFIED** or moved to *§12 Open questions*.
 | `compiler/hs/lib/Language/Kanagawa/Parser.hs` | 968 | module/import grammar, scope combinators, `::` resolution |
 | `compiler/hs/lib/Language/Kanagawa/Parser/Syntax.hs` | 805 | `Name`, `QualifiedName`, `getName`/`getQualifier`/`getScope` |
 | `compiler/hs/lib/Language/Kanagawa/Internal.hs` | 57 | `readFileUtf8` (UTF-8-BOM decoding, strict read) |
-| `compiler/hs/app/Main.hs` | 152 | driver: `parseProgram` → `frontend` → `codegen`, `--file-list` |
+| `compiler/hs/app/Main.hs` | 183 | driver: `parseProgram` → `frontend` → `codegen`, `--file-list`, `list-deps` (152 lines at `8e0a3fb`) |
 | `compiler/hs/lib/Language/Kanagawa/Frontend.hs` | 457 | frontend pass list, `undefinedSymbols`, `redundantNameScope` |
 | `compiler/hs/lib/Language/Kanagawa/Template.hs` | 164 | template pass list, `instantiateTemplates` |
 | `compiler/hs/lib/Language/Kanagawa/TypeCheck.hs` | 378 | `checkShadowDecl` (the `shadow` warning) |
-| `compiler/hs/app/Options/CmdArgs.hs` | 163 | CLI flag names + defaults |
+| `compiler/hs/app/Options/CmdArgs.hs` | 174 | CLI flag names + defaults (163 at `8e0a3fb`) |
 | `compiler/cpp/parse_tree.h` | 4322 | C++ `TypeContext` scope stack, `LookupSymbol`, `TypeCheckPass` |
 | `compiler/cpp/device_config_visitor.h` / `.cpp` | 55 / 780 | device-config extraction from `@compiler@config` |
 | `library/` | 124 `.k` files | ground-truth usage |
@@ -790,7 +800,7 @@ getSymbols'' config = HashMap.fromList . reverse . para update
   so **the earlier AST in the merged program list wins** (`Symbols.hs:41`).
 * The merged program order is the order in which files finished parsing
   (`IO.hs:96`, `modify (++ [(canonicalPath, result)])`), i.e. a **post-order DFS of the
-  import graph** with the base library first, then `Main.hs:70,76`
+  import graph** with the base library first, then `Main.hs:70,80`
   (`exprs = map fst $ rights results`, `foldr1 append`).
 
 ### 3.2 It is rebuilt from scratch many times — VERIFIED
@@ -1085,7 +1095,7 @@ Complete oracle table (`test/syntax/shadow-warning.k`, registered at
 | 149-159 | class field `x`, member-function local `x` | `shadow` |
 
 Row 64-66 also shows that warnings from *imported* files are reported: every parsed file's
-AST is merged into one program (`Main.hs:76`) and `warnings` scans the whole tree
+AST is merged into one program (`Main.hs:80`) and `warnings` scans the whole tree
 (`Error.hs:94-99`).
 
 ### 4.5 The C++ side's scope stack (second, independent resolver)
@@ -1220,7 +1230,7 @@ Notes:
   containing `compiler/options.k`.**
 * `stall`, `optimize`, `max_threads_default`, `max_threads_limit` are `show`n `Int`s.
   In `--pretty` mode `optimize` is never set, so it defaults to `-1`
-  (`Parser/Options.hs:44`, `Main.hs:142-151`) and the generated line is
+  (`Parser/Options.hs:44`, `Main.hs:163-172`) and the generated line is
   `const auto optimize = -1;`.
 * **Discrepancy with the documentation**: `doc/programming-guide.md:4541-4549` lists
   `target_device` and `target_device_name` as `.options` constants. The code at
@@ -1251,11 +1261,11 @@ The triple is `(canonicalPath, fileDir, content)`. Consequences:
 * `fileDir` is the *importing* file's directory, so `.options`'s own
   `import compiler.options` searches from there first;
 * the `Src` `sourceName` of everything in these modules is `.cmdargs.k` / `.options.k`,
-  which are not real files — `makeErrorBundles readFileUtf8` (`Main.hs:83,92`) would fail
+  which are not real files — `makeErrorBundles readFileUtf8` (`Main.hs:87,96`) would fail
   trying to re-read them if a *desugar-stage* error or warning ever pointed inside them
   (**UNVERIFIED** whether any input triggers this in practice);
-* `Main.hs:98-99` filters them out of `--file-list`:
-  `filter (('.' /=) . head) $ sort fileNames`.
+* `renderDeps` (`Main.hs:132-133`) filters them out of `--file-list` and `list-deps`:
+  `unlines . filter (('.' /=) . head) . sort`.
 
 `.cmdargs` is additionally the fallback implicit base (§6).
 
@@ -1356,7 +1366,7 @@ CLI surface (`app/Options/CmdArgs.hs`): `--import-dir` (`:62`, repeatable),
 `--define`/`-d` (`:63`), `--using`/`-u` (`:64`), `--no-implicit-base` (`:65`),
 `--base-library` (`:66`), `--parse-docs` (`:67`), `--target-device` (`:87`),
 `--file-list` (`:72`). The `ParseOptions` record carrying them is
-`Parser/Options.hs:19-33`; the mapping is `Main.hs:125-151`.
+`Parser/Options.hs:19-33`; the mapping is `getParseOptions`, `Main.hs:146-183`.
 
 ---
 
@@ -1484,9 +1494,9 @@ Precise semantics:
   final `SymbolTable`, which is all `updateImports` needs (`Parser.hs:205`).
 * Because the list is appended *after* the parse completes, the resulting file order is a
   **post-order DFS**: dependencies precede dependents, base library first. That order is
-  the merge order for the whole-program AST (`Main.hs:70,76`) and therefore decides
+  the merge order for the whole-program AST (`Main.hs:70,80`) and therefore decides
   duplicate-key precedence in `getSymbols` (§3.1) and the `--file-list` content
-  (`Main.hs:98-99, 113-122`).
+  (`Main.hs:76-79, 132-144`; and `list-deps`, `Main.hs:111-122`).
 * A top-level file that cannot be found is *not* a parse error: `either (Ex.throw .
   FileException) return r` (`IO.hs:83`) throws, aborting the compiler with the message from
   `IO.hs:108`.
@@ -1960,7 +1970,7 @@ Each names the probe program that would settle it.
    If order matters, the Rust design must model command-line file order.
 
 3. **Does a `Src` inside `.cmdargs.k` / `.options.k` ever reach `makeErrorBundles`?**
-   `Main.hs:83` and `:92` call `makeErrorBundles readFileUtf8`, which would attempt to open
+   `Main.hs:87` and `:96` call `makeErrorBundles readFileUtf8`, which would attempt to open
    the non-existent file `.cmdargs.k`.
    *Probe*: `kanagawa --define 'X#1/0' foo.k` (a division-by-zero constexpr in a generated
    `const auto`), or `--using 'T#uint32' ` where `T` shadows something warn-worthy.

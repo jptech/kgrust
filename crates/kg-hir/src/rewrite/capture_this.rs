@@ -395,9 +395,9 @@ mod tests {
         );
     }
 
-    /// **The donor test** (`CLAUDE.md`, "A rewrite's `Src` donors need a unit
-    /// test read off `--notes`"). `copyNote (ThisF …) lambdaCaptures` hands the
-    /// new node the *capture list's* note. Read off the reference for
+    /// **The donor test** (`docs/gates.md`, "Src donors need a unit test").
+    /// `copyNote (ThisF …) lambdaCaptures` hands the new node the *capture
+    /// list's* note. Read off the reference for
     /// `[]() -> uint32 { … }` at line 6 column 19:
     ///
     /// ```text

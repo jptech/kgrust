@@ -5,8 +5,8 @@
 //! (the scoreboard splits `--define` at `#` only, the reference at `#` or
 //! `=`, `Parser/IO.hs:52-55`), and a gate that graded under settings no user
 //! gets would grade nothing real. The scoreboard is not edited here
-//! (`CLAUDE.md`); this holds the two readings equal over every registered
-//! test's flags, and a disagreement is the owner's to rule on.
+//! (`AGENTS.md`); this holds the two readings equal over every registered
+//! test's flags, and a disagreement is the maintainer's to rule on.
 
 #[cfg(test)]
 mod tests {

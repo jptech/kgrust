@@ -1,13 +1,13 @@
 //! The lowered IR pass 8 instantiates: the representation, its lowering, the
-//! rewrites, materialisation, and a printer. `kg-db`'s elaboration
-//! (`kg_db::elaborate`) runs every program through it, and `kg-ptbridge`
-//! walks what it leaves into the backend.
+//! rewrites, materialisation, and a printer. The program-wide elaboration
+//! (`kg_sem::elaborate`, which `kg-db` memoizes) runs every program through
+//! it, and `kg-ptbridge` walks what it leaves into the backend.
 //!
 //! The reference materialises an instantiated copy of each template body and
 //! re-runs inference over it (`Template.hs:122-139`); five of its sub-passes
 //! *add declarations nobody wrote* (`Function.hs`, `Closure.hs`), which a
 //! lossless, never-rewritten CST cannot carry. This crate is the second
-//! representation those rewrites will run on — see `docs/journal.md`,
+//! representation those rewrites run on — see `docs/journal.md`,
 //! "Provenance is a copy, not a mapping", which fixed the design, and
 //! `docs/history/roadmap-history.md` §1d for the decision between this and virtual
 //! instantiation.
@@ -16,14 +16,19 @@
 //! |---|---|
 //! | [`exp`] | [`Exp`], mirroring `ExpF` (`Parser/Syntax.hs:282-584`) |
 //! | [`arena`] | [`ExpArena`], [`ExpId`], the stamp check |
-//! | [`lower`] | the CST walk, `Parser.hs`'s desugarings, scope names |
-//! | [`pretty`] | IR → parseable source, for the round-trip gate |
+//! | [`lower`](mod@lower) | the CST walk, `Parser.hs`'s desugarings, scope names |
+//! | [`sort`] | the parse-time symbol oracle path sorting consults |
+//! | [`rewrite`] | pass 8's rewriting substrate and the sub-passes ported onto it |
+//! | [`facts`] | what a subtree holds, so a rewrite skips subtrees it cannot change |
+//! | [`constexpr`], [`width`] | `evaluateConstexpr` over the IR and over a width |
+//! | [`order`] | the reference's derived `Ord` on expressions |
+//! | [`pretty`](mod@pretty) | IR → parseable source, for the round-trip gate |
 //! | [`structure`] | the canonical structural dump two IRs are compared by |
 //! | [`position`] | the position index: an offset → the innermost `Own` node, for the editor |
 //!
-//! The human doors are `kg dump ir` and `kg dump twin`; the gates are
-//! `cargo xtask ir` (the IR against the reference's tree) and `cargo xtask
-//! ptdiff` (the walk of it against the reference's).
+//! The human door is `kg dump ir`; the gates are `cargo xtask ir` (the IR
+//! against the reference's tree) and `cargo xtask ptdiff` (the walk of it
+//! against the reference's).
 
 pub mod arena;
 pub mod constexpr;
@@ -70,8 +75,9 @@ pub use sort::{
 /// The reference also seeds the program `Seq` with one synthetic empty `Seq`
 /// carrying any redundant-import warnings (`checkRedundantImports`,
 /// `Parser.hs:234-241`). That seed exists only to carry parser warnings, and
-/// slice 1 diagnoses nothing, so it is deliberately not reproduced; the slice
-/// that moves `redundant-import` onto the IR owns it.
+/// the warning is decided off the module graph instead (`kg_db`'s `imports`
+/// module), so it is deliberately not reproduced; `xtask ir` drops the
+/// reference's seed before comparing.
 #[derive(Debug)]
 pub struct ModuleIr {
     pub file: FileId,

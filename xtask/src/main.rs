@@ -1,8 +1,17 @@
-//! The kgrust scoreboard driver.
+//! The kgrust scoreboard driver: `cargo xtask <command>`, about thirty of them
+//! (`cargo xtask --help` lists each with a line).
 //!
-//! Two subcommands today: `codegen` regenerates the derived files of the syntax
-//! layer, and `conformance` scores the Rust frontend against the reference
-//! corpus's 2,843 embedded assertions.
+//! * **Gates** grade the frontend against the reference: `conformance` (the
+//!   corpus's embedded assertions) and `strict-ledger`, `errors`, `ir`,
+//!   `ptdiff`, `backend`, `output`, `repoint`, `cli`, `loop-left`,
+//!   `resilience`, `edit-identity`, `infer-identity`, `corpus`, `fmt-check`,
+//!   `lint`, `bench` and `mem`; `ratchet` compares their ledgers with
+//!   `baseline.json`, and `status-md` renders `docs/status.md`'s headline.
+//! * **Instruments**: `ptrace` (records the reference's ParseTree calls),
+//!   `fuzz`, `reduce`, `passdiff`, `loop-modules`, `loop-rounds`.
+//! * **Upkeep**: `codegen` (the derived files of the syntax layer, the
+//!   editor's grammar, the ABI's bindings), `pin-reference`, `dist` (a
+//!   release archive).
 
 mod codegen;
 mod dist;
@@ -588,14 +597,14 @@ enum Cmd {
 }
 
 fn main() -> Result<()> {
-    let command = Cli::parse().command;
+    let mut command = Cli::parse().command;
     // Each gate's threads own a `Db` apiece and share one budget
     // ([`bounded::watch_self`]).
     bounded::watch_self(std::env::args().nth(1).unwrap_or_default());
     verdict_switches_note();
     // The reference tree is read-only, and a gate that spawns the compiler
     // can leave a report wherever its cwd is ([`guard`]).
-    let root = reference_root(&command);
+    let root = absolute_root(&mut command);
     // Every gate grades against the pinned reference (`guard::check_pin`);
     // `pin-reference` is how the pin is read and moved.
     if let Some(root) = &root
@@ -627,19 +636,35 @@ fn verdict_switches_note() {
     }
 }
 
+/// [`reference_root`], made absolute in the command too. The default,
+/// `third_party/kanagawa`, is relative, and a gate joins the corpus's own
+/// relative paths onto it — 2,088 conformance failures, every import doubled,
+/// when `KANAGAWA_ROOT` is unset (2026-10-11). Absolute here, once, it reads
+/// as `scripts/lib.sh` exports it. An absolute root is left as given:
+/// recordings are keyed by it.
+fn absolute_root(command: &mut Cmd) -> Option<std::path::PathBuf> {
+    let root = reference_root(command)?;
+    if root.is_relative()
+        && let Ok(absolute) = std::path::absolute(&*root)
+    {
+        *root = absolute;
+    }
+    Some(root.clone())
+}
+
 /// The reference checkout a command was pointed at — every one that runs a
 /// compiler over it. `codegen` reads only the ABI's headers, never runs
 /// one, and checks the pin itself, only when the headers are there.
-fn reference_root(command: &Cmd) -> Option<std::path::PathBuf> {
+fn reference_root(command: &mut Cmd) -> Option<&mut std::path::PathBuf> {
     match command {
         // A probe server's parent brackets the run.
         Cmd::Codegen { .. } | Cmd::Lint | Cmd::Ratchet { .. } | Cmd::StatusMd { .. } | Cmd::ProbeServer { .. } => None,
         // A measured child: its parent brackets the run, and a tree walk
         // here would be counted in the peak.
         Cmd::Mem { child: Some(_), .. } => None,
-        Cmd::Mem { kanagawa_root, .. } => Some(kanagawa_root.clone()),
+        Cmd::Mem { kanagawa_root, .. } => Some(kanagawa_root),
         // The library packaged is the pinned one, unmodified.
-        Cmd::Dist { kanagawa_root, .. } => Some(kanagawa_root.clone()),
+        Cmd::Dist { kanagawa_root, .. } => Some(kanagawa_root),
         Cmd::StrictLedger { kanagawa_root, .. }
         | Cmd::Backend { kanagawa_root, .. }
         | Cmd::Output { kanagawa_root, .. }
@@ -662,7 +687,7 @@ fn reference_root(command: &Cmd) -> Option<std::path::PathBuf> {
         | Cmd::Errors { kanagawa_root, .. }
         | Cmd::Conformance { kanagawa_root, .. }
         | Cmd::Cli { kanagawa_root, .. }
-        | Cmd::Repoint { kanagawa_root, .. } => Some(kanagawa_root.clone()),
+        | Cmd::Repoint { kanagawa_root, .. } => Some(kanagawa_root),
     }
 }
 
@@ -740,5 +765,25 @@ fn dispatch(command: Cmd) -> Result<()> {
         Cmd::Ratchet { rebase: Some(commit), kanagawa_root, .. } => rebase::run(&kanagawa_root, &commit),
         Cmd::Ratchet { gates, bless, stage, rebase: None, .. } => ratchet::run(&gates, bless, &stage),
         Cmd::StatusMd { check } => status_md::run(check),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conformance(args: &[&str]) -> Cmd {
+        Cli::try_parse_from(["xtask", "conformance"].iter().chain(args)).unwrap().command
+    }
+
+    #[test]
+    fn a_relative_root_is_made_absolute_and_an_absolute_one_kept() {
+        let mut command = conformance(&["--kanagawa-root", "third_party/kanagawa"]);
+        let root = absolute_root(&mut command).unwrap();
+        assert_eq!(root, std::env::current_dir().unwrap().join("third_party/kanagawa"));
+        assert_eq!(reference_root(&mut command).cloned(), Some(root));
+
+        let mut command = conformance(&["--kanagawa-root", "/elsewhere/./kanagawa"]);
+        assert_eq!(absolute_root(&mut command), Some("/elsewhere/./kanagawa".into()));
     }
 }

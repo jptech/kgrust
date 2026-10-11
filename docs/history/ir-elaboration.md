@@ -1,10 +1,15 @@
 # Template elaboration without the text round trip
 
+> **History — the design record.** M0–M6 are done (the program-wide loop
+> is the one engine since 2026-10-10); the remainder went into the parity
+> sprint ([`sprint-parity.md`](sprint-parity.md)) and from there into
+> [`roadmap.md`](../roadmap.md).
+
 Status: **M0–M4 done, M5 mostly done, M6 done 2026-10-10** (sprint W3.7: the CST inference engine, the CST `ConstEval` and the second census are deleted; the loop is the one engine, the editor's included; `cargo xtask sem`, the shadow gate below, went with them); the rest continues in [`sprint-parity.md`](sprint-parity.md) (2026-09-27): the twin is deleted, the program-wide loop is the only elaboration; M5's `InstanceRegistry`, `TyId` interning and parallel rounds are sprint W1.1/W5.6. Kept as the design record. Earlier: (2026-09-25) M0's evaluator and key helpers landed with D1.1/D1.3/D1.4; M1 is complete: the IR engine (`kg-sem`) agrees with the reference on every node the reference can adjudicate (`cargo xtask sem --oracle`, a gate) — see §4's progress notes.
 
 This plan grows `docs/history/audit-2026-09-22.md` §6.4 ("one IR, one fixpoint") into a design. It
 does not replace it. Its companion is
-[`single-source-of-truth.md`](single-source-of-truth.md), whose early steps
+[`single-source-of-truth.md`](../plans/single-source-of-truth.md), whose early steps
 are this plan's foundations.
 
 ## 1. What we have, and why it has to go
@@ -172,7 +177,7 @@ trait) with two implementations:
 All arithmetic goes through `fold_binary_values`. The four IR mini-folders
 are deleted: `exp_value`, `Dependent::value`, `kg-hir width::value` (its own
 `i128` arithmetic) and `walk.rs literal_arithmetic`. This is
-[`single-source-of-truth.md`](single-source-of-truth.md) step D1.3; it is
+[`single-source-of-truth.md`](../plans/single-source-of-truth.md) step D1.3; it is
 needed first because §2.2 folds by rewriting through it.
 
 ### 2.4 One program-wide instantiation loop

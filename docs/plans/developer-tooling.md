@@ -37,8 +37,9 @@ fuzzer with reduction, `infer-identity`/`identity.sh`/`edit-identity`/
 `shadow` for exactness, `mutant.sh` for tests, `bench` and `mem`, the
 three-column comparison (`vs-haskell.sh`), and trace flags
 (`KG_LOOP_PROFILE` by pass and by round, `KG_PHASES`, …). What they lack
-is a CI: there is no remote yet, and the full gates take ~6 minutes and
-peak near 17 GB.
+is a full CI: a light tier runs on GitHub Actions since 2026-10-11, but the
+full gates need the reference compiler built, take ~6 minutes warm and
+peak near 17 GB, so they run locally.
 
 ## 2. Gaps worth considering
 
@@ -55,7 +56,7 @@ depends on; none is scheduled.
 - **The extension is not published.** A Marketplace / Open VSX release
   that bundles or downloads `kg` per platform is what puts the editor in
   front of anyone. The reference ships its own VS Code package
-  (`kanagawa/tools/editors/vscode`, TextMate only); ours supersedes it.
+  (`third_party/kanagawa/tools/editors/vscode`, TextMate only); ours supersedes it.
 - *Effort*: small to medium; *depends on*: owner decisions about naming,
   publishing and the backend library's distribution.
 
@@ -72,7 +73,7 @@ depends on; none is scheduled.
   sandcastle's `--svgbob`; re-exposed modules' declarations listed on the
   re-exposing page (linked only); a Markdown output beside the HTML.
 - **Doc tests**: the reference's `chkdoc` compiles every code block of its
-  markdown documentation (`kanagawa/tools/chkdoc`, `spec/cli.md` §8.9); a
+  markdown documentation (`third_party/kanagawa/tools/chkdoc`, `spec/cli.md` §8.9); a
   `kg check` over a markdown file's code blocks would give the same to any
   project's docs.
 - *Effort*: hover docs small; `kg doc` medium; doc tests small.

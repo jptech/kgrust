@@ -76,7 +76,7 @@ pub fn run<B: Backend>(
     outcome.initialised = true;
 
     // The program-wide loop on the IR (`kg_sem::elaborate`,
-    // `docs/plans/ir-elaboration.md` §2.4): its final trees, typed by its
+    // `docs/history/ir-elaboration.md` §2.4): its final trees, typed by its
     // engine — the walk's only types and folds (sprint W3.6).
     let looped = db.looped(roots);
     let symbols = db.global_symbols(roots, kg_resolve::SymbolsConfig::AllSymbols);

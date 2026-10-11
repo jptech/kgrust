@@ -28,7 +28,7 @@
 //! ([`load`]) checks both keys before it serves a run. Nothing is committed; the store is a cache the way
 //! `target/oracle-cache/` is, and `xtask ptdiff` reads it.
 //!
-//! A gate is a driver over threads (`CLAUDE.md`): programs are handed to
+//! A gate is a driver over threads (`docs/gates.md`): programs are handed to
 //! workers that each spawn one process at a time, and results land in slots
 //! indexed by program.
 
@@ -322,7 +322,7 @@ pub(crate) fn programs(kanagawa_root: &Path) -> Result<Vec<Program>> {
             // A directory of our own, never the file's: a compile that
             // reaches `Codegen` writes its reports into the working
             // directory (`<base>PathLength.pdrpt`, `kanagawa.cpp:145-158`),
-            // and `../kanagawa/` is read-only. Until 2026-09-19 the file's
+            // and `third_party/kanagawa/` is read-only. Until 2026-09-19 the file's
             // own directory was used, and 163 reports landed in the
             // reference's `test/`. The file goes by its absolute path.
             cwd: work.join("file").join(rel.parent().unwrap_or(Path::new(""))),

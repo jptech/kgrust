@@ -1,7 +1,7 @@
 //! Semantic tokens — where the CST beats a regular expression.
 //!
 //! The reference extension's TextMate grammar
-//! (`../kanagawa/tools/editors/vscode/syntaxes/kanagawa.tmLanguage.json`) is
+//! (`third_party/kanagawa/tools/editors/vscode/syntaxes/kanagawa.tmLanguage.json`) is
 //! wrong in three ways that a regex cannot fix:
 //!
 //! 1. it scopes every `<` and `>` as `keyword.operator.comparison`, including

@@ -1,0 +1,59 @@
+# Changelog
+
+Notable changes to kgrust, newest first. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+
+- `AGENTS.md`, the working rules for people and coding agents alike, and
+  `CONTRIBUTING.md`; `docs/gates.md`, every gate in one place.
+- A light CI on GitHub Actions: build, clippy, tests, the corpus-only gates
+  and the documentation's links.
+- Repository metadata on every crate; `publish = false` across the
+  workspace. The VS Code extension gains its repository, license, bug
+  tracker and a `kanagawa.trace.server` setting.
+
+### Changed
+
+- The documentation reorganised for readers outside the project: a map by
+  audience with a note on how to read the pre-publication record, a
+  roadmap of where it stands, what is next and the open questions, and the
+  finished sprint plan, the IR design and the 2026-10-11 handoff moved to
+  `docs/history/`.
+- Every spec opens with a status line — the upstream commit it was read at,
+  what changed upstream since for the files it cites, and where the code
+  supersedes a proposal — and its drifted citations are re-derived at the
+  pin. `spec/cli.md` gains "as built" boxes for `kg` and `kanagawa.toml`.
+- `kg --help` names `build` and `doc`. The VS Code extension needs VS Code
+  1.82 or later (its language client's minimum).
+
+### Fixed
+
+- `cargo xtask status-md` refuses a partial gate run; `docs/status.md` had
+  been published with most of its headline as `?`.
+- `cargo xtask` with `KANAGAWA_ROOT` unset doubled the reference's path
+  (2,088 conformance failures); a relative root is now made absolute.
+- The VS Code extension's `.vsix` left out its language client
+  (`node_modules` was excluded), so a packaged extension would not load.
+
+## 0.1.0 — first published state, 2026-10-11
+
+Not tagged as a release. What the repository held when it was published:
+
+- **The frontend**, at parity with the reference compiler on everything the
+  reference's own corpus grades: 2,681 of 2,681 decidable conformance
+  assertions, upstream's syntax test runner 72 of 72, the walk into the
+  C++ backend identical call for call on 2,422 programs.
+- **The tools:** `kg check`, `build`, `fmt`, `lsp`, `doc`, `dump`,
+  `explain`, and `kanagawa`, the reference's command line, argv-compatible.
+- **The language server:** diagnostics in two layers, quick fixes,
+  definition and type definition, references and rename across a project,
+  hover and completion with types — per instance inside a template — and
+  with documentation, signature help, inlay hints for widths, symbols,
+  folding, selection ranges, semantic tokens, formatting.
+- **The backend built from source** (`scripts/build-backend.sh`) from the
+  `third_party/kanagawa` submodule, and **release archives**
+  (`cargo xtask dist`).

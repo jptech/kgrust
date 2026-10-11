@@ -1,6 +1,6 @@
 //! One position index: a source offset → the innermost `Own` IR node whose
 //! text holds it, then outward through the nodes that enclose it
-//! (`docs/plans/ir-elaboration.md` §2.6; sprint W3.5).
+//! (`docs/history/ir-elaboration.md` §2.6; sprint W3.5).
 //!
 //! The loop keys its types by node (`kg_sem::TypeMap`), so the editor's
 //! type-reading features — hover, completion, inlay hints, signature help,

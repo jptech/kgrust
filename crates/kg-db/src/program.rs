@@ -43,7 +43,7 @@ pub const IMPLICIT_BASE_IMPORT: ImportId = ImportId(u32::MAX);
 ///
 /// `files` is a **post-order DFS of the import graph with the base library
 /// first** — the order in which files finished parsing (`Parser/IO.hs:96`,
-/// `Main.hs:70,76`). That order decides duplicate-key precedence in the global
+/// `Main.hs:70,80`). That order decides duplicate-key precedence in the global
 /// symbol map (`docs/spec/resolve.md` §3.1): the *earlier* file wins. Reordering
 /// it silently changes which declaration a name resolves to.
 #[derive(Clone, Debug)]

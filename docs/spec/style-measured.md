@@ -1,5 +1,12 @@
 # House style, measured
 
+> **Status, 2026-10-11.** Measured at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`). The corpus gained two
+> files since — `test/compiler/cli/list_deps.k` and
+> `test/interface/circt/named_type_aliases.k` (470 measurable files, not 468) —
+> and the figures are not re-measured. `[fmt]`'s defaults as built are
+> `crates/kg-config/src/lib.rs` (`Fmt`), which is authoritative.
+
 Independent measurement over the 468 `.k` files of `library/`, `test/` and `doc/`
 (118,876 lines; the non-UTF-8 fixture `test/syntax/imports/binary.k` excluded).
 These are the numbers behind `kg-config`'s `[fmt]` defaults. Every figure below

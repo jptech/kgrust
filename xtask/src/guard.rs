@@ -14,8 +14,8 @@
 //! Deletions are not policed — the reference is the user's checkout, and a
 //! `git pull` there is not this driver's business.
 //!
-//! **It never removes what it finds.** `CLAUDE.md` forbids writing *and*
-//! deleting under `../kanagawa`, cleanup included: a file that should not be
+//! **It never removes what it finds.** `AGENTS.md` forbids writing *and*
+//! deleting under the reference, cleanup included: a file that should not be
 //! there is evidence, and the gate that made it is the thing to fix.
 
 use std::collections::BTreeSet;

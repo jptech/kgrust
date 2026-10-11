@@ -590,7 +590,7 @@ pub struct ImportHits {
 ///
 /// `files` is in **post-order DFS of the import graph** with the base library
 /// first — the order in which files finished parsing (`Parser/IO.hs:96`,
-/// `Main.hs:70,76`). That order decides duplicate-key precedence in the global
+/// `Main.hs:70,80`). That order decides duplicate-key precedence in the global
 /// symbol map: **the earlier file wins** (`Symbols.hs:41`,
 /// `docs/spec/resolve.md` §3.1).
 #[derive(Clone, Debug, Default)]
@@ -1148,7 +1148,7 @@ pub struct ImportFailure {
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct ImportWalk {
     /// **Post-order DFS**: dependencies precede dependents, base library first.
-    /// This is the merge order of the whole-program AST (`Main.hs:70,76`) and
+    /// This is the merge order of the whole-program AST (`Main.hs:70,80`) and
     /// therefore decides duplicate-key precedence in `getSymbols`
     /// (`docs/spec/resolve.md` §3.1) and the `--file-list` content.
     pub files: Vec<ModuleSource>,

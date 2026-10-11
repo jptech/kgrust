@@ -27,11 +27,13 @@
 //!
 //! There are now two tiers of feature here, and they degrade differently:
 //!
-//! * **syntactic** — outline, folding, selection, semantic tokens, formatting.
-//!   Decidable from the CST alone, so they answer for a file that does not
-//!   parse and for a project with no `kanagawa.toml`;
-//! * **semantic** — diagnostics, goto-definition, hover, find-references,
-//!   document highlight, inlay hints. Answered by [`kg_db::Db`] through the
+//! * **syntactic** — outline, folding, selection, semantic tokens, document
+//!   and range formatting. Decidable from the CST alone, so they answer for a
+//!   file that does not parse and for a project with no `kanagawa.toml`;
+//! * **semantic** — diagnostics, go to definition and type definition, hover
+//!   (with the declaration's documentation), find-references, document
+//!   highlight, inlay hints, completion, signature help, rename, quick-fix
+//!   code actions and workspace symbols. Answered by [`kg_db::Db`] through the
 //!   single `GlobalState::with_db` seam, so a jump, a tooltip and the gutter
 //!   are readings of one program rather than three opinions about it. Each
 //!   declines — `null`, no hint, no highlight — wherever the frontend is

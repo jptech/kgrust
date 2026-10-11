@@ -1,13 +1,20 @@
 [package]
 name = "kg-lsp"
-description = "The Kanagawa language server: document sync, diagnostics, symbols, folding, selection and CST-accurate semantic tokens."
+description = "The Kanagawa language server: diagnostics, hover with documentation, go to definition and type definition, references, rename, completion, signature help, inlay hints, code actions, document and workspace symbols, folding, selection, semantic tokens and formatting."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
 
 [lib]
-# No doc tests in this workspace — examples are unit tests (CLAUDE.md).
+# No doc tests in this workspace — examples are unit tests (AGENTS.md).
 doctest = false
 
 [dependencies]

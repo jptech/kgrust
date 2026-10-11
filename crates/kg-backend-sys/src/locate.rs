@@ -12,7 +12,7 @@
 //! the build machine's path, and the gates and scripts name the library
 //! anyway (`KG_BACKEND_DIR`, `scripts/lib.sh`'s `kg_env`); it went with
 //! sprint W8.4. A developer's run names it too:
-//! `KG_BACKEND_DIR=../kanagawa-build/dist/bin`.
+//! `KG_BACKEND_DIR=target/backend/dist/bin` (`scripts/build-backend.sh`).
 //!
 //! The file name is the platform's: `libkanagawa-backend.dylib` on macOS,
 //! `libkanagawa-backend.so` on Linux, `kanagawa-backend.dll` on Windows

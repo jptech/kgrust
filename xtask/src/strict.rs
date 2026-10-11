@@ -2,7 +2,7 @@
 //! item by item, for the ratchet.
 //!
 //! `conformance.rs` is the scoreboard and nothing graded may edit it
-//! (`CLAUDE.md`), and its report names at most 40 failures — enough to read,
+//! (`AGENTS.md`), and its report names at most 40 failures — enough to read,
 //! not enough to ratchet: "strict must never rise" was enforced by a person
 //! comparing one number between two logs. So the per-assertion set is
 //! computed here instead, through the scoreboard's own public pieces —

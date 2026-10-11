@@ -1,4 +1,4 @@
-//! The type of every node, keyed by the node (`docs/plans/ir-elaboration.md`
+//! The type of every node, keyed by the node (`docs/history/ir-elaboration.md`
 //! §2.1).
 //!
 //! The reference keeps the type *in* the node's note (`Typed n`,

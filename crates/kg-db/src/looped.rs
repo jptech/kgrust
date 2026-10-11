@@ -1,5 +1,5 @@
 //! The program-wide loop's elaboration (`kg_sem::elaborate`,
-//! `docs/plans/ir-elaboration.md` §2.4) as the database holds it: run once
+//! `docs/history/ir-elaboration.md` §2.4) as the database holds it: run once
 //! per program, and read by the backend walk, by the CST run's admission of
 //! what the loop decided at each module's text (`crate::passes::FromLoop`),
 //! by the parser's checks — what the parser built of each module, its
@@ -390,7 +390,7 @@ impl Looped {
 /// loop: a range whose first or last character is new answers nothing, and
 /// the editor shows no type there until a loop reads it. A range enclosing an edit maps to
 /// the node it was, and the answer is the one the loop had — the last good
-/// answer (`docs/plans/ir-elaboration.md` §2.6), not the current text's.
+/// answer (`docs/history/ir-elaboration.md` §2.6), not the current text's.
 /// [`crate::Db::editor_loop`] and its siblings hand these out.
 #[derive(Clone, Debug)]
 pub struct EditorLoop {

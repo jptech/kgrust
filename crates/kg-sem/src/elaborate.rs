@@ -1,5 +1,5 @@
 //! `instantiateTemplates` (`Template.hs:50-62`), program-wide, on the IR —
-//! `docs/plans/ir-elaboration.md` §2.4: no twin, no rename, no text.
+//! `docs/history/ir-elaboration.md` §2.4: no twin, no rename, no text.
 //!
 //! ```haskell
 //! instantiateTemplates templatePasses templateIterations (program, hasErrors)

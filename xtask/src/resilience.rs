@@ -64,12 +64,12 @@
 //! # Until sprint W3.7: two engines
 //!
 //! The gate was the measure the CST inference engine's deletion waited on
-//! (sprint W3.0; `docs/plans/ir-elaboration.md` §2.6's balance point): each
+//! (sprint W3.0; `docs/history/ir-elaboration.md` §2.6's balance point): each
 //! question answered twice, by the loop and by the CST engine the editor
 //! fell back on, graded `agree` / `disagree` / `ir-silent` / `ir-only` /
 //! `copies` against the CST engine's answers as the reference. Its last
 //! two-engine reading, and what the editor gave up with that engine, are
-//! in `docs/plans/sprint-parity.md`, W3.7.
+//! in `docs/history/sprint-parity.md`, W3.7.
 //!
 //! # What it cannot see
 //!
@@ -115,7 +115,7 @@ pub struct Options {
     pub filter: Option<String>,
     pub verbose: bool,
     /// Threads, each with its own `Db`; `1` is the one-`Db` walk in
-    /// buffer order, the reading to fall back to (`CLAUDE.md`).
+    /// buffer order, the reading to fall back to (`docs/gates.md`).
     pub jobs: usize,
 }
 
@@ -582,7 +582,7 @@ fn sample<T>(xs: &[T], n: usize) -> Vec<&T> {
 }
 
 /// `f` over every buffer on up to `workers` threads, each with its own
-/// state (a `Db`, `CLAUDE.md`), results in buffer order.
+/// state (a `Db`, `docs/gates.md`), results in buffer order.
 fn fan_out<S, T: Send>(
     work: &[Buffer],
     workers: usize,

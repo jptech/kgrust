@@ -23,7 +23,7 @@
 //! them) gets a space, so a token-level cut never invents an identifier.
 //!
 //! The candidates of one ddmin step are probed over threads that each own a
-//! `Db` (`CLAUDE.md` "A gate is a driver over threads"); the step takes the
+//! `Db` (`docs/gates.md`, "A gate is a driver over threads"); the step takes the
 //! lowest-numbered interesting chunk of the first batch holding one, so the
 //! result does not depend on which thread finished first.
 //!

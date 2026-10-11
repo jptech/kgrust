@@ -27,7 +27,7 @@
 # Runs interleave per program (one core, every core, ours, one core, …), each
 # in a fresh directory outside the reference tree, timed by
 # `/usr/bin/time -l`. Read only a quiet machine's numbers: this is the
-# comparison `CLAUDE.md` asks to be interleaved and quiet. Takes about
+# comparison `AGENTS.md` asks to be interleaved and quiet. Takes about
 # twelve minutes for the full set at N=3, nearly all of it the reference's.
 # Prints one row per run, then each program's best (MiB as `time` reports
 # bytes / 2^20); the raw log is target/vs-haskell/runs.txt.

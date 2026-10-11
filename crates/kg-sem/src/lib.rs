@@ -1,4 +1,4 @@
-//! Type inference over the lowered IR (`docs/plans/ir-elaboration.md`, step
+//! Type inference over the lowered IR (`docs/history/ir-elaboration.md`, step
 //! M1): the reference's `inferType` (`Type/Inference.hs`) transcribed onto
 //! the tree it was written for, rather than translated onto a concrete
 //! syntax tree.
@@ -19,9 +19,10 @@
 //! `KG_WRAP_TRACE` (each `addLambdaWrappers` lookup).
 //!
 //! The loop in [`elaborate`] is the program's elaboration: `kg build`'s
-//! walk reads its trees, the CST passes a type table derived from its types
-//! (`kg_db::looped`), and [`check`] runs the passes after instantiation
-//! over its copies.
+//! walk reads its trees, the editor and the parser's checks read its types
+//! (`kg_db::looped`; the CST passes' type table derived from them went with
+//! the CST inference engine, sprint W3.7), and [`check`] runs the passes
+//! after instantiation over its copies.
 
 /// An environment switch, read once per process: the tracing switches sit
 /// on paths taken per node or per instance, where reading the environment

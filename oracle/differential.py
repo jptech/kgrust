@@ -5,7 +5,7 @@ STATUS: paths sort (pass 8 slice 3), so the spine-collapsing normalizer this
 script used to carry is gone — the two sides are compared raw. The only
 remaining normalization is the reference's redundant-import warning seed, a
 subtree kg-hir deliberately does not build (it exists only to carry a parser
-warning, and kg-hir diagnoses nothing).
+warning, which this port reports from the module graph, kg_db::imports).
 
 The round-trip gate cannot see a deterministic lowering bug: the same bug sits
 on both sides of lower(parse(pretty(lower(parse(f))))) and cancels. This is the
@@ -76,7 +76,8 @@ def theirs(path):
 def drop_warning_seed(names):
     # The reference leads every program with a seed `Seq` carrying any
     # redundant-import warnings (`Parser.hs:234-241`); kg-hir omits it —
-    # slice 1 diagnoses nothing. The seed is `Warning*` wrapping one `Seq`.
+    # those warnings come from the module graph (`kg_db::imports`). The seed
+    # is `Warning*` wrapping one `Seq`.
     if len(names) < 2 or names[0] != "Seq": return names
     i = 1
     while i < len(names) and names[i] == "Warning": i += 1

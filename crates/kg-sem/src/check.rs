@@ -1,4 +1,4 @@
-//! The loop's diagnostics (`docs/plans/ir-elaboration.md` §2.5, step M4):
+//! The loop's diagnostics (`docs/history/ir-elaboration.md` §2.5, step M4):
 //! the census's `validateArg` refusals, and pass 19's `checkConversion`
 //! (`TypeCheck.hs:87-178`) — the first of the passes after instantiation
 //! to run on the IR.

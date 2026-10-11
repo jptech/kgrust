@@ -29,7 +29,10 @@ the memory.
 
 ## Install
 
-Unpack a release archive and put its `bin` on your `PATH`:
+Release archives will be published on the
+[Releases page](https://github.com/jptech/kgrust/releases); until the first
+one, [build one yourself](#build-from-source). Unpack it and put its `bin` on
+your `PATH`:
 
 ```sh
 tar -xzf kgrust-0.1.0-aarch64-apple-darwin.tar.gz
@@ -105,16 +108,18 @@ your `PATH`.
 ## Build from source
 
 ```sh
-git clone <this repository> kgrust && cd kgrust
-cargo build --release                       # kg and kanagawa → target/release
+git clone https://github.com/jptech/kgrust.git && cd kgrust
+git submodule update --init third_party/kanagawa   # upstream Kanagawa, pinned
+cargo build --release                              # kg and kanagawa → target/release
 ```
 
-That is all `kg check`, `fmt`, `lsp` and `doc` need: Rust (`rust-toolchain.toml` pins
-1.92; rustup installs it) and a C compiler. `kg build` also needs Kanagawa's code
-generator, a C++ library built from the pinned [upstream submodule](third_party):
+`kg check`, `fmt`, `lsp` and `doc` need only Rust (`rust-toolchain.toml` pins 1.92;
+rustup installs it) and a C compiler. A source build does not bundle the standard library
+the way a release archive does: point it at the submodule's, with
+`-I third_party/kanagawa/library` or `import-dirs` in your `kanagawa.toml`. `kg build`
+also needs Kanagawa's code generator, a C++ library built from the submodule:
 
 ```sh
-git submodule update --init third_party/kanagawa
 scripts/build-backend.sh                    # → target/backend/dist/bin/libkanagawa-backend.*
 cargo xtask dist                            # → target/dist/kgrust-<version>-<target>.tar.gz
 ```
@@ -146,24 +151,26 @@ Checking a design, against the reference frontend ([details](docs/plans/performa
 | `processor/risc-v.k` | 54.0 s | 24.6 s | 1.95 s | 13× |
 
 A whole build is mostly the shared code generator, so `kg build` finishes 1.5–2× sooner
-end to end ([where the time goes](docs/plans/backend-survey.md)). Deliberate differences
+end to end (measured 2026-10-11; [where the time goes](docs/plans/backend-survey.md)). Deliberate differences
 from the reference are listed, each with its reason, in
 [`docs/known-divergences.md`](docs/known-divergences.md).
 
 ## Development
 
 ```sh
-cargo test --workspace --profile quick      # every test
+cargo test --profile quick                  # the tests
 scripts/fast.sh                             # the gates a change can move
 scripts/gates.sh                            # every gate, graded against the reference
 ```
 
-The parity gates run the reference compiler itself: `scripts/build-backend.sh
---reference` builds it from the submodule (it needs GHC, via
-[ghcup](https://www.haskell.org/ghcup/)). [`docs/README.md`](docs/README.md) maps the
-documentation — [`architecture`](docs/architecture.md), [`status`](docs/status.md),
-[`roadmap`](docs/roadmap.md) and the [`journal`](docs/journal.md) of decisions — and
-[`CLAUDE.md`](CLAUDE.md) holds the working rules.
+The parity gates run the reference compiler itself, so they need it built
+(`scripts/build-backend.sh --reference`, with GHC via [ghcup](https://www.haskell.org/ghcup/)),
+its frontend as an oracle (`oracle/build.sh`) and its runs recorded (`cargo xtask ptrace`)
+— [`CONTRIBUTING.md`](CONTRIBUTING.md) walks through it. [`AGENTS.md`](AGENTS.md) holds the
+working rules, for people and coding agents alike; [`docs/README.md`](docs/README.md) maps
+the documentation — [`roadmap`](docs/roadmap.md), [`status`](docs/status.md),
+[`architecture`](docs/architecture.md) and the [`journal`](docs/journal.md) of decisions.
+What changed release by release is in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 

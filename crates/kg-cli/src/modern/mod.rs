@@ -1,9 +1,9 @@
 //! `kg` — the modern front door.
 //!
-//! Six commands: `check`, `fmt`, `dump`, `explain`, `lsp`, and `build`, which
-//! runs the frontend and then walks the program into the reference's C++
-//! backend (`kg-ptbridge`). A program the walk cannot lower yet is refused with
-//! exit 2, never compiled wrong.
+//! Seven commands: `check`, `fmt`, `dump`, `explain`, `lsp`, `doc` (alias
+//! `docs`), and `build`, which runs the frontend and then walks the program
+//! into the reference's C++ backend (`kg-ptbridge`). A program the walk cannot
+//! lower yet is refused with exit 2, never compiled wrong.
 //!
 //! Exit codes:
 //!
@@ -30,7 +30,7 @@ use render::{ErrorFormat, Source};
 use settings::{Env, Overrides, Resolved};
 use style::{ColorChoice, Styles};
 
-const ABOUT: &str = "The Kanagawa toolchain: check, format, explain and inspect Kanagawa sources.";
+const ABOUT: &str = "The Kanagawa toolchain: check, build, format, document, explain and inspect Kanagawa sources.";
 
 const LONG_ABOUT: &str = "\
 The Kanagawa toolchain.
@@ -38,7 +38,8 @@ The Kanagawa toolchain.
 What works today: `check` (parse, resolve, fold and type-check, following
 imports), `lsp` (the language server, over stdio), `fmt` (the comment-preserving
 formatter), `dump` (token stream, CST, AST, IR, instances), `explain` (error and warning
-reference) and `build` (the frontend, then the reference's C++ backend through
+reference), `doc` (a static API-documentation site from the doc comments) and
+`build` (the frontend, then the reference's C++ backend through
 its ParseTree ABI — `libkanagawa-backend`, found via `KG_BACKEND_DIR`; a
 program the walk cannot yet lower is refused with exit 2, never compiled
 wrong).
@@ -570,7 +571,7 @@ fn check(
     }
 
     // `-W error` promotes: the reference fails the build on any warning
-    // (`Main.hs:94-95`).
+    // (`Main.hs:98-99`).
     let failed = errors > 0 || unreadable > 0 || (resolved.settings.warnings_as_errors && warnings > 0);
     i32::from(failed)
 }

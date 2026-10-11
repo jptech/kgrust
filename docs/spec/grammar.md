@@ -1,5 +1,16 @@
 # Kanagawa — Complete Syntactic Specification
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`), and nothing this spec
+> cites changed in between (upstream added the `list-deps` mode and
+> `hw.typealias` emission, outside the parser). §6.4 ("Recommended Rust
+> strategy") and §11 (the proposed `kanagawa.ungram`) are pre-implementation
+> design: the grammar as built is `grammar/kanagawa.ungram`, and where these
+> sections and the code differ, `crates/kg-parser/src/lib.rs` and
+> `crates/kg-syntax/src/lib.rs` are authoritative. Passages about pass 8's
+> "twin" are historical: it was deleted on 2026-09-26
+> (`known-divergences.md` #31).
+
 Extracted from the reference Haskell compiler for the purpose of a Rust rewrite.
 
 **Primary sources** (all paths relative to `third_party/kanagawa/`):
@@ -801,9 +812,9 @@ Type-syntax facts:
 3. **A `[[…]]`-attributed array accepts exactly one dimension** (`Parser.hs:529`
    uses `Seq . pure <$> brackets expression`, singular). Confirmed against the
    oracle 2026-09-20 — see *Open questions* Q1, which also records the one
-   place this port parses more than the reference does: pass 8's twin, whose
-   substitutions can build the shape the grammar cannot spell
-   (`known-divergences.md` #31).
+   place this port used to parse more than the reference does: pass 8's twin
+   (deleted 2026-09-26), whose substitutions could build the shape the grammar
+   cannot spell (`known-divergences.md` #31).
 4. `const` may only be applied at the outermost level (`Parser.hs:519`) and inside
    `ftParamType` (`:554`) and `uninitConst` (`:451`).
 5. `functionType` cannot appear as a function-type parameter type or return type
@@ -1549,15 +1560,18 @@ exercises it (grep for `\]\]\s*\w+\[[^]]*\]\[` in `library/` and `test/` finds n
 on `using C = [[memory]] uint32[16][10];` reports `unexpected '['` at column 32 — the
 second `[`, exactly as the source predicted, and the same token this parser rejects it at.
 
-**And pass 8's twin needs the shape anyway.** `template <typename T, auto N> using
+**And pass 8 needs the shape anyway.** `template <typename T, auto N> using
 memory_ecc = [[memory, ecc(make_ecc<T>)]] T[N];` with `T = uint32[10]` *is* an attributed
 array of an array, and the reference reaches it without spelling anything —
-`instantiateTemplates` substitutes into a tree. This port prints the twin and parses it
-back, so `kg_syntax::parse_twin` takes any number of dimensions there and `parse_file`,
-which every other reader goes through, still takes one. The type it builds **nests**
+`instantiateTemplates` substitutes into a tree. The type it builds **nests**
 (`TArray attrs (TArray [] uint32 [10]) [16]`), which is what the substitution leaves and
-what `tElement`'s ECC clause needs (`Type.hs:930-935`). See
-[`known-divergences.md`](../known-divergences.md) #31.
+what `tElement`'s ECC clause needs (`Type.hs:930-935`).
+
+*Historical (until 2026-09-26):* this port printed pass 8's twin and parsed it back, so
+`kg_syntax::parse_twin` took any number of dimensions there while `parse_file`, which every
+other reader goes through, took one. The twin and `parse_twin` are deleted; every parse is
+the source grammar's, and a copy's type is substituted in the loop's tree, never spelled.
+See [`known-divergences.md`](../known-divergences.md) #31.
 
 **Q2 — `::template` disambiguator.** `templateQualifier` (`Parser.hs:646`) is consumed at
 the head of *every* path segment (`:653`), so `Outer::template Inner<T>` should be legal,

@@ -2,7 +2,7 @@
 //! walk, every root, trajectories included.
 //!
 //! Until sprint W3.7 this module was also `cargo xtask sem`, the shadow gate
-//! of `docs/plans/ir-elaboration.md` step M1: the IR engine's types against
+//! of `docs/history/ir-elaboration.md` step M1: the IR engine's types against
 //! the CST inference engine's, node for node, the reference adjudicating
 //! disagreements. It went with that engine.
 

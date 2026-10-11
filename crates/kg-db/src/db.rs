@@ -670,7 +670,7 @@ impl Db {
     /// transitive import, the module graph, and the loading diagnostics.
     ///
     /// `roots` is a *set of entry files*, not one, because the reference merges
-    /// every command-line file into a single program (`Main.hs:70,76`) — so a
+    /// every command-line file into a single program (`Main.hs:70,80`) — so a
     /// declaration in one is visible to another in the same invocation. Order
     /// matters: it is the order the DFS visits them in, and therefore part of
     /// the file order duplicate-key precedence reads.
@@ -934,7 +934,7 @@ impl Db {
 /// post-order-DFS file list, then by offset within the file.
 ///
 /// Not cosmetic. The reference merges every file's AST in that order
-/// (`Main.hs:70,76`) and prints the resulting errors in it, so "the first error"
+/// (`Main.hs:70,80`) and prints the resulting errors in it, so "the first error"
 /// — the only thing `syntax-test.py:113-118` looks at — means the same thing on
 /// both sides. It is also what makes the output stable: the memo tables are
 /// hash maps, and without this the order would drift between runs.

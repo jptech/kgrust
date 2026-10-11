@@ -44,9 +44,18 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+# The toolchain `rust-toolchain.toml` pins; nothing older is tested.
+rust-version = "1.92"
 license = "MIT"
 authors = ["Parker Mitchell", "The kgrust contributors"]
+repository = "https://github.com/jptech/kgrust"
+homepage = "https://github.com/jptech/kgrust"
+readme = "README.md"
+keywords = ["kanagawa", "hls", "hardware", "compiler", "fpga"]
+categories = ["compilers", "development-tools"]
+# Nothing here goes to crates.io: the tools ship as release archives
+# (`cargo xtask dist`), and the crates are their parts, not libraries.
+publish = false
 
 [workspace.dependencies]
 # --- internal ---
@@ -81,17 +90,14 @@ ungrammar = "1.16"
 # --- data structures ---
 rustc-hash = "2.1"
 indexmap   = "2"
-memchr     = "2"
 num-bigint = "0.5"
 
 # --- infra ---
 anyhow    = "1"
-thiserror = "2"
 serde     = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml      = "1"
 camino    = "1"
-rayon     = "1"
 mimalloc  = { version = "0.1", default-features = false }
 clap      = { version = "4", features = ["derive"] }
 
@@ -108,7 +114,6 @@ quote      = "1"
 flate2     = "1"
 
 # --- testing ---
-libtest-mimic = "0.8"
 expect-test   = "1.5"
 insta         = "1"
 

@@ -16,7 +16,7 @@ are at a natural stopping point:
   and mangling, one constant evaluator, node → type lookup, written types);
   D2 unifies copies that drift today (template index, import visibility,
   shadowing, `static if` decisions, template arguments, conversions).
-- [`plans/ir-elaboration.md`](../plans/ir-elaboration.md) — pass 8 without the
+- [`plans/ir-elaboration.md`](ir-elaboration.md) — pass 8 without the
   text round trip: IR inference with node-keyed, interned types, one
   program-wide instantiation loop with an `InstanceRegistry`, passes on the
   IR, and dependency-tracked, parallel rounds. Migration M0–M6 behind shadow

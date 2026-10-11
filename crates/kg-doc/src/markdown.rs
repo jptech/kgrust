@@ -1,6 +1,6 @@
 //! Documentation text to HTML.
 //!
-//! The reference writes Pandoc's Markdown (`kanagawa/doc/sandcastle.md`,
+//! The reference writes Pandoc's Markdown (`third_party/kanagawa/doc/sandcastle.md`,
 //! "Markup"); [`kg_syntax::to_commonmark`] rewrites the parts CommonMark has
 //! no spelling for, and `pulldown-cmark` renders the rest. Three things on
 //! top, each what the reference's generator does in its own way:

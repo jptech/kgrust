@@ -12,15 +12,21 @@ looked at" on, they run oldest first and carry their dates in the title.
 New entries go at the end, dated. Search by title; the index below names
 the entries whose decisions still bind.
 
+Written before the repository was published (2026-10-11), mostly by AI
+coding agents for the maintainer: commit hashes and "`main`" in those
+entries name the unpublished pre-publication history, "the owner" is the
+maintainer, and `CLAUDE.md` is today's `AGENTS.md`
+([`README.md`, "About the record"](README.md#about-the-record)).
+
 ## Index: the decisions that still bind
 
 | Decided | Decision | Entry |
 |---|---|---|
-| 2026-08-14 | Instantiated copies are typed by printing the IR, reparsing it (the *twin*) and reading the types back; `docs/history/audit-2026-09-22.md` §6.4 plans the exit | "Print and reparse works, and the two costs nobody had priced" |
+| 2026-08-14 | ~~Instantiated copies are typed by printing the IR, reparsing it (the *twin*)~~ — superseded 2026-09-26: the twin is deleted and the program-wide loop types every copy; kept for the history of why | "Print and reparse works, and the two costs nobody had priced" |
 | 2026-08 | An IR node's provenance is a copy of its source range (`Src`), not a mapping | "Provenance is a copy, not a mapping, and the roadmap had the reference backwards" |
 | 2026-08 | The whole-program type environment is a union of per-module results | "The whole-program type environment is a union, not a fixpoint" |
 | 2026-09-06 | `errors` grades positions and messages against `kg-oracle --errors`, the class `conformance` cannot see | "The errors gate, and 88 disagreements that no green number had ever shown" |
-| 2026-09-06 | The backend is reached through the ParseTree C ABI, never a second middle end | `roadmap.md`, "Decisions, 2026-09-06"; here "The boundary is observable", "The walk exists", "`kg build` compiles" |
+| 2026-09-06 | The backend is reached through the ParseTree C ABI, never a second middle end | `roadmap.md`, "Decisions that bind"; here "The boundary is observable", "The walk exists", "`kg build` compiles" |
 | 2026-09-07 | A diagnostic raised inside a copy is carried home to the template body with `while compiling` frames | "The twin's diagnostics come home, and a divergence stops being invisible" |
 | 2026-09-08 | The reference's `hasErrors` checkpoints after passes 1, 8 and 9 decide which errors a rejected program shows | "The gate the reference runs its passes behind, and ten small verdicts" |
 | 2026-09-08, 09-17 | Tests run under `--profile quick`; every corpus gate is a driver over threads with a `Db` per thread | "The testing loop, measured"; "The gates, spread over threads" |
@@ -3011,7 +3017,7 @@ which is why a parser test rather than a `kg-ty` test pins it.
 map and the five-field write), `kg_db::elaborate` (the production driver), and
 `deduceTemplateArgs`' rewrite half. `conformance` 2087→**2088**, `--strict`
 519→**518**, and the fifth `TypeKey` field has its first production caller.
-Scratch in `~/.claude/jobs/2cb055b5/tmp/readback/`.*
+Scratch in a scratch directory (not kept).*
 
 The route as it now runs on every `kg check` and every language-server
 diagnostic pass, per module that declares a top-level template:
@@ -6545,7 +6551,7 @@ reading — the `TemplateInstanceF` jump lands at `--template-passes 6→7`. The
 ## Materialisation is not blocked on inference, and the provenance gate cannot survive it
 
 *2026-08-13, from a survey run against the oracle over all 469 corpus roots.
-Scratch in `~/.claude/jobs/2cb055b5/tmp/mat/`.*
+Scratch in a scratch directory (not kept).*
 
 **The premise everything downstream was scheduled on is false.** Materialisation
 was booked as blocked on IR inference because it "reads `typeOf` and calls
@@ -6711,7 +6717,7 @@ counting identifiers is measuring `resolve`, not `instantiate`.
 
 *2026-08-13, second survey of the same day, run to cost the decision the first
 one took rather than to re-open it. Harness preserved at
-`~/.claude/jobs/2cb055b5/tmp/key/keysurvey.rs.keep`.*
+a scratch directory (not kept).*
 
 **The decision holds, verified by running the gate itself rather than a copy of
 its logic.** Instance-shaped copies planted into a fork of the arena in the
@@ -6872,7 +6878,7 @@ instance before porting any `Map.member` guard.
 ## Pass 15 is a prerequisite, not a consumer, and one arm of pass 12 is free
 
 *2026-08-13, surveying the four passes marked "not started". Scratch in
-`~/.claude/jobs/2cb055b5/tmp/four/`.*
+a scratch directory (not kept).*
 
 This journal has said, and `status.md` and `roadmap.md` §2 repeated, that the
 ~110 remaining assertions belong to passes 11, 12, 15 and 17, "all of which need
@@ -6954,7 +6960,7 @@ non-monotone process reports the first bump, not the answer.
 ## Pass 12's GT arm landed, and two of the survey's numbers did not survive re-derivation
 
 *2026-08-13, landing the arm the survey above called free. Scratch in
-`~/.claude/jobs/2cb055b5/tmp/gt/`.*
+a scratch directory (not kept).*
 
 `passes::unresolved_templates` — the "Too many arguments" arm of
 `unresolvedTemplates` (`Frontend.hs:422`), nothing else. Conformance
@@ -7007,7 +7013,7 @@ namesake before any mutation could redden it.
 
 *2026-08-13. `kg_hir::rewrite::instantiate`, 2050 lines, with the `TypeKey`
 fifth field. Scratch, including the stability harness, in
-`~/.claude/jobs/2cb055b5/tmp/sb/`.*
+a scratch directory (not kept).*
 
 **The decision from two surveys ago held, and the field landed with its first
 copy rather than ahead of it.** That was the whole reason to wait: `Src::expanded`,
@@ -7089,7 +7095,7 @@ suite is green.**
 
 *2026-08-14. The decision that gates the rest of the frontend, taken by building
 the cheaper option far enough to know. Scratch in
-`~/.claude/jobs/2cb055b5/tmp/infer/`.*
+a scratch directory (not kept).*
 
 > **The prototype is gone, and this line said otherwise for a week.** It claimed
 > `crates/kg-db/src/proto_reparse_infer.rs` was "preserved in the worktree
@@ -7209,7 +7215,7 @@ that existed only in a notification.
 
 *2026-08-14. Twenty percent of the number this project is sized against had never
 been investigated. All 551 snippets, the raw oracle output and the classification
-are in `~/.claude/jobs/2cb055b5/tmp/tail/`.*
+are in a scratch directory (not kept).*
 
 The attribution sweep left 109 assertions in two residue buckets — "the oracle
 rejects the snippet at parse time" (92) and "the reference reports nothing" (17).
@@ -7451,7 +7457,7 @@ invented-diagnostic failure mode, caught by tests that were not even mine.
 
 ## The census asks the fold, and the class the brief called total measured small
 
-*2026-08-14, task #37. Scratch in `~/.claude/jobs/2cb055b5/tmp/census/`.*
+*2026-08-14, task #37. Scratch in a scratch directory (not kept).*
 
 **Silence 2 is lifted by asking, not rewriting.** `constexprResolved`
 (`Constexpr.hs:385-390`) accepts `W<bitsizeof(uint8)>` or `Foo<uint32, K>`
@@ -13669,7 +13675,7 @@ workspace test run; `doctest = false` everywhere, examples are unit tests.
 parallel — the crates and the data model, the query layer and the tools,
 the gates and the backend bridge — with the claims the plan now leans on
 read again by hand. What it changed is
-[`plans/sprint-parity.md`](plans/sprint-parity.md)'s revision of the same
+[`history/sprint-parity.md`](history/sprint-parity.md)'s revision of the same
 date.*
 
 **The sprint had a target without a mechanism.** A keystroke of 400 ms was

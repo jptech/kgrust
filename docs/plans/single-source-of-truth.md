@@ -6,10 +6,10 @@ reason and the gate that compares the two. D1.1, D1.3 and D1.4 landed
 2026-09-25, D1.2 with sprint W1.1 (2026-09-27), D1.8 by deletion with the
 CST inference engine (W3.7). After W3.7 a survey (2026-10-10) rewrote each
 open row's copies to what stood; the rest landed the same day
-([`sprint-parity.md`](sprint-parity.md) W4). Open, a D2 change of
+([`../history/sprint-parity.md`](../history/sprint-parity.md) W4). Open, a D2 change of
 verdicts: the parser's template checks onto the sorted lowering's facts
 (the register's CST parse-time row). Proposed 2026-09-25 as the companion
-to [`ir-elaboration.md`](ir-elaboration.md).
+to [`../history/ir-elaboration.md`](../history/ir-elaboration.md).
 
 ## Principle
 
@@ -42,7 +42,7 @@ Three more were found and fixed in this session alone:
 ## How it relates to the elaboration plan
 
 Most CST/IR pairs exist *only* because inference runs on the CST and pass 8 on
-the IR. [`ir-elaboration.md`](ir-elaboration.md) deletes the CST side of those
+the IR. [`../history/ir-elaboration.md`](../history/ir-elaboration.md) deletes the CST side of those
 at M4–M6.
 
 So the rule for this plan is:

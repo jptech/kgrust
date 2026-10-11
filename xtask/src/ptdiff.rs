@@ -22,7 +22,7 @@
 //! by `(theirs, ours)`, declines by reason — are the work list: the most
 //! frequent first divergence is the rewrite worth porting next.
 //!
-//! A gate is a driver over threads (`CLAUDE.md`): programs go to workers
+//! A gate is a driver over threads (`docs/gates.md`): programs go to workers
 //! that each own a `Db`, results land in slots by program.
 
 use std::collections::BTreeMap;

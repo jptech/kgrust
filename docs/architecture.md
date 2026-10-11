@@ -7,7 +7,7 @@ many front doors.
 
 The reference toolchain (`third_party/kanagawa`, a submodule) is a pipeline with no reusable middle:
 Haskell owns the driver, lexer, parser, desugaring and type inference; C++ owns
-everything after a stateful 87-function C ABI; and nothing between them can be
+everything after a stateful 85-function C ABI; and nothing between them can be
 called by a tool. That is why the language has no language server, no real
 formatter, and no incremental anything.
 
@@ -17,10 +17,11 @@ one caller.
 ```
                     ┌──────────── kg-cli ────────────┐
                     │  kg build / check / fmt / lsp  │   ┌── kanagawa (compat binary)
-                    │  kg dump / explain             │   │   ~92 legacy flags
+                    │  kg doc / dump / explain       │   │   ~92 legacy flags
                     └────────────────┬───────────────┘   └────────┬───────────
                                      │                            │
       kg-lsp ────────────────────────┤                            │
+      kg-doc ────────────────────────┤                            │
       kg-fmt ──────┐                 ▼                            ▼
                    │   ┌──────────── kg-db (queries) ────────────────────┐
                    │   │ parse · resolve · the parser's checks · pass 1  │
@@ -54,8 +55,8 @@ one caller.
 | `kg-ty` | done | The type model (width algebra, subtyping, conversions) and `TypeKey`, a node of the text by position, kind and expansion — what every consumer of a `Ty` links |
 | `kg-db` | done | The query layer: parse, resolve, the per-module run at a module's text — the parser's own checks and pass 1 on the CST, every later pass the loop's verdicts admitted in its place (`kg_sem::check`, since 2026-10-10) — and `looped`, the program-wide loop's result as the backend walk, the checks and the editor read it. One engine since sprint W3.7 (M6): the CST inference engine, `kg-cst-infer`, and the second census are deleted. Under the editor's budget each root set keeps its last loop's snapshot — the final program, shared with its answer, and its history per module and round — until the next run reaches its own (`kg_db::snapshot`, sprint W7.5d step 1), and the next run takes from it every prefix pass it can (step 3) |
 | `kg-hir` | done | The IR: an append-only arena with `Src` provenance, the sorted lowering, the rewriting combinators (`desugar`), and pass 8's rewrites (`*_in_place`) |
-| `kg-sem` | done; parity gaps | Inference over the IR (`infer`, incremental), `getSymbols`, the census, `deduce`, the closure passes, `elaborate` — the program-wide instantiation loop — `check`, the passes after instantiation over the copies and at each module's text, `instance`, how a copy is spelled in a message, `snapshot`, the loop's state per module and round as a run records it and the shadow that checks a kept run against the next, `reads`, the read door: what each module's round read across its boundary, keyed beside the copies decided into it, and `reuse`, a kept run's pass taken in by the next run where every key before it agreed (the prefix, D1 step 3) |
-| `kg-ptbridge` | done; parity gaps | The walk of the elaborated program into the ParseTree C ABI through a `Backend` trait (trace, recording, real; generated, checked in), the worker process that replays it, and the gates' verdict cache |
+| `kg-sem` | done | Inference over the IR (`infer`, incremental), `getSymbols`, the census, `deduce`, the closure passes, `elaborate` — the program-wide instantiation loop — `check`, the passes after instantiation over the copies and at each module's text, `instance`, how a copy is spelled in a message, `snapshot`, the loop's state per module and round as a run records it and the shadow that checks a kept run against the next, `reads`, the read door: what each module's round read across its boundary, keyed beside the copies decided into it, and `reuse`, a kept run's pass taken in by the next run where every key before it agreed (the prefix, D1 step 3) |
+| `kg-ptbridge` | done | The walk of the elaborated program into the ParseTree C ABI through a `Backend` trait (trace, recording, real; generated, checked in), the worker process that replays it, and the gates' verdict cache |
 | `kg-backend-sys` | done | Runtime-loaded bindings to `libkanagawa-backend` (generated, checked in), refused at load unless the library defines what the headers declare; the options marshalling |
 | `kg-abi-gen` | done; not in a plain `cargo build` | bindgen over the reference's C headers, once: the generators `xtask codegen` writes the two crates above with, and the configuration `kg-ptrace`'s build script uses |
 | `kg-ptrace` | done; not in a plain `cargo build` | The interposer: a shim backend logging every ParseTree call the reference makes; its build script needs the reference and libclang |
@@ -168,8 +169,9 @@ in `kanagawa` compat mode. `kg check` is free to diagnose earlier and better.
 ```
 cargo test --workspace --profile quick   # ~35 s at rest; the dev profile is far slower on the corpus tests
 scripts/probe.sh <program>               # every verdict for one program (~10 s)
-scripts/fast.sh [--lint] [walk|loop]     # per change: the gates a change can move (35 s to ~2 min)
-scripts/gates.sh [--snapshot] > gates.log 2>&1   # the milestone run (~15 min); --snapshot frees this checkout
+scripts/fast.sh [--lint] [walk|loop]     # per change: the gates a change can move (a few minutes)
+scripts/gates.sh [--snapshot] > gates.log 2>&1   # every gate: ~6 min warm (361 s, 2026-10-11), 15–30 cold;
+                                         #   --snapshot grades a commit in its own worktree
 scripts/mutant.sh <file> <old> <new> -- <check>  # prove a test load-bearing
 scripts/worktree.sh add <path> | link    # a second working copy with the gates' stores linked
 scripts/check-links.py                   # every relative Markdown link resolves
@@ -177,7 +179,7 @@ cargo xtask codegen [--kanagawa-root R]  # regenerate the AST layer from the ung
                                          #   ABI's bindings from the pinned reference's headers (libclang)
 ```
 
-The loop, and when to use which tier, is in [`../CLAUDE.md`](../CLAUDE.md).
+The loop, and when to use which tier, is in [`../AGENTS.md`](../AGENTS.md); every gate in [`gates.md`](gates.md).
 
 ### The gates
 

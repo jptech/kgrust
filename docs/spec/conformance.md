@@ -1,9 +1,17 @@
 # The Kanagawa syntax-test conformance oracle
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`). Since the extraction
+> nothing in `test/syntax/`, `syntax-test.py` or `errors.h` changed; of the
+> files cited here only `compiler/hs/app/Main.hs` did (the `list-deps` mode,
+> #136), and its citations are re-derived at the pin. §9 ("Rust harness
+> design") is the pre-implementation design; it opens with what was built,
+> and where the two differ `xtask/src/conformance.rs` is authoritative.
+
 **Normative specification for `cargo xtask conformance` in the Rust rewrite.**
 
 This document specifies, to the byte, what the reference harness
-`kanagawa/test/syntax/syntax-test.py` does, what CMake registers it to do, and what
+`third_party/kanagawa/test/syntax/syntax-test.py` does, what CMake registers it to do, and what
 corpus of assertions it evaluates. It is written so that a Rust reimplementation can be
 diffed against it line by line.
 
@@ -253,7 +261,7 @@ producer satisfies this:
 | Producer | Format | Citation |
 |---|---|---|
 | Haskell frontend, parse/desugar/typecheck errors | `Error 1: ` + megaparsec `errorBundlePretty` | `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:114` |
-| Haskell frontend, `--Werror` trip | `Error 1: Warnings treated as errors` | `compiler/hs/app/Main.hs:95` |
+| Haskell frontend, `--Werror` trip | `Error 1: Warnings treated as errors` | `compiler/hs/app/Main.hs:99` |
 | C++ backend, normal diagnostics | `Error <n> at: <file> (<line>): <msg>` | `compiler/cpp/errors.h:110` |
 | C++ backend, direct recursion report | `Error 37 …` written straight to `std::cout` | `compiler/cpp/enumerate_function_instances.cpp:1008` |
 | C++ backend, exception escape | `Error: ` + `what()`; two `what()` strings themselves start `Error 27:` / `Error 61:` | `compiler/cpp/kanagawa.cpp:257`, `compiler/cpp/ir.cpp:4914`, `compiler/cpp/ir.cpp:4964` |
@@ -351,7 +359,7 @@ The four checks run in this fixed order; the **first** one that trips calls `fai
    output, but the *rule* is the one above.
 
    The Haskell driver only ever calls `exitSuccess`/`exitFailure`
-   (`compiler/hs/app/Main.hs:100-102`, `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:117-119`),
+   (`compiler/hs/app/Main.hs:102-104`, `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:117-119`),
    so 0 and 1 are the only statuses a well-behaved run produces; a crash (signal) would
    surface as a negative `returncode` in Python and trip this rule.
 
@@ -608,7 +616,7 @@ runtime.
 
 ```json
 {
- "source": "kanagawa/test/syntax/CMakeLists.txt:76-147",
+ "source": "third_party/kanagawa/test/syntax/CMakeLists.txt:76-147",
  "count": 72,
  "default_options": ["--jobs=1", "--Wno-redundant-import", "--base-library=<SRC>/library/mini-base.k", "--import-dir=<SRC>/library"],
  "trailing_argv": ["--place-iterations=1", "--import-dir", "<SRC>/test/syntax", "syntax_test_temp_file.k"],
@@ -928,7 +936,7 @@ there are no stale codes in the corpus.
 
 * The only two `"Error "` string literals in `compiler/hs/` are
   `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:114` (`"Error 1: "`) and
-  `compiler/hs/app/Main.hs:95` (`"Error 1: Warnings treated as errors"`).
+  `compiler/hs/app/Main.hs:99` (`"Error 1: Warnings treated as errors"`).
 * `grep -rn 'CompileError::SyntaxError' compiler/cpp/` returns **nothing** — the C++
   side never emits code 1 either, so 1 is unambiguously "the frontend rejected it".
 
@@ -1285,6 +1293,32 @@ false regression.
 
 ## 9. Rust harness design
 
+> **As built (2026-10-11).** `cargo xtask conformance` (`xtask/src/conformance.rs`)
+> keeps §9's semantics — one verdict per assertion, named
+> `syntax::<test>::<index>`, §9.4's partition, §9.5's warning order — but not its
+> machinery:
+>
+> * **No libtest-mimic.** The xtask is its own runner: it fans the snippets out
+>   over threads, a `Db` each (`--jobs`; `--jobs 1` is the one-`Db` loop in
+>   corpus order) and prints a summary; `cargo xtask strict-ledger` records the
+>   verdict per assertion, which `cargo xtask ratchet` grades against
+>   `baseline.json`.
+>   `--filter`, `--list`, `--strict` and `--max-failures` replace libtest's
+>   flags.
+> * **No `--reference` mode** (§9.6). Its two jobs are done by `cargo xtask
+>   repoint`, which runs upstream's own `syntax-test.py` against the compat
+>   `kanagawa`, and `cargo xtask errors`, which grades our first error's
+>   position and message against the reference frontend's (`kg-oracle`).
+> * **A backend now exists.** Goal 3 and §9.4's premise — "the Rust rewrite
+>   has no C++ backend" — no longer hold: `kg build` and the compat binary
+>   link the reference's own backend (`kg-backend-sys`, `kg-ptbridge`).
+>   `conformance` itself still runs the frontend alone, so an `expected:n≥2`
+>   assertion still grades as §9.4's "frontend-clean" form there; `cargo xtask
+>   backend` grades those codes through the real backend.
+> * Since `FRONTEND_COMPLETE` (2026-10-10) an assertion the frontend cannot
+>   decide is a failure, not undecidable, so the plain run and `--strict`
+>   grade alike.
+
 ### 9.1 Goals
 
 1. **Bit-exact oracle semantics** — same markers, same regexes, same precedence, same
@@ -1293,7 +1327,8 @@ false regression.
    named, independently reportable, independently `--exact`-runnable tests (2922 with
    `basics.k`). This is strictly *more* information than the reference, which aborts a
    file at its first failure.
-3. **Runs without a C++ backend**, which the Rust rewrite does not have.
+3. **Runs without a C++ backend**, which the Rust rewrite did not have when this was
+   written (it links the reference's now; see the box above).
 4. **Optional `--reference` mode** that shells out to a real `kanagawa` binary and
    reproduces the reference verdicts exactly, for differential testing.
 
@@ -1360,8 +1395,9 @@ model it that way rather than as a separate variant, or you will drop 79 error c
 
 ### 9.4 Frontend-only mode (default)
 
-The Rust rewrite has a frontend and no C++ backend, so partition the assertions by what
-is decidable:
+The Rust rewrite had a frontend and no C++ backend when this was written (it links the
+reference's backend now, for `kg build`; `conformance` still runs the frontend alone), so
+partition the assertions by what the frontend can decide:
 
 | `Expect` | frontend-only verdict | count (registered) |
 |---|---|--:|
@@ -1402,7 +1438,7 @@ Effective frontend-only coverage: **2516 / 2516 assertions runnable**, of which 
 reference as "first stdout line matching the regex". In the Haskell compiler that order is
 produced by `makeErrorBundles`, which groups by source file with `NE.groupBy` and sorts
 within a group by byte offset (`compiler/hs/lib/Language/Kanagawa/Error.hs:168-169`),
-then prints bundle by bundle (`compiler/hs/app/Main.hs:92-93`). The Rust frontend must
+then prints bundle by bundle (`compiler/hs/app/Main.hs:96-97`). The Rust frontend must
 therefore sort warnings by `(file-group-in-emission-order, byte offset)` before taking the
 first. All 23 non-`0`, non-empty warning markers in the corpus have exactly one warning
 kind in play, so this only matters for future tests — but implement it, and add a

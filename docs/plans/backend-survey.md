@@ -11,14 +11,14 @@ is not emitted directly (`roadmap.md`, "Decisions, 2026-09-06") — and on
 2026-10-11 the backend was "measured only, not worked on" (`performance.md`
 §13). §6 is what reopening either would take.*
 
-Sources: four read-only audits of `kanagawa/compiler/cpp` (the optimizer
+Sources: four read-only audits of `third_party/kanagawa/compiler/cpp` (the optimizer
 and data-flow passes; the flow, the CIRCT output and placement; the API; a
 rewrite's feasibility, with the Rust/MLIR ecosystem), each claim cited
 `file:line`, the consequential ones re-read by the lead; and `sample`
 profiles of the backend worker under `kg build` (`-O 2`, 3000 placement
 iterations), raw in
 [`measurements/2026-10-11/backend-profile/`](../measurements/2026-10-11/backend-profile/).
-Paths below are `kanagawa/compiler/cpp/` unless given.
+Paths below are `third_party/kanagawa/compiler/cpp/` unless given.
 
 ## 1. The picture
 
@@ -178,7 +178,7 @@ breaking that identity. Two exceptions, both owner decisions: coarser
 source locations (each operation carries a call stack of up to 64 frames
 into the MLIR, its verification and the output's comments — cheaper, but
 the comments would no longer match the reference's, §8 of
-`sprint-parity.md`'s source-locations bar); and process-level choices —
+`../history/sprint-parity.md`'s source-locations bar); and process-level choices —
 the cache, parallel builds, a background backend. (Freeing the frontend's
 memory before `Codegen` does not bear on `risc-v.k`: our backend runs in
 its own process.)
@@ -236,6 +236,25 @@ pointed at two libraries rather than at the reference. Exact changes keep
 library, so a patched library must be built for both sides, or kept to our
 side with the reference's recorded outputs as the oracle.
 
+## 6. For the maintainer
+
+1. **Is the backend in scope?** Today it is "measured only". Taking it up
+   means C++ changes, best upstreamed to `microsoft/kanagawa`, otherwise a
+   local patch set on the submodule's backend that `scripts/build-backend.sh` builds, rebased as upstream moves.
+2. **If so, in this order** (lead's recommendation): the whole-run cache in
+   `kg build` (no backend change); the `release` channel (*done
+   2026-10-11: `scripts/build-backend.sh`'s default, §7*); a–c with the
+   patched-against-unpatched gate (§5); then `BitConstantPropagation`
+   (which may also make `risc-v.k` buildable), branch-and-bound and the
+   scheduler; MLIR threading after.
+3. **Moving the reference pin** to upstream's current backend first (three
+   commits, one changing the SV), so fixes are upstreamed against what
+   upstream has.
+4. **No Rust rewrite** of the backend; the conditions above to revisit.
+5. **Source locations**: coarser locations would ease the output stage but
+   change the RTL's comments — part of the source-locations decision
+   already open.
+
 ## 7. Later the same day: the release channel, measured
 
 `scripts/build-backend.sh` builds the library as upstream ships it
@@ -259,21 +278,3 @@ same sources:
   percent (§1); on `risc-v.k` the local channel's 2,629 s against ~4–5
   minutes says they, or their interaction with the address-ordered passes,
   dominated there — not separated.
-
-## 6. For the owner
-
-1. **Is the backend in scope?** Today it is "measured only". Taking it up
-   means C++ changes, best upstreamed to `microsoft/kanagawa`, otherwise a
-   local patch set on `kanagawa-build` that we rebase.
-2. **If so, in this order** (lead's recommendation): the whole-run cache in
-   `kg build` (no backend change); the `release` channel; a–c with the
-   patched-against-unpatched gate (§5); then `BitConstantPropagation`
-   (which may also make `risc-v.k` buildable), branch-and-bound and the
-   scheduler; MLIR threading after.
-3. **Moving the reference pin** to upstream's current backend first (three
-   commits, one changing the SV), so fixes are upstreamed against what
-   upstream has.
-4. **No Rust rewrite** of the backend; the conditions above to revisit.
-5. **Source locations**: coarser locations would ease the output stage but
-   change the RTL's comments — part of the source-locations decision
-   already open.

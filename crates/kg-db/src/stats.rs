@@ -5,7 +5,7 @@
 //! The counters are the instrument the query layer's mechanisms are graded
 //! by before any of them is built: "a body edit misses `item_tree` once and
 //! `program` never" is a unit test over [`Stats`], not a timing
-//! (`docs/plans/sprint-parity.md` W7.1). They are always on: an atomic add
+//! (`docs/history/sprint-parity.md` W7.1). They are always on: an atomic add
 //! per query and two clock reads per miss, against a miss that parses,
 //! lowers or elaborates.
 //!

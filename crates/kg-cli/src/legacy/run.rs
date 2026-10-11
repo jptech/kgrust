@@ -301,7 +301,7 @@ fn pretty(opts: &LegacyOptions, prog: &str, out: &mut dyn Write, err: &mut dyn W
 /// code.
 ///
 /// The command-line files are the program's **roots**, exactly as
-/// `Main.hs:70,76` merges them into one program: `Db::check` follows their
+/// `Main.hs:70,80` merges them into one program: `Db::check` follows their
 /// imports and the implicit base, so a diagnostic can belong to a file that was
 /// never named on the command line, and is rendered against that file's own
 /// source.

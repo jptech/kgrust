@@ -210,7 +210,7 @@ const PHASE_FILES: &[&str] = &["test/library/processor/risc-v.k", "test/library/
 /// phase that took any (`kg_db::stats`; the editor's loop times its own on
 /// its thread), and every query that missed. One pass, not a median: the
 /// rows are for reading where the time goes, and the machine is bimodal
-/// under load (`CLAUDE.md`).
+/// under load (`docs/gates.md`, `bench`).
 fn phases_table(kanagawa_root: &Path) -> Result<()> {
     let kanagawa_root = &kanagawa_root.canonicalize()?;
     let programs = crate::ptrace::programs(kanagawa_root)?;

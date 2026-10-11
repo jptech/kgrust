@@ -1,5 +1,14 @@
 # Kanagawa Type System — Implementation Specification
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`), and nothing this spec
+> cites changed in between (upstream added the `list-deps` mode and
+> `hw.typealias` emission, outside the type system). §14 ("Proposed Rust
+> representation") is pre-implementation design; as built, the type model is
+> `kg-ty` and inference, deduction, the fixpoint and the checks after
+> instantiation are `kg-sem` (§14.4's note). Where §14 and the code differ,
+> `crates/kg-ty/src/lib.rs` and `crates/kg-sem/src/lib.rs` are authoritative.
+
 Extracted from the reference compiler at `third_party/kanagawa` (read-only).
 Every claim below carries a `path:line` citation. Anything not directly citable is marked
 **UNVERIFIED**.
@@ -1814,6 +1823,15 @@ Implementation notes:
   as Haskell's `Eq` is authoritative.
 
 ### 14.4 Suggested module split
+
+> **As built (2026-10-11).** `kg-ty` holds the type model — `ty`, `width`,
+> `subtype`, `convert`, and the node key (`table`). Inference is `kg_sem`, over
+> `kg-hir`'s IR: `kg_sem::infer` (the per-node synthesis and the fixpoint),
+> `kg_sem::deduce`, `kg_sem::census` and `kg_sem::elaborate` (the round-based
+> template loop) and `kg_sem::check` (the checks after instantiation). The CST
+> inference engine, `kg-cst-infer`, which the `kg_cst_infer` row below names, was
+> deleted in sprint W3.7; there is no `kg_ty::infer`, `kg_ty::fixpoint` or
+> `kg_ty::check`. Constant folding is `kg-const` and `kg_hir::constexpr`.
 
 | Rust module | Reference source |
 |---|---|

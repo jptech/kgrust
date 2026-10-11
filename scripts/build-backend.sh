@@ -18,10 +18,10 @@
 #
 # Needs CMake ≥ 3.30, Ninja, a C++17 compiler and Boost ≥ 1.88 (headers
 # only; `brew install cmake ninja boost`, or your distribution's packages).
-# The first build compiles LLVM, MLIR and CIRCT: about an hour on 16 cores,
-# ~2.5 GB of sources fetched (shallow) and ~15 GB of build tree. Later builds
-# are incremental. Nothing is written inside the submodule but its own
-# nested submodules' checkouts.
+# The first build compiles LLVM, MLIR and CIRCT: about half an hour on 16
+# cores (28 min measured 2026-10-11), ~2.5 GB of sources fetched (shallow)
+# and ~15 GB of build tree. Later builds are incremental. Nothing is written
+# inside the submodule but its own nested submodules' checkouts.
 #
 # Then use it: `export KG_BACKEND_DIR=$PWD/target/backend/dist/bin`, or
 # `cargo xtask dist`, which packages it beside `kg`.

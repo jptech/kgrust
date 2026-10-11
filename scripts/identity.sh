@@ -1,7 +1,7 @@
 #!/bin/zsh
-# The cross-build identity check as one command (CLAUDE.md, "How a piece of
-# work goes", step 5; sprint W6): every corpus root's elaborated fingerprint
-# — types, trajectories, every fixpoint's unresolved counts
+# The cross-build identity check as one command (AGENTS.md: an optimisation
+# or a refactor lands exact or not at all): every corpus root's elaborated
+# fingerprint — types, trajectories, every fixpoint's unresolved counts
 # (`kg_db::looped::fingerprint`) — as this checkout builds it and as
 # <commit> builds it, compared file by file.
 #

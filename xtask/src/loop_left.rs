@@ -1,6 +1,6 @@
 //! `cargo xtask loop-left`: what the program-wide loop leaves undecided, and
 //! how many rounds it takes, root by root against the reference's own loop
-//! (`docs/plans/sprint-parity.md` W0.1, W0.2, W0.6).
+//! (`docs/history/sprint-parity.md` W0.1, W0.2, W0.6).
 //!
 //! **The settings are the recorded compile's.** Each root is elaborated as
 //! `ptdiff` and `backend` compile it — `--import-dir library`, the default
@@ -78,7 +78,7 @@ pub fn run(kanagawa_root: &Path, filter: Option<&str>, verbose: bool) -> Result<
         anyhow::bail!("nothing to grade ({unrecorded} roots unrecorded, {stale} stale) — run `cargo xtask ptrace` first");
     }
 
-    // Ours: a `Db` per thread, as every corpus gate (`CLAUDE.md`).
+    // Ours: a `Db` per thread, as every corpus gate (`docs/gates.md`).
     let ours = fan_out(&work, 8, |db: &mut Option<(kg_db::Db, Vec<String>)>, p| {
         let (db, current) = db.get_or_insert_with(|| (kg_db::Db::new(settings_for(kanagawa_root, &p.options)), p.options.clone()));
         if *current != p.options {

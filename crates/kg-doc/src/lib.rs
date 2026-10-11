@@ -2,8 +2,8 @@
 //! writes.
 //!
 //! The comments are the reference's: `//|` before a declaration and `//<`
-//! after it, in Pandoc's Markdown (`kanagawa/doc/sandcastle.md`), read by
-//! [`kg_syntax::file_docs`] — the same reading the editor's hover shows. The
+//! after it, in Pandoc's Markdown (`third_party/kanagawa/doc/sandcastle.md`),
+//! read by [`kg_syntax::file_docs`] — the same reading the editor's hover shows. The
 //! page structure is the reference generator's (`model`); the output is a
 //! static site with no external assets: an index of modules, a page per
 //! module, a stylesheet with light and dark themes, and a search over every

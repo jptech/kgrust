@@ -1,11 +1,24 @@
 # Kanagawa frontend → backend C ABI — implementation specification
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`). Of the files cited
+> here only `compiler/hs/app/Main.hs` changed since (the `list-deps` mode,
+> #136), and its four citations are re-derived at the pin; `parse_tree.h`,
+> `options.h` and the rest of the backend boundary did not change (#121's
+> `hw.typealias` work is in `circt_util.cpp` and `verilog.cpp`, which this
+> spec does not cite). §11.2 and §14 were written before the code; §14 is
+> built now (its "As built" notes), and where the design and the crates
+> differ, the crates' `lib.rs` are authoritative.
+
 Reference tree: `third_party/kanagawa` (read-only).
 All `path:line` citations below are relative to that root unless already absolute.
 
 This document is the authoritative contract that the Rust crates `kg-ptbridge`
-(safe wrapper), `kg-backend-sys` (raw bindings) and `tools/ptrace` (call
-interposer) must reproduce bit-for-bit.
+(the walk into the ABI, behind a `Backend` trait), `kg-backend-sys` (raw
+bindings and the `Options` marshalling), `kg-ptrace` (the call interposer
+that records the reference), `kg-pttrace` (the trace format both sides
+write) and `kg-abi-gen` (bindgen over the headers, for the checked-in
+bindings and the interposer's build script) must reproduce bit-for-bit.
 
 ---
 
@@ -27,7 +40,7 @@ interposer) must reproduce bit-for-bit.
 | 11 | The 18 `undefined` node kinds |
 | 12 | `InitCompiler` / `Codegen` / `Compiler::Reset` and the N+1 passes |
 | 13 | `errors.h` code table (JSON) |
-| 14 | `tools/ptrace` interposer design |
+| 14 | The `kg-ptrace` interposer: design, and what was built |
 | 15 | Open questions |
 
 ---
@@ -78,7 +91,7 @@ three plus a comment at `compiler/cpp/internal_tests.cpp:2509`).
 `compiler/cpp/parse_tree.h:26-32`. `EXPORT_API` is defined **only** for MSVC
 (`compiler/cpp/CMakeLists.txt:88-91`). No `-fvisibility=hidden` is set anywhere
 in the build, so on ELF/Mach-O every symbol is default-visibility and
-interposable. This is what makes the `tools/ptrace` design in §12 possible.
+interposable. This is what makes the interposer of §14 (`crates/kg-ptrace`) possible.
 
 ### 0.2 Scalar type mapping (LP64 / x86-64 SysV and AArch64 AAPCS64, verified by compilation)
 
@@ -113,7 +126,7 @@ Every node also carries a monotonic `_sequenceNumber` assigned from the global
 `compiler/cpp/parse_tree.cpp:1193-1194`), *"a number that uniquely identifies
 this node ... Useful for sorting nodes in a way that doesn't change based on
 pointers returned from the heap"* (`compiler/cpp/parse_tree.h:1791-1794`). This
-is the backend's own logical-id scheme and is the model for §12's trace ids.
+is the backend's own logical-id scheme and is the model for §14.2's trace ids.
 
 `NULL` is a legal argument almost everywhere and is used by the Haskell side to
 mean "absent". The complete list of `nullPtr` uses in the front-end walk:
@@ -148,8 +161,8 @@ the backend library.
 > **Discrepancy with the plan.** The plan text says "87 forwarders". The
 > verified count is 85 (`parse_tree.h`) or 86 (including `InternalTests`).
 > There is no 87th `extern "C"` symbol in the tree. See §14.3 for how
-> `tools/ptrace` should derive the number from the bindgen AST rather than
-> hard-coding it.
+> the interposer (`crates/kg-ptrace`) derives the number from the bindgen AST
+> rather than hard-coding it.
 
 The Haskell front end imports **82** of them
 (`grep -c '^foreign import ccall' compiler/hs/app/ParseTree/FFI.hs` → 82).
@@ -769,7 +782,7 @@ promote to `f64`.
 
 ## 5. The internal-caller graph — what an interposer can and cannot see
 
-This is the single most important fact for `tools/ptrace`: **the backend calls
+This is the single most important fact for the interposer (`crates/kg-ptrace`): **the backend calls
 its own `extern "C"` entry points**, so a trace of the shared-library boundary
 sees a mixture of front-end-originated calls and backend-internal recursion,
 and the two are not distinguishable from the call itself.
@@ -882,7 +895,7 @@ They are **not** exported with C linkage (they take `std::string`), so an
 interposer cannot hook them — but it *will* observe the three/four inner ABI
 calls each of them makes.
 
-### 5.4 Consequences for `tools/ptrace`
+### 5.4 Consequences for the interposer (`crates/kg-ptrace`)
 
 1. A trace contains strictly more calls than the front end made. Any
    differential test between the Haskell front end and `kg-ptbridge` must
@@ -1534,7 +1547,7 @@ pass pipeline is contractually required to have eliminated by the time
 | 4 | 78 | `Capture _ _` | `CaptureF QualifiedName a` | `Syntax.hs:524-528` | lambda desugaring: `makeCapture` turns each `Capture` into a `NamedValueF` argument (`Function.hs:159-160`), driven by `desugarLambdas` (`Function.hs:189`) |
 | 5 | 83 | `Decltype{}` | `DecltypeF QualifiedName a` | `Syntax.hs:513-517` | `Constexpr.hs:304-305`; `infer (DecltypeF _ a) = TType (typeOf a)` (`Type.hs:1198`) |
 | 6 | 88 | `EnumConstant _ _ Nothing` | `EnumConstantF { constValue = Nothing }` | `Syntax.hs:471-476` | `reifyEnums` fills every missing `constValue` with `0` or `prev+1` (`Frontend.hs:195-208`, scheduled at `Frontend.hs:72`) |
-| 7 | 91 | `Error{}` | `ErrorF e` | `Syntax.hs:583` | never reaches codegen: `Main.hs:81-83` exits on `desugarErrors`, and `checkPar` short-circuits the pass pipeline on `hasErrorSymbol` (`Frontend.hs:48-52`) |
+| 7 | 91 | `Error{}` | `ErrorF e` | `Syntax.hs:583` | never reaches codegen: `Main.hs:85-87` exits on `desugarErrors`, and `checkPar` short-circuits the pass pipeline on `hasErrorSymbol` (`Frontend.hs:48-52`) |
 | 8 | 126 | `Lambda{}` | `LambdaF{…}` | `Syntax.hs:564-571` | `desugarLambdas` (`Function.hs:189-217`) replaces each lambda with a capture-struct alias + a `LambdaFunction` `FunctionF` + a `Closure` cast (`Function.hs:236-247`, `Function.hs:162-170`); `infer LambdaF{} = TUnresolved` (`Type.hs:1231`) |
 | 9 | 134 | `ParamInt{}` | `ParamIntF a` | `Syntax.hs:308` | `Constexpr.hs:298-300` reduces `int<N>` to `IntegerF n`; residue → `Frontend.hs:404` |
 | 10 | 135 | `ParamUint{}` | `ParamUintF a` | `Syntax.hs:312` | `Constexpr.hs:301-303`; residue → `Frontend.hs:405` |
@@ -1784,7 +1797,7 @@ epoch-scoped (§14.2).
 `Compiler::~Compiler` (`compiler/cpp/compiler.cpp:20-30`) frees the permanent
 list first, then the temporary list, and asserts `_functionNodes.empty()`. The
 front end never calls a destructor — the process simply exits
-(`compiler/hs/app/Main.hs:100-102`).
+(`compiler/hs/app/Main.hs:102-104`).
 
 ---
 
@@ -1834,8 +1847,8 @@ error when `GetCodeGenConfig()._warningsAsErrors` is set.
 Code **1 `SyntaxError`** has no C++ raise site; it belongs to the Haskell front
 end, whose only literal use is
 `exitError "Error 1: Warnings treated as errors"`
-(`compiler/hs/app/Main.hs:95`); parse/desugar diagnostics are rendered by
-megaparsec bundles (`compiler/hs/app/Main.hs:83`, `:93`).
+(`compiler/hs/app/Main.hs:99`); parse/desugar diagnostics are rendered by
+megaparsec bundles (`compiler/hs/app/Main.hs:87`, `:97`).
 
 Codes with **zero** C++ raise sites (reserved or front-end-only): 1
 `SyntaxError`, 4 `UnknownType`, 8 `MultipleMemoryWrites`, 10
@@ -1956,7 +1969,7 @@ of the rendered message (later `<<` operands interpolate names, widths, etc.).
 
 ---
 
-## 14. Design: the `tools/ptrace` interposer
+## 14. Design: the `kg-ptrace` interposer
 
 Goal: capture the **exact** sequence of C-ABI calls the reference Haskell front
 end makes into `libkanagawa-backend`, so that `kg-ptbridge` can be
@@ -1964,8 +1977,17 @@ differentially tested against it on the whole corpus. The interposer is a shim
 shared library that exports every backend symbol, logs the call, forwards to the
 real implementation, logs the result, and returns it.
 
-Everything in this section is a *design proposal* for `kgrust`; only the facts
+This section was written as a design proposal, before the code; only the facts
 about the reference tree it relies on are cited.
+
+> **As built (2026-10-11).** The interposer is `crates/kg-ptrace`, installed
+> by rename-and-shim (§14.4) in a directory `cargo xtask ptrace` lays out; the
+> trace format is `crates/kg-pttrace`, shared with the bridge's trace backend
+> so the two writers cannot drift; `cargo xtask ptdiff` compares them. Two
+> departures from §14.1: the `Options` argument renders as `<opts>`, not a
+> hash of the struct (its padding and three fields are indeterminate, §3.2),
+> and `#options` lists the fields by name. Where this section and those
+> crates' `lib.rs` differ, the crates are authoritative.
 
 ### 14.1 Trace line format
 
@@ -2055,7 +2077,7 @@ contain (85 + 1 today, §1).
 kgrust/crates/kg-backend-sys/
   build.rs
   wrapper.h                 // #include "parse_tree.h"  #include "internal_tests.h"
-kgrust/tools/ptrace/
+kgrust/tools/ptrace/         // built as crates/kg-ptrace
   build.rs                  // reuses the same bindgen invocation
   src/lib.rs                // include!(concat!(env!("OUT_DIR"), "/forwarders.rs"))
 ```

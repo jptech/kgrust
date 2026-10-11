@@ -1,5 +1,13 @@
 # Kanagawa Lexical Specification (extracted from the reference compiler)
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`), and nothing this spec
+> cites changed in between (upstream added the `list-deps` mode and
+> `hw.typealias` emission, outside the lexer). §13 ("Proposed Rust
+> `SyntaxKind` mapping") is pre-implementation design; where it and the code
+> differ, `crates/kg-parser/src/lib.rs` and `crates/kg-syntax/src/lib.rs` are
+> authoritative.
+
 Status: implementation spec for the Rust rewrite (`kgrust`).
 Reference tree: `third_party/kanagawa` (read-only).
 

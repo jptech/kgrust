@@ -9,7 +9,7 @@
 //! equally bad:
 //!
 //! * **false alarm** — we reject what the reference accepts. An invented
-//!   error on a correct program; `CLAUDE.md` "fail toward silence" is about
+//!   error on a correct program; `AGENTS.md` "fail toward silence" is about
 //!   exactly this, and it is the worst thing either instrument can report.
 //! * **ours silent** — we accept what the reference rejects. The scoreboard
 //!   books this undecidable; it is honest, and it is work, not a lie.

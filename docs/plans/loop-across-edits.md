@@ -3,7 +3,7 @@
 *Part of the [plans](README.md). Drafted 2026-09-27; **reviewed by the
 owner 2026-10-10: run §5's measurement, then follow its rule** — build D1
 in §6's order if it keeps most of the library's work on most edits, drop
-it with the number recorded if not. D2 is dropped (`sprint-parity.md` §8).
+it with the number recorded if not. D2 is dropped (`../history/sprint-parity.md` §8).
 **Measured the same day (§5, "Measured 2026-10-10"): D1 pays, on one
 condition — positions in the edited file carried through the edit. It is
 to be built in §6's order; step 1's design is written there. Step 1 built
@@ -22,10 +22,10 @@ is keyed on the program, the program is rebuilt on any item tree's
 pointer, and the loop — passes 1–7 and every round of pass 8 over every
 module — runs again from nothing. `risc-v.k`'s keystroke is 1.7 s,
 `array.k`'s 0.38 s (`cargo xtask bench --filter phases`, the W7.4 agent's
-reading, 2026-09-27, a loaded machine); the target in `ir-elaboration.md`
+reading, 2026-09-27, a loaded machine); the target in `../history/ir-elaboration.md`
 §3 was ≤ 400 ms after M5 and ≤ 100 ms after M6.
 
-`ir-elaboration.md` §3.2 imagined a module's round as a function of its
+`../history/ir-elaboration.md` §3.2 imagined a module's round as a function of its
 own IR, the registry entries it is home to and its imports' interfaces,
 skipped when those are unchanged. W7.5 measured that premise before
 designing on it.
@@ -134,7 +134,7 @@ once, with less saved when it fails. Not recommended.
 
 ### D3 — copies keyed by content
 
-`ir-elaboration.md` §3.5: a copy is made and typed once per `(template's
+`../history/ir-elaboration.md` §3.5: a copy is made and typed once per `(template's
 declaration fingerprint, arguments, the environment its body reads)`,
 across runs; the rounds still run. It saves the copying and the typing of
 copies — `instantiate` is 0.59 s of `risc-v.k`'s 5.18 s — and none of the
@@ -711,7 +711,7 @@ full `edit-identity` at every step.
   until the next reaches its fixpoint. The condition is efficiency:
   the program a run holds must stay lean for twice it to be cheap. A
   check tracking memory across use cases — a batch `kg check`, `kg
-  build`'s frontend, the editor after keystrokes — is being added on main
+  build`'s frontend, the editor after keystrokes — was added the same day
   as `cargo xtask mem`, so D1's cost stays visible.
 
 ## 8. After step 3: the ceiling, the levers, and the substrate
@@ -731,7 +731,7 @@ keystroke-phases --recorded`), that is roughly 0.5 s and 1.2–1.3 s — an
 estimate by arithmetic, not a measurement, and an upper bound on the
 saving, since the work outside the loop does not shrink with it.
 
-So D1 continued cannot reach `ir-elaboration.md` §3's 400 ms on the real
+So D1 continued cannot reach `../history/ir-elaboration.md` §3's 400 ms on the real
 project by itself, and cannot reach 100 ms at all: the edited module's own
 rounds and the whole-program steps stay. The bench's keystroke (379 ms,
 `rooted_settings`, a smaller program) meets 400 ms; the project's does not.
@@ -740,7 +740,7 @@ rounds and the whole-program steps stay. The bench's keystroke (379 ms,
 
 1. **Step 4, the symbol maps** (§6). At most 6.5% of the loop; planned,
    well understood, low risk.
-2. **Parallel rounds** (`sprint-parity.md` W5.6; `ir-elaboration.md` §3
+2. **Parallel rounds** (`../history/sprint-parity.md` W5.6; `../history/ir-elaboration.md` §3
    item 3). Not built: the loop runs on one core. Within a round the
    per-module passes are independent given the round's starting state,
    which would speed `kg check` and the editor alike and is independent of
@@ -786,7 +786,7 @@ re-askable reads, reviewed before anything is built.
 
 ### The substrate: salsa or hand-rolled
 
-`sprint-parity.md` §8 has this as the owner's, hand-rolled meanwhile.
+`../history/sprint-parity.md` §8 has this as the owner's, hand-rolled meanwhile.
 Re-examined here because re-askable reads is where the two meet.
 
 - **What the hand-rolled layer is.** `kg-db/src/db.rs` keeps salsa's
@@ -838,7 +838,7 @@ of salsa's developer-experience benefit without the migration.
   and typed per `(template, arguments)` as queries (D3 grown up), is
   salsa-shaped, and there salsa would pay;
 - `edit-identity` or `shadow` start finding missed inputs regularly (the
-  trigger `sprint-parity.md` §8 already names; none so far);
+  trigger `../history/sprint-parity.md` §8 already names; none so far);
 - keeping the hand-written keys becomes the bottleneck of adding queries.
 
 ### For the owner (2026-10-11)

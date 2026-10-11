@@ -25,7 +25,7 @@
 //! several.
 //!
 //! Merging every root into a single root set is what `kg check a.k b.k` does
-//! (`Main.hs:70,76`), and it is the wrong model for an editor and wrong for a
+//! (`Main.hs:70,80`), and it is the wrong model for an editor and wrong for a
 //! search: two unrelated designs each declare a top-level `main`, which merged
 //! would collide in the one [`kg_db::SymbolMap`], and every file with no
 //! `module` header shares one namespace, so merged each would resolve the
@@ -1017,7 +1017,7 @@ inline void main()
     /// program — `extra`'s, where its `twice` is `extra`'s — it holds no use.
     /// Rooted with the declaring file, as one program over the workspace
     /// would root it, the name would reach `helper.k`'s through that shared
-    /// namespace (`Main.hs:70,76`, `Symbols.hs:37-41`) and be reported. Red
+    /// namespace (`Main.hs:70,80`, `Symbols.hs:37-41`) and be reported. Red
     /// with each file searched under the cursor's file and itself together.
     pub(crate) const TRAP: &[(&str, &str)] = &[
         ("helper.k", HELPER),

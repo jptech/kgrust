@@ -6,7 +6,7 @@
 //! note. [`value`] computes the same literal bottom-up without rewriting —
 //! what the census, the mangler, a copy's `static if` and the backend walk
 //! need — and every rule is a function of *values*, so the rewriting
-//! inference of `docs/plans/ir-elaboration.md` (§2.2) calls the same rules
+//! inference of `docs/history/ir-elaboration.md` (§2.2) calls the same rules
 //! node by node.
 //!
 //! What a subtree cannot say by itself — a template parameter's binding, a

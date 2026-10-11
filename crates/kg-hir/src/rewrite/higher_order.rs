@@ -11,7 +11,7 @@
 //! inline uint32 Go(Closure<(Do$capture, uint32) -> uint32, Do, Do$capture> Do, uint32 x) { … }
 //! ```
 //!
-//! Every lambda the twin desugars is a `cast<Closure<decltype(f), f,
+//! Every lambda `desugarLambdas` rewrites is a `cast<Closure<decltype(f), f,
 //! capture>>(…)` (`rewrite::lambdas`), and the call `Go(fn, x)` then deduces
 //! `Do$capture` from the closure's capture and `Do` from its function
 //! (`deduceType` over `Closure<…>` against `TInstance`, `Type.hs:1532-1533`,
@@ -25,8 +25,9 @@
 //!   `TemplateF (concatMap templateParams functionTypeParams) function` when
 //!   inline (`:321`), and `desugarError "Non-inline higher order functions
 //!   are not supported"` otherwise (`:322`). The error is pass 2's own report
-//!   in `kg-db`; here a non-inline one is left as written, since the twin
-//!   would print an error node it cannot reparse.
+//!   in `kg-db`; here a non-inline one is left as written — a choice made
+//!   while the twin (deleted since) printed this IR back to source, where an
+//!   error node could not be reparsed.
 //! * `TemplateF p1 (Template p2 e)` — a function that was already a template —
 //!   is `mergeTemplateParams p1 p2 e` (`:266-280`): `p2`'s parameters after
 //!   `p1`'s, their indexes offset by `length p1`, and every `TypeParam` in

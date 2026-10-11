@@ -43,10 +43,9 @@
 //!
 //! # What it cannot see
 //!
-//! * Only syntax-suite snippets, under their own ctest flags; whole corpus
-//!   programs (`test/library/…`) are not mutated, and snippets whose flags
-//!   the oracle driver cannot take (`--define`, `--using`, `--target-device`,
-//!   `--Werror`) are never bases.
+//! * Only syntax-suite snippets, under their own ctest flags (handed to the
+//!   oracle by `errors::oracle_args`, which takes every flag the suite uses); whole
+//!   corpus programs (`test/library/…`) are not mutated.
 //! * Only the first error per side, as in `errors`.
 //! * The oracle is the reference's frontend, not its backend: a check the
 //!   reference makes only in code generation reads as a false alarm unless

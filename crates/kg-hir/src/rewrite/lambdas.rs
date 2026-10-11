@@ -1593,7 +1593,7 @@ mod tests {
         assert_eq!(scope_of(&ir, &interner, top[0]), Vec::<String>::new());
     }
 
-    /// **Donor test** (`CLAUDE.md`): the `Closure` cast's arguments spell the
+    /// **Donor test** (`docs/gates.md`): the `Closure` cast's arguments spell the
     /// same qualifier `f::$` three times with two different donors, and inside
     /// one `ScopedName` the chain and the leaf disagree. Read off `--notes`
     /// for `[p, q]` (CAPS = the capture list's `Src`, NAME = the `declName`'s):

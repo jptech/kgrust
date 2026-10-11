@@ -3,7 +3,7 @@
 Status: **plan 2026-09-26; mostly done 2026-09-27** (§10 the progress,
 §11 the standing against the reference, §13 a whole build by phase and
 by round, with the optimisations triaged). What is left — Step 3's deferred
-items and Step 4 — continues in [`sprint-parity.md`](sprint-parity.md)
+items and Step 4 — continues in [`../history/sprint-parity.md`](../history/sprint-parity.md)
 W5 and W0.2. Written after the twin's
 deletion, when the program-wide instantiation loop (`kg_sem::elaborate`)
 became the only elaboration — and, measured, almost all of the frontend's
@@ -60,7 +60,7 @@ Two structural facts behind the numbers:
   computation: the loop's final trees and types must be **byte-identical**
   before and after (§3.6's identity gate), and every ratchet neutral. A step
   that changes a result is a bug in the step, not a trade.
-- **The bench stays a tripwire** (`CLAUDE.md`). These steps are scheduled
+- **The bench stays a tripwire** ([`gates.md`](../gates.md)). These steps are scheduled
   now because the loop's cost has become the testing loop's cost; each is
   measured before and after, interleaved, on a quiet machine.
 - **Per change, `scripts/fast.sh`**; the full gates at each step's end.
@@ -357,8 +357,8 @@ testing loop every later step uses.
 - `sample <pid> <secs>` (macOS) for the profile; the inclusive-time
   aggregation used for §1 is worth keeping as a script
   (`scripts/profile-loop.sh`), added with Step 1.
-- Before/after pairs are interleaved on a quiet machine (`CLAUDE.md`,
-  "Read absolute bench numbers with suspicion").
+- Before/after pairs are interleaved on a quiet machine
+  ([`AGENTS.md`](../../AGENTS.md), "Performance is a goal").
 - Record each step's before/after here, under the step.
 
 ## 10. Progress
@@ -882,7 +882,7 @@ Frontend, ours; ordered by what the numbers say a user would feel:
 0. **The backend** — the larger share of a whole build — is surveyed in
    [`backend-survey.md`](backend-survey.md) (2026-10-11): where each
    program's backend time goes and the options, none taken.
-1. **Multi-threading the rounds** (`sprint-parity.md` W5.6; §11's
+1. **Multi-threading the rounds** (`../history/sprint-parity.md` W5.6; §11's
    three-column table measures the reference's own gain from it). Within
    a round the per-module passes are independent given the round's
    starting state; ours run on one core. Speeds `kg check` and every

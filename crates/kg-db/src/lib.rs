@@ -62,10 +62,11 @@
 //! 241 `pass-through` assertions the reference defers to the C++ backend.
 //!
 //! They are not symmetric. **When you are unsure whether the reference rejects
-//! something, stay silent.** That asymmetry is why the `unwired` table below is
-//! as long as it is, and why the passes that need whole-program symbol
-//! resolution stayed there rather than being approximated. Build the docs with
-//! `--document-private-items` to read it rendered.
+//! something, stay silent.** That asymmetry is why the passes that need
+//! whole-program symbol resolution stayed unwired until the program-wide loop
+//! could run them, rather than being approximated. Which pass runs where is
+//! `docs/status.md`'s "Frontend passes" table (`unwired`, below, says why it
+//! lives there).
 
 pub mod complete;
 pub mod db;
@@ -145,8 +146,9 @@ pub fn check_source(text: &str) -> Vec<Diagnostic> {
 /// `checkSymbols` (`Parser.hs:216-223`), needs
 /// [`kg_resolve::find_symbol`] and belongs with pass 9.
 ///
-/// The rewrite-only passes are listed rather than omitted because their *order*
-/// still matters to whoever wires the next diagnostic-producing one.
+/// That table lists the rewrite-only passes too, rather than omitting them,
+/// because their *order* still matters to whoever wires the next
+/// diagnostic-producing one.
 mod unwired {}
 
 #[cfg(test)]

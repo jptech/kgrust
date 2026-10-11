@@ -1,11 +1,17 @@
 [package]
 name = "xtask"
-description = "The kgrust scoreboard driver: codegen, conformance, difftest, bisect, bench."
+description = "The kgrust scoreboard driver: the gates that grade the frontend against the reference, their ratchet, the instruments and codegen."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish = false
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true

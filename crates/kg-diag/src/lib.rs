@@ -9,7 +9,7 @@
 //!
 //! Reproducing the first is a hard constraint; every frontend error the
 //! reference reports is `Error 1` (`compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:114`
-//! and `compiler/hs/app/Main.hs:95`), so the *wording* is ours to improve but the
+//! and `compiler/hs/app/Main.hs:99`), so the *wording* is ours to improve but the
 //! *shape* is not.
 
 mod render;

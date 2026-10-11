@@ -4,7 +4,15 @@
   "description": "Kanagawa language support, backed by the kgrust language server.",
   "version": "0.1.0",
   "license": "MIT",
-  "engines": { "vscode": "^1.75.0" },
+  "homepage": "https://github.com/jptech/kgrust",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jptech/kgrust",
+    "directory": "editors/vscode"
+  },
+  "bugs": { "url": "https://github.com/jptech/kgrust/issues" },
+  "keywords": ["kanagawa", "hls", "hardware", "fpga", "language server"],
+  "engines": { "vscode": "^1.82.0" },
   "categories": ["Programming Languages"],
   "activationEvents": ["onLanguage:kanagawa"],
   "main": "./out/extension.js",
@@ -58,6 +66,13 @@
           "additionalProperties": { "type": "string" },
           "default": {},
           "description": "Extra environment variables for the server process."
+        },
+        "kanagawa.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "scope": "window",
+          "description": "Log the JSON-RPC conversation between VS Code and the language server to the Kanagawa Language Server output channel."
         }
       }
     },
@@ -67,5 +82,5 @@
     ]
   },
   "dependencies": { "vscode-languageclient": "^9.0.1" },
-  "devDependencies": { "@types/node": "^16.18.0", "@types/vscode": "^1.75.0", "typescript": "^5.4.0" }
+  "devDependencies": { "@types/node": "^16.18.0", "@types/vscode": "^1.82.0", "typescript": "^5.4.0" }
 }

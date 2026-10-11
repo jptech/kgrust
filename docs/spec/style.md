@@ -1,5 +1,16 @@
 # Kanagawa House Style — empirically measured, for `kg fmt`
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`). Of the files cited
+> here only `compiler/hs/app/Main.hs` changed since (the `list-deps` mode,
+> #136; the `pretty` handler did not move), and its citations are
+> re-derived at the pin. The measured corpus gained two files
+> (`test/compiler/cli/list_deps.k`, `test/interface/circt/named_type_aliases.k`);
+> the figures below are not re-measured. §11 ("Proposed `[fmt]` defaults") is
+> pre-implementation design: of its 76 knobs, seven became `[fmt]` keys (the
+> box at §11). Where this spec and the code differ, `crates/kg-fmt/src/lib.rs`
+> and `crates/kg-config/src/lib.rs` are authoritative.
+
 Status: implementation spec for the Rust rewrite (`kgrust`), crate `kg-fmt`.
 Reference tree: `third_party/kanagawa` (read-only, never modified).
 
@@ -2052,6 +2063,15 @@ class-member scope, **preserve**.
 
 ## 11. Proposed `[fmt]` defaults for `kanagawa.toml`
 
+> **As built (2026-10-11).** `[fmt]` has seven keys, spelled kebab-case
+> (`crates/kg-config/src/lib.rs`, `Fmt`): `line-width` (default `100`, as
+> `line_width` below), `indent` (`4`; `indent_width`), `use-tabs` (`false`;
+> `indent_style = "space"`), `newline` (`"lf"`), `final-newline` (`true`),
+> `group-imports` (`true`) and `sort-imports` (`false`). No other knob below
+> is a key — the manifest rejects an unknown one — and `kg fmt`'s layout rules
+> are not configurable beyond these; `crates/kg-fmt/src/lib.rs` is the
+> authority on what it does. The block is kept as the measured design.
+
 Every knob below has a §-reference to the measurement that fixes its default.
 
 ```toml
@@ -2489,7 +2509,7 @@ markers and 142 indented `import` statements; it is not a translation unit (§0.
 `cata $ nest 4 . (line <>) . withDocs` over `viaShow`, i.e. it prints Haskell `Show` output
 indented by 4. It is the only place in the module that reads the `Src.docs` field
 (`PrettyPrint.hs:25-31`), and it wraps them in `dquotes`. Used by
-`Main.hs:78` (`--dump-parse`) and `Main.hs:89` (`--dump-program`).
+`Main.hs:82` (`--dump-parse`) and `Main.hs:93` (`--dump-program`).
 
 `prettySource :: Int -> NotedExp n e -> Doc ann` (`PrettyPrint.hs:37-38`) is the source
 printer:
@@ -2635,7 +2655,7 @@ and the diff against the input is total. (`LutMul` at `:79` is special-cased to
 | 17 |  `Parser.hs:194-206` | There is **no `Import` node** in the syntax (`grep -n Import compiler/hs/lib/Language/Kanagawa/Parser/Syntax.hs` → no matches). `parseImports` resolves and *inlines* imported files during parsing. Pretty-printing therefore emits the entire transitive import closure as one giant module, with no `import` statements. |
 | 18 | `PrettyPrint.hs:147` | `isInternalQualifier` (`:191-195`) silently **drops** any scope qualifier whose name begins with `@` or equals `unresolvedName`. Correct for compiler-internal names; a formatter must not do it. |
 | 19 | `PrettyPrint.hs:230-231` | `semiTerm`'s `term` returns `mempty` for `Variable … DeclareUninitConst`, so an uninitialized `const` declaration is printed **without its terminating `;`**. |
-| 20 | `Options/CmdArgs.hs:145-153` | The `pretty` mode's record literal sets only `line_width`, `indent`, `ribbon`, `layout`. The other nine `PrettyPrint` fields (`base_library`, `define`, `dump_parse`, `files`, `import_dir`, `no_implicit_base`, `parse_docs`, `target_device`, `using`) are not initialized in the literal, yet `Main.hs:142-150` reads all of them via `getParseOptions`. Whether `cmdargs` fills them or this is a latent bottom is **UNVERIFIED** — see §14, probe P4. |
+| 20 | `Options/CmdArgs.hs:145-153` | The `pretty` mode's record literal sets only `line_width`, `indent`, `ribbon`, `layout`. The other nine `PrettyPrint` fields (`base_library`, `define`, `dump_parse`, `files`, `import_dir`, `no_implicit_base`, `parse_docs`, `target_device`, `using`) are not initialized in the literal, yet `Main.hs:163-171` reads all of them via `getParseOptions`. Whether `cmdargs` fills them or this is a latent bottom is **UNVERIFIED** — see §14, probe P4. |
 
 Non-bugs worth recording, so the Rust rewrite does not "fix" them:
 
@@ -2696,7 +2716,7 @@ this is a design decision the golden test must pin down.
 
 **Q4 — Is `kanagawa pretty --parse-docs` reachable?**
 `Options/CmdArgs.hs:145-153` does not initialize `parse_docs` in the `pretty` record, yet
-`Main.hs:148` reads it. **UNVERIFIED** whether `cmdargs` supplies a default or this is a
+`Main.hs:169` reads it. **UNVERIFIED** whether `cmdargs` supplies a default or this is a
 `Missing field in record construction` bottom.
 *Probe:* build the reference compiler and run
 ```

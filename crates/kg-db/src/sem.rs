@@ -4,7 +4,7 @@
 //! ([`dump_on_request`], which `crate::looped` calls per module).
 //!
 //! Until sprint W3.7 this module was also `cargo xtask sem`'s shadow gate
-//! (`docs/plans/ir-elaboration.md` step M1): the IR engine's types against
+//! (`docs/history/ir-elaboration.md` step M1): the IR engine's types against
 //! the CST inference engine's, node for node. It went with that engine.
 
 use kg_hir::Exp;

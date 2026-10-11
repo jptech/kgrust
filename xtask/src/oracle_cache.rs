@@ -54,7 +54,7 @@ static MISSES: AtomicUsize = AtomicUsize::new(0);
 static ENVIRONMENT: Mutex<Option<(PathBuf, String)>> = Mutex::new(None);
 
 /// Run the oracle — or replay it. `root` is the reference tree the file can
-/// import from (`kanagawa/`), `args` the full argument list including the
+/// import from (`third_party/kanagawa/`), `args` the full argument list including the
 /// file, `cwd` the working directory the gate spawns in, `text` the file's
 /// content. The spawn's own failure is the only error.
 pub(crate) fn run(

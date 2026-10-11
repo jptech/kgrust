@@ -1,5 +1,17 @@
 # Kanagawa compiler — command-line interface specification
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`). Since the extraction
+> the CLI files changed: upstream added a third mode, `list-deps` (#136,
+> `CmdArgs.hs:155-165`, `Main.hs:111-122`), and moved the `--file-list`
+> write to right after parsing (§4.6). `Main.hs`, `CmdArgs.hs`,
+> `Options.hs`, `verilog.cpp` and `test/compiler/cli` citations are
+> re-derived at the pin; the rest of §1–§8 still describes `8e0a3fb`, which
+> for every other cited file is the pin. §9 and §10 are the pre-implementation
+> design of `kg` and `kanagawa.toml`; each now opens with what was built, and
+> where they differ `crates/kg-cli/src/lib.rs` and `crates/kg-config/src/lib.rs`
+> are authoritative.
+
 Reference implementation under test: `third_party/kanagawa` (READ-ONLY).
 Every claim below carries a `path:line` citation relative to that tree. Claims that could
 not be grounded in the tree are explicitly marked **UNVERIFIED**.
@@ -9,8 +21,8 @@ Primary sources actually read for this document:
 | File | Role |
 |---|---|
 | `compiler/hs/app/Options/CmdArgs.hs` | the entire flag surface (declarative `cmdargs` record) |
-| `compiler/hs/app/Options.hs` | the `Options` sum type (`Options` / `PrettyPrint` / `Compile` / `LangServer`) |
-| `compiler/hs/app/Main.hs` | dispatch, `_cmdArgs` construction, exit codes, `--file-list` |
+| `compiler/hs/app/Options.hs` | the `Options` sum type (`PrettyPrint` / `Compile` / `ListDeps` / `LangServer`) |
+| `compiler/hs/app/Main.hs` | dispatch, `_cmdArgs` construction, exit codes, `--file-list`, `list-deps` |
 | `compiler/hs/app/Options/FFI.hsc` | the Haskell→C marshalling map (`Storable Options`) |
 | `compiler/hs/app/ParseTree.hs` | `Codegen` FFI call, `--output` default derivation |
 | `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs` | import search path, `.cmdargs`/`.options` modules, `exitError` |
@@ -34,7 +46,7 @@ Primary sources actually read for this document:
 
 The binary uses the Haskell `cmdargs` library (`compiler/kanagawa.cabal:44`,
 `cmdargs >= 0.10.10`) in *implicit* (`Data`-reflection) mode. The whole CLI is one
-declarative record literal (`compiler/hs/app/Options/CmdArgs.hs:18-163`).
+declarative record literal (`compiler/hs/app/Options/CmdArgs.hs:18-174`).
 
 `cmdargs` is **not vendored** in this tree, so parser micro-semantics (prefix matching,
 auto-assigned short flags, enum-value matching, error text) cannot be cited to a file here.
@@ -44,19 +56,27 @@ Where that matters it is called out as **UNVERIFIED** with a probe in §11.
 
 ```haskell
 mode :: Mode (CmdArgs Options)
-mode = cmdArgsMode $ modes [compile &= auto, pretty] &=
+mode = cmdArgsMode $ modes [compile &= auto, pretty, listDeps] &=
     program "kanagawa" &=
     verbosity &=
     help "Kanagawa compiler" &=
     summary ("Kanagawa Compiler " ++ makeReleaseName releaseVersion releaseBuildChannel ++ ", (C) Microsoft")
 ```
-— `compiler/hs/app/Options/CmdArgs.hs:155-160`
+— `compiler/hs/app/Options/CmdArgs.hs:166-171` (at `8e0a3fb`, `:155-160`, without `listDeps`)
 
-* Two modes: `compile` (`CmdArgs.hs:138`, marked `&= auto` at `:156` ⇒ **default mode**, so
-  `kanagawa foo.k` == `kanagawa compile foo.k`) and `pretty` (`CmdArgs.hs:152`).
-* Program name for help output is hard-coded `"kanagawa"` (`CmdArgs.hs:157`); this is
+* Three modes: `compile` (`CmdArgs.hs:138`, marked `&= auto` at `:167` ⇒ **default mode**, so
+  `kanagawa foo.k` == `kanagawa compile foo.k`), `pretty` (`CmdArgs.hs:152`), and
+  `list-deps` (`CmdArgs.hs:155-165`, upstream #136, 2026-08-27; not in `8e0a3fb`).
+* `list-deps` parses the program and resolves its imports, runs no frontend pass
+  and no codegen, and prints the program's files, sorted, one per line — or writes
+  them to `--file-list` (`Main.hs:111-122`; §4.6). Its record `ListDeps{}` assigns
+  no field, so all nine of its fields are inherited flags, as `pretty`'s are
+  (`Options.hs:132-142`, §1.3): `--base-library`, `--define`, `--file-list`,
+  `--import-dir`, `--no-implicit-base`, `--parse-docs`, `--target-device`,
+  `--using` and the positional files.
+* Program name for help output is hard-coded `"kanagawa"` (`CmdArgs.hs:168`); this is
   *not* the string used for `_cmdArgs` (see §6).
-* `verbosity` (`CmdArgs.hs:158`) adds the `--verbose`/`--quiet` pair.
+* `verbosity` (`CmdArgs.hs:169`) adds the `--verbose`/`--quiet` pair.
 * `compile` mode help details (`CmdArgs.hs:140-143`):
   ```
   Usage example:
@@ -64,9 +84,9 @@ mode = cmdArgsMode $ modes [compile &= auto, pretty] &=
         kanagawa --backend=sv source.k
   ```
 * `pretty` mode help string: `"Parse and pretty print source file(s)"` (`CmdArgs.hs:153`).
-* A third constructor `LangServer` exists in the type (`compiler/hs/app/Options.hs:132-135`)
+* A fourth constructor `LangServer` exists in the type (`compiler/hs/app/Options.hs:143-146`)
   but is **not** in the `modes` list and its handler is commented out
-  (`compiler/hs/app/Main.hs:107-108`). There is no language-server subcommand.
+  (`compiler/hs/app/Main.hs:124-125`). There is no language-server subcommand.
 
 ### 0.3 Main dispatch
 
@@ -89,7 +109,7 @@ main = do
 ### 0.4 Version / build channel
 
 `summary` embeds `makeReleaseName releaseVersion releaseBuildChannel`
-(`CmdArgs.hs:160`, `compiler/hs/app/ReleaseVersion.hs:56-62`):
+(`CmdArgs.hs:171`, `compiler/hs/app/ReleaseVersion.hs:56-62`):
 `"<maj>.<min>.<patch>"` for `Release`, `+ " (local)"` for `Local`, `+ " (nightly)"` for `Nightly`.
 Defaults are `0.0.0` and `Local` when the CPP macros are absent
 (`ReleaseVersion.hs:24-51`).
@@ -128,6 +148,10 @@ Built-in `cmdargs` flags (both modes): `--help`/`-?`, `--version`/`-V`,
 `--numeric-version`, `--verbose`/`-v`, `--quiet`/`-q` — **5** (UNVERIFIED spelling, §11 Q2).
 
 Grand total distinct user-visible flags: **103 + 12 + 5 = 120**.
+
+At the pin (`98a2d8c`), `list-deps` adds **8** more, counted the same way as
+`pretty`'s inherited ones (§0.2): **128**. `crates/kg-cli/src/legacy/flags.rs`
+implements and counts all 128 (`spelling_count`).
 
 ### 1.1 `compile` mode — exhaustive table
 
@@ -281,7 +305,7 @@ deliberate. The omitted fields are:
 They **must** be populated by `cmdargs` at runtime, because `Main.hs` reads them
 unconditionally in `pretty` mode: `O.files options` at `Main.hs:38` and
 `base_library`/`define`/`files`/`import_dir`/`no_implicit_base`/`parse_docs`/
-`target_device`/`using` at `Main.hs:142-150`. If `cmdargs` left them as GHC's
+`target_device`/`using` at `Main.hs:163-171`. If `cmdargs` left them as GHC's
 `recConError` bottoms, `kanagawa pretty x.k` would crash before doing anything.
 
 ⇒ For a compat binary: **`pretty` mode accepts `--base-library`, `--define`/`-d`,
@@ -497,14 +521,14 @@ These reach the backend by other channels or stay in the Haskell frontend:
 | `--dgml-detailed` | `Codegen(...)` arg 5 (`ParseTree.hs:37`; `kanagawa.cpp:45-48,219-222`) |
 | `--resource-usage` | `Codegen(...)` arg 3 (`ParseTree.hs:35`; `kanagawa.cpp:40-43,209-217`) |
 | `--backend`/`--target` | `Codegen(...)` arg 1 as `show backend` = `"Sv"`/`"None"`, compared case-insensitively against `"sv"` (`ParseTree.hs:33`; `kanagawa.cpp:30-33`); also `.options::backend` |
-| `--file-list` | `updateFileList` (`Main.hs:98-99`) |
-| `--dump-parse` | `Main.hs:77-78` |
-| `--dump-types` | `Main.hs:79-80` |
-| `--dump-program` | `Main.hs:88-89` |
-| `--dump-source` | `Main.hs:90-91` |
-| `--frontend-passes` | `frontend` (`Main.hs:76`) |
-| `--template-iterations` | `frontend` (`Main.hs:76`) |
-| `--template-passes` | `frontend` (`Main.hs:76`) |
+| `--file-list` | `writeIfChanged … renderDeps` (`Main.hs:78-79`; §4.6) |
+| `--dump-parse` | `Main.hs:81-82` |
+| `--dump-types` | `Main.hs:83-84` |
+| `--dump-program` | `Main.hs:92-93` |
+| `--dump-source` | `Main.hs:94-95` |
+| `--frontend-passes` | `frontend` (`Main.hs:80`) |
+| `--template-iterations` | `frontend` (`Main.hs:80`) |
+| `--template-passes` | `frontend` (`Main.hs:80`) |
 
 Additionally, four *marshalled* options are **also** consumed by the frontend and injected
 into the synthetic `.options` module: `--stall`, `--optimize`, `--max-threads-default`,
@@ -589,7 +613,7 @@ therefore **UNVERIFIED**; §11 Q5.)
 ### 3.3 Where the warning set is consumed
 
 1. **Frontend warnings** — `warnings (enabledWarnings warnings_state) untypedProgram`
-   (`Main.hs:92`); each rendered with `errorBundlePretty` to **stdout** (`Main.hs:93`).
+   (`Main.hs:96`); each rendered with `errorBundlePretty` to **stdout** (`Main.hs:97`).
    Message shape (`compiler/hs/lib/Language/Kanagawa/Error.hs:142-145`):
    ```haskell
    message = "warning: " ++ msg ++ " [--" ++ disableSwitch kind ++ "]"
@@ -606,7 +630,7 @@ therefore **UNVERIFIED**; §11 Q5.)
 
 * Flag: `--Werror`, `&= explicit` (`CmdArgs.hs:110`), field `warnings_as_errors`, default `False`.
 * **Frontend**: if any warning was emitted, `exitError "Error 1: Warnings treated as errors"`
-  → stdout + exit 1 (`Main.hs:94-95`). This happens *before* `compile` is called, i.e.
+  → stdout + exit 1 (`Main.hs:98-99`). This happens *before* `compile` is called, i.e.
   no backend runs and no output files are written.
 * **Backend**: `_warningsAsErrors` (`options.h:271`) makes
   `Compiler::WarningStream` set `_compileError = true`
@@ -747,40 +771,60 @@ imported implicitly. `Backend` is `Sv | None` (`Parser/Options.hs:16`,
 exposes `target_device` and `target_device_name`. It does not — `Parser/IO.hs:59-64` lists
 exactly five constants. Reproduce the code, not the doc.
 
-### 4.6 `--file-list`
+### 4.6 `--file-list` and `list-deps`
+
+Rewritten for the pin: upstream #136 (`ac73081`, 2026-08-27) moved the write and
+shared it with the new `list-deps` mode. At `8e0a3fb` the list was written by
+`updateFileList` *after* `compile`, whether or not codegen succeeded, and compared
+line lists rather than whole contents.
 
 ```haskell
-        when (not (null file_list) && not (null fileNames)) $
-            updateFileList file_list $ filter (('.' /=) . head) $ sort fileNames
+            -- Refresh the dependency manifest as soon as parsing succeeds, so
+            -- that it is up to date even when the frontend or codegen fails.
+            when (not (null file_list) && not (null fileNames)) $
+                writeIfChanged file_list $ renderDeps fileNames
 ```
-— `compiler/hs/app/Main.hs:98-99`
+— `compiler/hs/app/Main.hs:76-79` (`compile`)
 
 ```haskell
-updateFileList listfile parsedFiles = do
-    old <- lines <$> listfileContent
-    when (old /= parsedFiles) $
-        writeFile listfile $ unlines parsedFiles
+renderDeps :: [FilePath] -> String
+renderDeps = unlines . filter (('.' /=) . head) . sort
+
+writeIfChanged :: FilePath -> String -> IO ()
+writeIfChanged path content = do
+    exists <- doesFileExist path
+    old <- if exists
+        then T.unpack <$> TIO.readFile path
+        else return ""
+    when (old /= content) $
+        writeFile path content
 ```
-— `compiler/hs/app/Main.hs:113-123` (missing file reads as `""`)
+— `compiler/hs/app/Main.hs:132-144`
 
 Exact behaviour to reproduce:
 
-1. Runs **after** `compile` (`Main.hs:97`), i.e. after codegen, and **regardless of whether
-   codegen succeeded** — the guard on `success` is only the exit code (`Main.hs:100-102`).
+1. In `compile`, runs as soon as every file parsed (`Main.hs:73-79`) — **before** the
+   frontend, so the list is refreshed even when the frontend, `--Werror` or codegen then
+   fails. A parse error exits first (`Main.hs:74`) and writes nothing.
 2. Input is `fileNames` = the canonical paths of **every** parsed file, including the base
    library and every transitively imported file, in parse-completion order
-   (`Main.hs:70`, `Parser/IO.hs:98`).
+   (`Main.hs:70`, `Parser/IO.hs:96`).
 3. `sort` (byte-wise ascending), **then** `filter` out anything whose first character is
    `.`. This is precisely what removes the two synthetic modules, whose "canonical path"
-   is literally `.cmdargs.k` / `.options.k` (`Parser/IO.hs:100-102` return `file`
+   is literally `.cmdargs.k` / `.options.k` (`Parser/IO.hs:101-102` return `file`
    unchanged). It also removes any real file whose *path* starts with `.`
    (e.g. a relative `./foo.k` — but paths here are canonicalised, so in practice only
    the synthetic ones).
-4. Write is **conditional**: only if the newline-split contents differ from the existing
-   file. Output is `unlines` (trailing newline after every entry).
+4. Write is **conditional**: only if the whole text differs from the existing file's (a
+   missing file reads as `""`), so an unchanged list keeps its mtime. Output is
+   `unlines` (trailing newline after every entry).
 5. `head` on an empty path would `error`; unreachable in practice.
 
-No in-tree caller passes `--file-list`.
+`list-deps` (`Main.hs:111-122`) runs the same parse, exits through `exitErrors` on a
+parse error, and otherwise renders the same list: to stdout when `--file-list` is empty,
+else through `writeIfChanged`; exit 0 either way. Upstream's own test runs both and
+requires byte-identical lists (`test/compiler/cli/CMakeLists.txt:108-144`, §8.7), the
+only in-tree callers of `--file-list`.
 
 ---
 
@@ -791,7 +835,7 @@ No in-tree caller passes `--file-list`.
 ```haskell
 let desugared = foldr1 append $ frontend passes template_passes template_iterations exprs
 ```
-— `compiler/hs/app/Main.hs:76`
+— `compiler/hs/app/Main.hs:80`
 
 ```haskell
 frontend frontendPasses templatePasses templateIterations = desugarPasses frontendPasses templatePasses templateIterations . map noteType
@@ -940,14 +984,14 @@ main = do
   practice because that path prints help and exits before `handle`.
 * Note the mode word is included when present: `kanagawa compile foo.k` records
   `"kanagawa compile foo.k"`.
-* `program "kanagawa"` (`CmdArgs.hs:157`) is **not** used here — it only names the program
+* `program "kanagawa"` (`CmdArgs.hs:168`) is **not** used here — it only names the program
   in `--help` output. If the binary is installed as `kanagawa-1.2.3`, `_cmdArgs` starts
   with `kanagawa-1.2.3`.
 
 ### 6.2 Transport
 
 `handle opt@Compile{..} cmdArgs` (`Main.hs:61`) → `compile opt cmdArgs fileNames program`
-(`Main.hs:97`) → `ParseTree.compile` (`compiler/hs/app/ParseTree.hs:31-38`) →
+(`Main.hs:101`) → `ParseTree.compile` (`compiler/hs/app/ParseTree.hs:31-38`) →
 `withOptions opt cmdArgs allFiles initCompiler` (`ParseTree.hs:38`) →
 ```haskell
     withCAString cmdArgs $ \strCmdArgs -> …
@@ -971,17 +1015,17 @@ copied into a `std::string`, `compiler/cpp/config.h:100`).
             _writer.Str() << "// " << GetCodeGenConfig()._cmdArgs << std::endl;
         }
 ```
-— `compiler/cpp/verilog.cpp:7356-7362`
+— `compiler/cpp/verilog.cpp:7372-7378`
 
 That is the **only** read of `_cmdArgs` in the entire compiler
 (grep over `compiler/`: `config.h:100`, `options.h:284`, `config.cpp:145`,
-`verilog.cpp:7361`, `internal_tests.cpp:2520`, `Options/FFI.hsc:37`).
+`verilog.cpp:7377`, `internal_tests.cpp:2520`, `Options/FFI.hsc:37`).
 
 ⇒ **Consequence for argv[0] handling in the compat binary:** the second line of every
 generated `.sv` file is `// <basename(argv[0])> <args…>`. Reproducing generated RTL
 byte-for-byte therefore requires (a) using the basename of `argv[0]` rather than a
 hard-coded program name, and (b) joining the *original* argv with single spaces without
-re-quoting. Suppressed entirely by `--no-verilog-header` (`verilog.cpp:7358`).
+re-quoting. Suppressed entirely by `--no-verilog-header` (`verilog.cpp:7374`).
 
 ---
 
@@ -998,13 +1042,15 @@ The Haskell driver only ever produces **0** or **1** (`exitSuccess` / `exitFailu
 | Unparseable command line (unknown flag, bad value, ambiguous prefix) | `cmdargs` | error to **stderr** | **1** (UNVERIFIED, §11 Q6) |
 | Positional file list empty after parsing | `Main.hs:38-39` | `Missing source filename(s)` to stdout | **1** |
 | Parse error(s) in any source file | `Main.hs:49`, `Main.hs:74` → `Parser/IO.hs:113-117` | `Error 1: ` ++ concatenated `errorBundlePretty` to **stdout** | **1** |
-| Desugar / frontend error(s) | `Main.hs:83` → `Parser/IO.hs:113-117` | `Error 1: …` to stdout | **1** |
-| `--Werror` and ≥1 frontend warning | `Main.hs:94-95` | warnings, then `Error 1: Warnings treated as errors` to stdout | **1** |
+| Desugar / frontend error(s) | `Main.hs:87` → `Parser/IO.hs:113-117` | `Error 1: …` to stdout | **1** |
+| `--Werror` and ≥1 frontend warning | `Main.hs:98-99` | warnings, then `Error 1: Warnings treated as errors` to stdout | **1** |
 | `SetupCodeGenConfig` validation failure (§2.4) | `parse_tree.cpp:6283-6298` | `e.what()` + newline to **stdout**, **no** `Error N:` prefix | **1** |
 | Any `Compiler()`/`Init()` exception | `parse_tree.cpp:6291-6296` | `e.what()` to stdout | **1** |
 | Backend semantic error (`Error <N> at: <file> (<line>): <msg>`) | `errors.h:106-111`, `compiler.cpp:173-178` | error text (in red) to **stdout**, then `Error: <what>` from `kanagawa.cpp:255-259` | **1** |
 | Backend `std::runtime_error` (IR gen, scheduling, …) | `kanagawa.cpp:255-260` | `Error: ` ++ `e.what()` to stdout | **1** |
-| Success | `Main.hs:100-101` | generated files | **0** |
+| Success | `Main.hs:102-103` | generated files | **0** |
+| `list-deps`: parse error(s) | `Main.hs:115-116` | `Error 1: …` to stdout | **1** |
+| `list-deps`: success | `Main.hs:118-122` | the sorted file list to stdout, or to `--file-list` | **0** |
 | Unhandled non-`runtime_error` C++ exception | — | `std::terminate` | **134 / SIGABRT** (platform-dependent; UNVERIFIED) |
 | Haskell `error`/`undefined` reached (e.g. `ParseTree.hs:71,74,77,…`) | GHC RTS | `<prog>: <msg>` + `CallStack` to **stderr** | **1** |
 
@@ -1221,9 +1267,23 @@ Single test (`test/compiler/cli/CMakeLists.txt:96-106`), `skip_circt_lowering`:
 ```
 verified afterwards by `check_skip_circt_lowering.py`.
 
-### 8.8 CIRCT MLIR interface test
+At the pin, three more (`test/compiler/cli/CMakeLists.txt:108-144`, upstream #136), outside
+`add_cli_test` because `list-deps` writes no RTL:
 
-`test/interface/circt/CMakeLists.txt:62-72`, test `esi_wrapper_ports`:
+* `cli.list_deps.run` — `kanagawa list-deps --base-library=<root>/library/mini-base.k
+  --import-dir=<root>/library --file-list=<bin>/list_deps.txt <src>/list_deps.k`, and
+  `cli.list_deps.golden`, which compares that file with `list_deps.golden.in`
+  (`@KANAGAWA_SOURCE_DIR@` substituted; `add_golden_test`,
+  `build/cmake/test_helper.cmake:502-529`) — the nine canonical paths, sorted;
+* `cli.list_deps.compile_file_list` — `kanagawa compile` with the same base library, import
+  dir and source, `--file-list=<bin>/compile_file_list.txt` and
+  `--output=<bin>/list_deps_compile`;
+* `cli.list_deps.compare_file_lists` — the two lists byte-identical.
+
+### 8.8 CIRCT MLIR interface tests
+
+`test/interface/circt/CMakeLists.txt:62-72`, test `esi_wrapper_ports` (at the pin also
+`named_type_aliases`, `:74-84`, upstream #121, with the same flags):
 ```
 --backend=sv
 --skip-circt-lowering
@@ -1262,16 +1322,44 @@ abbreviated `--base=`.
 (`=` and space forms), `--parse-docs`, `--place-iterations`, `--register-ratio`,
 `--reset-cycles`, `--rmw-hardened-write-delay`, `--rmw-memory-read-delay`,
 `--rmw-memory-write-delay`, `--skip-circt-lowering`, `--stall`, `--target-device`,
-`--template-iterations`, `--using`.
+`--template-iterations`, `--using`; at the pin also `--file-list`, and the `list-deps`
+mode (§8.7).
 
-= **33 distinct flags out of 103** (`-O0`/`-O1` are two values of one flag). The other
-**70 flags have no test coverage at all** in this tree; a Rust rewrite gets no behavioural
-oracle for them beyond the source. Breakdown: 6 of the 13 warning switches and 27 of the
-90 other flags are exercised; 7 warning switches and 63 other flags are not.
+= **33 distinct flags out of 103** (`-O0`/`-O1` are two values of one flag) at `8e0a3fb`,
+**34** at the pin. The other **70 (69) flags have no test coverage at all** in this tree; a
+Rust rewrite gets no behavioural oracle for them beyond the source. Breakdown: 6 of the 13
+warning switches and 27 (28) of the 90 other flags are exercised; 7 warning switches and
+63 (62) other flags are not.
 
 ---
 
 ## 9. Proposed `kg` multi-tool CLI (clap-shaped)
+
+> **As built (2026-10-11).** `crates/kg-cli/src/modern/mod.rs` is the
+> authority; this section is the design it started from. The differences:
+>
+> * The commands are `check`, `build`, `fmt`, `lsp`, `doc` (alias `docs`),
+>   `dump` (`tokens|cst|ast|ir|instances` — the debugging window §9.3's
+>   `--emit ast`/`typed-ast` rows proposed) and `explain` (takes `1`, `E27`,
+>   `Warning 12` or a warning name; `--list`).
+> * There is **no `kg compat`** (§9.4). The compat surface is the separate
+>   `kanagawa` binary (`crates/kg-cli/src/legacy/`), all three modes and all
+>   128 flag spellings; `kg` installed or symlinked under a name starting
+>   with `kanagawa` dispatches to it on `argv[0]` (`dispatch_on_argv0`).
+> * Legacy spellings are **not** hidden aliases on `kg build`/`kg check`:
+>   `kg` takes only its own (`-I/--import-dir`, `-D/--define`,
+>   `-U/--using`, `--base-library`, `--no-implicit-base`,
+>   `--target-device`, `--parse-docs`, `-W <switch>`).
+> * `-j/--jobs` is accepted and ignored: the frontend is single-threaded.
+> * `--error-format` is `human`, `short` or `json`; exit codes are 0, 1, 2
+>   (usage, or a program `build` cannot lower) and 3 (`build`: the backend
+>   crashed in its worker process).
+> * `kg build` takes `--backend sv|none` (and `trace`, the call sequence
+>   `xtask ptdiff` grades), `-o`, `-O`, `--debug`; `--emit` and `-Z` are
+>   parsed but read by nothing yet, and no other backend knob is reachable
+>   from `kg` — the compat binary has them all.
+> * `kg fmt` overrides `[fmt]` with `--line-width`, `--indent`,
+>   `--use-tabs`, `--newline`, `--sort-imports`; `--check`, `--stdout`.
 
 ### 9.1 Shape
 
@@ -1415,6 +1503,9 @@ Every `compile`-mode flag is accounted for exactly once.
 
 ### 9.4 `kg compat`
 
+> **Not built** (see the box at §9's head): the `kanagawa` binary is the
+> compat front end, and `kg` reaches it only by `argv[0]`.
+
 `kg compat -- <legacy argv>` must be **argv-for-argv and byte-for-byte** equivalent to
 `kanagawa <legacy argv>`, including:
 
@@ -1431,6 +1522,35 @@ Every `compile`-mode flag is accounted for exactly once.
 ---
 
 ## 10. Proposed `kanagawa.toml`
+
+> **As built (2026-10-11).** `crates/kg-config/src/lib.rs` is the authority.
+> Every table rejects a key it does not know (`deny_unknown_fields`), except
+> `[warnings]`, whose kind names are a flattened map (an unknown name there is
+> ignored), and `[hw]`, an open table. What it accepts, with defaults:
+>
+> | Table | Keys (default) |
+> |---|---|
+> | `[package]` | `name`, `version`, `edition` — all optional; `name` titles `kg doc`'s site, `edition` is reserved |
+> | `[project]` | `sources` (`[]`), `exclude` (`[]`, read by nothing yet), `import-dirs` (`[]`, order significant), `target-device` (`"mock"`), `base-library` (unset: `base.k`, found on the import path), `implicit-base` (`true`), `parse-docs` (`false`), `[project.defines]`, `[project.using]` |
+> | `[warnings]` | `all` (`false`), `error` (`false`), and one key per kind — `conversion`, `deprecated`, `initializer-overrides`, `redundant-import`, `shadow`, `transaction-size` — as `"allow"`, `"warn"` or `"deny"` (`deny` enables the warning; only `error = true` makes warnings errors) |
+> | `[fmt]` | `line-width` (`100`), `indent` (`4`), `use-tabs` (`false`), `newline` (`"lf"`), `final-newline` (`true`), `group-imports` (`true`), `sort-imports` (`false`) — `ribbon`, `layout` and `tab-width` were not built |
+> | `[lsp]` | `diagnostics` (`"on-type"` or `"on-save"`), `max-file-size-kb` (`4096`), `index-import-dirs` (`true`) |
+> | `[hw]` | any key; accepted and stored, read by nothing yet |
+> | `[profile.<name>]` | `project`, `warnings`, `fmt`, `hw` — deep-merged over the base tables when `--profile` or `KG_PROFILE` names it; an unknown profile is an error |
+>
+> Precedence is §10.3's, with `KG_PROFILE`, `KG_IMPORT_DIRS` (`:`-separated),
+> `KG_TARGET_DEVICE`, `KG_BASE_LIBRARY` and `KG_COLOR` as the environment
+> layer. Globs in `sources` are not expanded yet. `kg init --from-cmake`
+> (§10.4) was not built.
+>
+> **The bundled library.** `kg` and the language server search one directory
+> the manifest does not name: a release archive's `share/kanagawa/library`,
+> beside the executable's `bin/`, appended last to the import directories
+> when none of them provides `base.k` (`Settings::or_bundled_library`,
+> `crates/kg-config/src/resolve.rs`). A file outside any project therefore
+> checks against the library the toolchain shipped with, and a project that
+> vendors its own keeps it. A source build has no such directory, so nothing
+> is added there.
 
 ### 10.1 Design constraints
 
@@ -1607,8 +1727,8 @@ depends on GHC's `base`. Each item names a probe that settles it against a real
 `kanagawa` binary. Until then, treat them as **UNVERIFIED**.
 
 **Q1 — answered 2026-09-23** from the reference's own help
-(`kanagawa compile --help`, `kanagawa pretty --help`, the build under
-`../kanagawa-build`). `cmdargs` assigned exactly two letters in `compile`,
+(`kanagawa compile --help`, `kanagawa pretty --help`, the reference's own build,
+now `target/reference`, `scripts/build-reference.sh`). `cmdargs` assigned exactly two letters in `compile`,
 `-j --jobs` and `-o --output`, beside the declared `-f -d -u -O` and the
 built-ins `-? -V -v -q`. In `pretty` it assigned `-b --base-library`,
 `-i --indent`, `-l --layout`, `-n --no-implicit-base`, `-p --parse-docs`,

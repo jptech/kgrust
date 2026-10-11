@@ -25,7 +25,7 @@
 //! character before its end. Each end maps through its own run, so a node
 //! that *encloses* an edit — a function whose body is being typed in —
 //! maps to the node it was, and the loop's answer there is the last one it
-//! had: graceful staleness, `docs/plans/ir-elaboration.md` §2.6. A node
+//! had: graceful staleness, `docs/history/ir-elaboration.md` §2.6. A node
 //! whose own first or last character is new does not map: `foo` edited to
 //! `foobar` is not the old `foo`, and `foo` typed fresh before a `.` is
 //! nothing the loop knew. The loop's index then looks for a node of the

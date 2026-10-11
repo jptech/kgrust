@@ -267,7 +267,7 @@ impl ItemTree {
 /// The whole program's item trees, addressable by [`DefId`].
 ///
 /// `trees` is in [`crate::module::ModuleGraph::files`] order — post-order DFS of
-/// the import graph, base library first (`Parser/IO.hs:96`, `Main.hs:70,76`) —
+/// the import graph, base library first (`Parser/IO.hs:96`, `Main.hs:70,80`) —
 /// which is the order duplicate-key precedence depends on.
 #[derive(Copy, Clone, Debug)]
 pub struct Program<'a> {

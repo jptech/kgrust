@@ -1,0 +1,45 @@
+# The light tier: what a pull request can be graded on without the reference
+# compiler. The parity gates (ptdiff, backend, output, repoint, cli, errors,
+# loop-left, edit-identity) need the reference built — GHC, LLVM and CIRCT,
+# ~17 GB at their peak — and run locally before a branch is merged
+# (`scripts/gates.sh --snapshot`; AGENTS.md, CONTRIBUTING.md).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  light:
+    name: Build, test, corpus gates
+    # The platform the project is developed and measured on.
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # third_party/kanagawa only — the corpus and the library. Its own
+          # submodules (CIRCT, LLVM) are the backend build's, not needed here.
+          submodules: true
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --locked
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --locked --profile quick
+      - name: Corpus gates
+        run: |
+          cargo xtask corpus
+          cargo xtask conformance
+          cargo xtask fmt-check
+          cargo xtask lint
+      - name: Documentation links
+        run: python3 scripts/check-links.py

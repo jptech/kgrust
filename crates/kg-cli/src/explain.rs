@@ -6,7 +6,7 @@
 //!   desugaring, template instantiation, constant evaluation, name resolution,
 //!   type checking and `--Werror` promotion all report it — the literal string
 //!   is hard-coded at `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:114` and
-//!   `compiler/hs/app/Main.hs:95`. That is why frontend conformance is an
+//!   `compiler/hs/app/Main.hs:99`. That is why frontend conformance is an
 //!   accept/reject question and not a message-text question.
 //! * **`Error 2`–`Error 84`** are `enum class CompileError`
 //!   (`compiler/cpp/errors.h:6-84`), emitted by the C++ middle end as
@@ -280,7 +280,7 @@ const FRONTEND_ERROR: &str = "\
 Error 1 — the frontend rejected the program
 
 Source      compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:114 (`\"Error 1: \"`)
-            compiler/hs/app/Main.hs:95 (`Error 1: Warnings treated as errors`)
+            compiler/hs/app/Main.hs:99 (`Error 1: Warnings treated as errors`)
 Produced by lexing, parsing, import resolution, desugaring, template
             instantiation, constant evaluation, name resolution, type checking,
             and `--Werror` promotion — all of it, one code.

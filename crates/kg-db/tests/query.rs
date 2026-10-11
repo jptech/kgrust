@@ -823,7 +823,7 @@ fn the_program_memo_does_not_grow_without_bound() {
 
 /// Two roots that share a module namespace can see each other's names.
 ///
-/// `Main.hs:70,76` merges every command-line file into one program, and a
+/// `Main.hs:70,80` merges every command-line file into one program, and a
 /// declaration inside `module m` is filed under `[@m, Ten]`; a use of `Ten` from
 /// another file that also says `module m` resolves by walking outward from that
 /// scope (`Symbols.hs:79-87`). Pass 9 probed two *exact* keys instead, so
@@ -1142,7 +1142,7 @@ fn an_imported_constant_limit_does_not_type_the_induction_variable_by_its_width(
 }
 
 /// **Two roots sharing a namespace share types.** The reference merges every
-/// command-line file into one symbol map (`Main.hs:70,76`,
+/// command-line file into one symbol map (`Main.hs:70,80`,
 /// `Symbols.hs:37-41`), so a declaration in `r1.k` is in `r2.k`'s scope with
 /// no import at all: `bool b = sibling` is "Invalid conversion from
 /// `same.ns::Local1` to `bool`" there and here (`kg-oracle --errors`,

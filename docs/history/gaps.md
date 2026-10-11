@@ -1,6 +1,6 @@
 # Outstanding gaps, by mechanism
 
-> **Superseded 2026-09-27** by [`plans/sprint-parity.md`](../plans/sprint-parity.md)
+> **Superseded 2026-09-27** by [`plans/sprint-parity.md`](sprint-parity.md)
 > §4, which partitions the gaps the 2026-09-27 gate run lists. Kept as the
 > record of how each row closed; the counts below are history.
 

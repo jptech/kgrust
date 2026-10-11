@@ -649,7 +649,7 @@ fn resolve_globally(
     module: ModuleSource,
     written: &SymbolPath,
 ) -> Option<Definition> {
-    // 2. The whole-program map at the exact key. `Main.hs:70,76` merges every
+    // 2. The whole-program map at the exact key. `Main.hs:70,80` merges every
     //    command-line file into one program, so a declaration in a sibling root
     //    with no `module` header is keyed bare and is reachable here.
     if let Some(def) = symbols.get(written) {
@@ -1371,7 +1371,7 @@ mod tests {
                 ("a.k", "module m\n{\n}\n\nconst auto $1Ten = 10;\n"),
                 ("main.k", "module m\n{\n}\n\nstatic assert($0Ten == 10);\n"),
             ],
-            // Both files on the command line — `Main.hs:70,76` merges them into
+            // Both files on the command line — `Main.hs:70,80` merges them into
             // one program, which is the only way `a.k` is in it at all.
             &["a.k", "main.k"],
         );

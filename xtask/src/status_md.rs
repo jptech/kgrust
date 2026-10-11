@@ -35,6 +35,14 @@ pub fn run(check: bool) -> Result<()> {
     if status["fingerprint"].as_str() != Some(fingerprint.as_str()) {
         anyhow::bail!("target/gates/status.json was written for another tree — run `scripts/gates.sh` again");
     }
+    let missing = missing(&status);
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "target/gates/status.json has no {} — a partial run's (`cargo xtask ratchet --bless <gate>` rewrites it with that \
+             gate alone); render from a complete `scripts/gates.sh` run",
+            missing.join(", ")
+        );
+    }
     let block = render(&status);
 
     let doc_path = root.join("docs/status.md");
@@ -53,6 +61,18 @@ pub fn run(check: bool) -> Result<()> {
     std::fs::write(&doc_path, updated)?;
     println!("docs/status.md: headline rendered from the gate run at {}", status["head"].as_str().unwrap_or("?"));
     Ok(())
+}
+
+/// Every gate the headline reads. A status file without one of them is a
+/// partial run's — `cargo xtask ratchet --bless <gate>` writes it with that
+/// gate alone, still "ok" — and would render its rows as `?` (2026-10-11:
+/// published that way once).
+const HEADLINE: [&str; 11] =
+    ["strict", "errors", "ptdiff", "backend", "output", "repoint", "cli", "loop-left", "resilience", "shadow", "lint"];
+
+/// The headline's gates `status` does not hold.
+fn missing(status: &Value) -> Vec<&'static str> {
+    HEADLINE.iter().copied().filter(|g| status["gates"][g].is_null()).collect()
 }
 
 /// The headline table. Every value is read from `status`; the third column
@@ -206,7 +226,7 @@ fn render(status: &Value) -> String {
     ]);
     let bench = stage("bench");
     if !bench.is_empty() {
-        rows.push(["`bench` keystroke".into(), bench, "the editor's first answer, then its last at the fixpoint; a tripwire, not a target (`CLAUDE.md`)".into()]);
+        rows.push(["`bench` keystroke".into(), bench, "the editor's first answer, then its last at the fixpoint; a tripwire, not a target ([`gates.md`](gates.md))".into()]);
     }
     let mem = stage("mem");
     if !mem.is_empty() {
@@ -253,6 +273,18 @@ mod tests {
     /// rows the run's stages carry are rendered: `backend`'s disagreements
     /// and `output`'s differences, `resilience`, `edit-identity` and the
     /// keystroke. Red with a derivation reading a key no ledger writes.
+    /// A status file one bless rewrote holds that gate alone; the headline
+    /// refuses it rather than printing `?` for every other row. Red with the
+    /// check removed or a headline gate left out of [`HEADLINE`].
+    #[test]
+    fn a_partial_run_is_refused() {
+        let partial = serde_json::json!({ "gates": { "output": {} } });
+        let missing = missing(&partial);
+        assert!(missing.contains(&"strict") && missing.contains(&"backend") && !missing.contains(&"output"), "{missing:?}");
+        let complete: serde_json::Map<String, Value> = HEADLINE.iter().map(|g| ((*g).to_owned(), serde_json::json!({}))).collect();
+        assert!(super::missing(&serde_json::json!({ "gates": complete })).is_empty());
+    }
+
     #[test]
     fn derived_counts_and_stage_rows_render() {
         let status = serde_json::json!({

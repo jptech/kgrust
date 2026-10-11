@@ -3,9 +3,9 @@
 //! * [`modern`] is `kg`: subcommands, a manifest, layered configuration and
 //!   rustc-shaped diagnostics.
 //! * [`legacy`] is `kanagawa`: the reference compiler's exact argv surface —
-//!   120 flag spellings, stdout-only diagnostics, exit codes 0 and 1 — so that
-//!   `build/cmake/test_helper.cmake`, CI and downstream repositories keep
-//!   working without edits.
+//!   128 flag spellings over three modes (`legacy::flags`), stdout-only
+//!   diagnostics, exit codes 0 and 1 — so that `build/cmake/test_helper.cmake`,
+//!   CI and downstream repositories keep working without edits.
 //!
 //! Both are libraries first and binaries second: `run(argv, out, err) -> i32`
 //! in each, with the streams injected, so behaviour is testable without
@@ -20,7 +20,8 @@
 //!   (`docs/known-divergences.md` #33 on a backend crash; the compat
 //!   binary's flags that are parsed and read by nothing are listed under
 //!   "Not yet implemented" there);
-//! * `kg fmt` formats, and `kg lsp` is the language server;
+//! * `kg fmt` formats, `kg lsp` is the language server, and `kg doc` writes
+//!   a static API-documentation site from the sources' doc comments;
 //! * `kg dump tokens|cst|ast|ir|instances` and `kg explain` are the
 //!   debugging and reference tools.
 

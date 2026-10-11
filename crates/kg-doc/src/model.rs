@@ -1,7 +1,7 @@
 //! What a module's page holds, read off its syntax tree and the
 //! documentation attached to it (`kg_syntax::file_docs`).
 //!
-//! The structure is the reference generator's (`kanagawa/doc/sandcastle.md`,
+//! The structure is the reference generator's (`third_party/kanagawa/doc/sandcastle.md`,
 //! "Documentation structure"): the module's title and description; an index
 //! of what it exposes, in the export list's order, under the `//| # Heading`
 //! sections written there; then each exposed declaration in source order. A

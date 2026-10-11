@@ -1,14 +1,26 @@
 # Kanagawa diagnostics: output-format specification
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`). Since the extraction
+> the CLI files changed — upstream added the `list-deps` mode (#136), whose
+> parse errors print as `compile`'s do (`Main.hs:115-116`) — and the
+> `compiler/hs/app/Main.hs` citations here are re-derived at the pin; no
+> other cited file changed. §10 ("Design: the `kg-diag` crate") and §11 are
+> pre-implementation design, and parts were never built: the `KG…` stable
+> codes, `codes.toml` and `docs/explain/*.md` (§10.4), the golden corpus
+> (§11.3) and `tools/difftest` (§11.4) — each marked where it stands. Where
+> they differ, `crates/kg-diag/src/lib.rs` is authoritative.
+
 Target: `kgrust` compat binary must produce stdout that satisfies
-`kanagawa/test/syntax/syntax-test.py` and matches human expectations set by the
+`third_party/kanagawa/test/syntax/syntax-test.py` and matches human expectations set by the
 reference compiler.
 
 Every claim below carries a `path:line` citation into the reference tree
 (`third_party/kanagawa`, read-only). Claims that could not be
 grounded in a file in that tree are explicitly marked **UNVERIFIED**.
 
-Reference-tree revision at time of extraction: `8e0a3fb` (`git log --oneline -1`).
+Reference-tree revision at time of extraction: `8e0a3fb` (`git log --oneline -1`);
+`Main.hs` citations re-derived at `98a2d8c`.
 
 ---
 
@@ -37,7 +49,7 @@ Reference-tree revision at time of extraction: `8e0a3fb` (`git log --oneline -1`
 
 | Producer | Sink | Citation |
 |---|---|---|
-| Frontend errors / warnings / `Error 1: Warnings treated as errors` | stdout via `putStrLn` | `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:118`, `compiler/hs/app/Main.hs:93` |
+| Frontend errors / warnings / `Error 1: Warnings treated as errors` | stdout via `putStrLn` | `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:118`, `compiler/hs/app/Main.hs:97` |
 | Backend errors and warnings (`ErrStream`) | `std::cout` | `compiler/cpp/errors.h:108`, `:114`, `:120` |
 | Backend catch-all (`Error: <what()>`) | `std::cout` | `compiler/cpp/kanagawa.cpp:257` |
 | Backend recursion error | `std::cout` | `compiler/cpp/enumerate_function_instances.cpp:1008` |
@@ -70,7 +82,7 @@ the stream on any platform.** The byte stream is plain ASCII/UTF-8.
 ### 1.3 Interleaving and flush
 
 The Haskell driver prints all frontend warnings, then `hFlush stdout`, then
-calls into C++ (`compiler/hs/app/Main.hs:93-97`). The C++ side flushes in
+calls into C++ (`compiler/hs/app/Main.hs:97-101`). The C++ side flushes in
 `~ErrStream` (`compiler/cpp/errors.h:132`) and at both exits of `Codegen`
 (`compiler/cpp/kanagawa.cpp:258`, `:264`). Therefore the observed stdout order is
 always:
@@ -78,8 +90,8 @@ always:
 ```
 [frontend parse errors]           -> process exits
 [frontend desugar errors]         -> process exits
-[frontend warnings]               (Main.hs:93)
-["Error 1: Warnings treated as errors" if --Werror]  -> process exits (Main.hs:95)
+[frontend warnings]               (Main.hs:97)
+["Error 1: Warnings treated as errors" if --Werror]  -> process exits (Main.hs:99)
 [backend warnings + errors]       (interleaved with backend progress output)
 ["Running internal consistency checks."]  (kanagawa.cpp:246)
 ```
@@ -88,10 +100,10 @@ always:
 
 | Situation | Code | Citation |
 |---|---|---|
-| Success | 0 (`exitSuccess`) | `compiler/hs/app/Main.hs:101` |
+| Success | 0 (`exitSuccess`) | `compiler/hs/app/Main.hs:103` |
 | Any frontend error | 1 (`exitFailure` inside `exitError`) | `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:119` |
-| `--Werror` with >=1 frontend warning | 1 | `compiler/hs/app/Main.hs:94-95` |
-| Backend returned false | 1 | `compiler/hs/app/Main.hs:102` |
+| `--Werror` with >=1 frontend warning | 1 | `compiler/hs/app/Main.hs:98-99` |
+| Backend returned false | 1 | `compiler/hs/app/Main.hs:104` |
 | No source filenames | 1, message `Missing source filename(s)` (no `Error N` prefix!) | `compiler/hs/app/Main.hs:39` |
 
 `exitFailure` in GHC is `ExitFailure 1`. The harness requires exactly 1
@@ -141,7 +153,7 @@ Call sites of `exitErrors`:
 |---|---|
 | Pretty-print mode parse errors | `compiler/hs/app/Main.hs:49` |
 | Compile mode parse errors | `compiler/hs/app/Main.hs:74` |
-| Compile mode desugar/typecheck errors (deduped by `nub`) | `compiler/hs/app/Main.hs:82-83` |
+| Compile mode desugar/typecheck errors (deduped by `nub`) | `compiler/hs/app/Main.hs:86-87` |
 
 Errors are grouped into one bundle per source file, sorted by offset within the
 file (`compiler/hs/lib/Language/Kanagawa/Error.hs:169`:
@@ -155,7 +167,7 @@ adjacent in the traversal order produce **multiple** bundles for that file.
 
 The frontend does not implement its own renderer. It uses megaparsec's
 `errorBundlePretty` (imported at `compiler/hs/app/Main.hs:31`, used at
-`compiler/hs/app/Main.hs:93` and `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:114`).
+`compiler/hs/app/Main.hs:97` and `compiler/hs/lib/Language/Kanagawa/Parser/IO.hs:114`).
 
 Resolved dependency in this environment:
 `megaparsec-9.7.0` (`~/.local/state/cabal/store/ghc-9.6.7/mgprsc-9.7.0-06501131/`),
@@ -438,7 +450,7 @@ warningMsg = warning (-1)
 ws <- makeErrorBundles readFileUtf8 $ warnings (enabledWarnings warnings_state) untypedProgram
 mapM_ (putStrLn . errorBundlePretty) ws
 ```
-`compiler/hs/app/Main.hs:92-93`
+`compiler/hs/app/Main.hs:96-97`
 
 - One `putStrLn` **per bundle** (per source file group), so each bundle's text
   (which already ends in `\n`) is followed by a blank line.
@@ -446,9 +458,9 @@ mapM_ (putStrLn . errorBundlePretty) ws
   (`compiler/hs/lib/Language/Kanagawa/Error.hs:94-99`), so a disabled warning
   produces no bytes at all.
 - Warnings are emitted only in compile mode, only after the frontend produced no
-  errors (`compiler/hs/app/Main.hs:82-85`).
+  errors (`compiler/hs/app/Main.hs:86-89`).
 - No `nub` is applied to warnings (contrast `nub $ errors` at
-  `compiler/hs/app/Main.hs:82`) — duplicate warnings are printed as many times as
+  `compiler/hs/app/Main.hs:86`) — duplicate warnings are printed as many times as
   they occur.
 
 ### 4.3 The exact line
@@ -548,12 +560,12 @@ That the list *accumulates* (rather than replaces) is confirmed by
 when (not (null ws) && warnings_as_errors) $
     exitError "Error 1: Warnings treated as errors"
 ```
-`compiler/hs/app/Main.hs:94-95`; flag declared at
+`compiler/hs/app/Main.hs:98-99`; flag declared at
 `compiler/hs/app/Options/CmdArgs.hs:110` with `&= name "Werror" &= explicit`.
 
 Exact behaviour:
 
-1. Warnings are printed first (`Main.hs:93`), in full, with their normal
+1. Warnings are printed first (`Main.hs:97`), in full, with their normal
    `[--Wno-...]` suffixes.
 2. Then the literal line `Error 1: Warnings treated as errors` is printed
    (via `putStrLn`, `Parser/IO.hs:118`) and the process exits **1**.
@@ -926,7 +938,7 @@ while compiling
 ```
 
 (Two trailing blank lines: one from the `unlines` that terminates the
-`ErrorCustom` element in §3.5, one from `putStrLn` at `Main.hs:93`.)
+`ErrorCustom` element in §3.5, one from `putStrLn` at `Main.hs:97`.)
 
 Harness effect: line 5 matches `warning:.*\[--Wno-([^\]]*)\]$` -> `shadow`;
 `test/syntax/shadow-warning.k:12` says `warning:shadow`. Exit 0.
@@ -1063,8 +1075,8 @@ Error 1: Warnings treated as errors
 ```
 
 The blank line comes from `putStrLn` after the warning bundle
-(`compiler/hs/app/Main.hs:93`); the `Error 1:` line comes from
-`compiler/hs/app/Main.hs:95` via `exitError`. Exit 1.
+(`compiler/hs/app/Main.hs:97`); the `Error 1:` line comes from
+`compiler/hs/app/Main.hs:99` via `exitError`. Exit 1.
 The harness reads `Error 1` (the warning line has no `Error <digits>`), so
 `expected:1` at `test/syntax/all-warnings-as-errors.k:18` passes.
 
@@ -1140,6 +1152,16 @@ Error: Missing device configuration properties:
 ---
 
 ## 10. Design: the `kg-diag` crate
+
+> **As built (2026-10-11).** `crates/kg-diag/src/lib.rs` is the authority. The
+> model is simpler than §10.1's: a `Diagnostic` carries a `Code` that is
+> `Frontend` (renders `Error 1`) or `Backend(n)` (an `errors.h` code), a
+> severity, an optional `WarningKind`, an optional `DiagnosticKind` (which
+> message it is, where a pass decides by it), the message, a range, labels,
+> notes and fixes. There is no `DiagCode` and no stable `KG…` identifier; the
+> language server reports the legacy number as `Diagnostic.code`. The legacy
+> renderer is `render_legacy` (`crates/kg-diag/src/render.rs`); `kg`'s own
+> human, short and JSON renderers are in `crates/kg-cli/src/modern/render.rs`.
 
 ### 10.1 Data model
 
@@ -1290,6 +1312,15 @@ makes IDE output ugly.
 
 ### 10.4 `kg explain`
 
+> **Not built as proposed.** No `KG…` / `KGB…` / `KGW…` codes, no `codes.toml`,
+> no generated `codes.rs` and no `docs/explain/` exist. `kg explain`
+> (`crates/kg-cli/src/explain.rs`) takes the legacy number (`1`, `27`, `E27`,
+> `Error 27`, and `KGB0027` as one more spelling of 27), `W12` / `Warning 12`,
+> or a warning name, against a table transcribed from `errors.h`; code 1 and
+> the six frontend warnings carry prose, and every other code names its
+> `errors.h` entry and says no prose is written yet. What follows is the
+> design, kept as written.
+
 - Codes live in one generated table, `kg-diag/src/codes.rs`, produced by a build
   script from `kg-diag/codes.toml`.
 - Namespacing:
@@ -1376,6 +1407,11 @@ Justification for each is that the harness cannot observe it.
 
 ### 11.3 Golden-file tests (byte-exact, human-expectation tier)
 
+> **Not built as a corpus.** There is no `tests/golden/` directory; the legacy
+> renderer's byte shapes are pinned by unit tests in
+> `crates/kg-diag/src/render.rs`, and the harness tier by `cargo xtask
+> conformance` and `cargo xtask repoint`.
+
 Beyond the harness, keep a `tests/golden/` corpus rendered byte-exactly:
 
 1. `narrowing_conversion_warning.txt` — must equal Example 1 modulo the
@@ -1399,6 +1435,15 @@ Beyond the harness, keep a `tests/golden/` corpus rendered byte-exactly:
 A `--bless` mode regenerates them. Any diff in 1-8 is a review-required change.
 
 ### 11.4 Differential harness (once a reference binary can be built)
+
+> **Not built as `tools/difftest`.** The reference builds now
+> (`scripts/build-backend.sh --reference`), and the differential tiers landed as
+> xtask gates instead: `cargo xtask errors` grades our first error's position
+> and message against the reference frontend's (`kg-oracle --errors`) over
+> every must-reject snippet; `cargo xtask repoint` runs upstream's own
+> `syntax-test.py` against the compat binary; `cargo xtask backend` and
+> `cargo xtask output` compare verdicts and written files through the real
+> backend.
 
 `tools/difftest`: run reference and kgrust on the same input, then compare with
 a normaliser that:

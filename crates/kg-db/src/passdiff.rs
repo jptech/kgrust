@@ -15,10 +15,10 @@
 //! stops short of is not compared, as neither side is admitted there.
 //!
 //! The parser's own checks are compared the same way ([`Probe::Parser`]):
-//! a check whose oracle moves off the CST engine's type table onto what
-//! the reference's parser built ([`crate::parsed`]) is run in its place
-//! under both, on copies of the sink, and the run admits one. The
-//! reference's verdict on such a check is a parse error.
+//! a check whose oracle moved off the CST engine's type table (deleted in
+//! sprint W3.7) onto what the reference's parser built ([`crate::parsed`])
+//! is run in its place under both, on copies of the sink, and the run
+//! admits one. The reference's verdict on such a check is a parse error.
 //!
 //! The recording is per thread: the CST run of one program happens on the
 //! thread that asks for its diagnostics ([`crate::Db::check`]).

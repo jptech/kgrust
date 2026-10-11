@@ -577,7 +577,7 @@ fn is_hspace(c: char) -> bool {
 // ---------------------------------------------------------------------------
 
 /// The documentation of one doc-carrying element, as the reference's
-/// documentation generator reads it (`kanagawa/doc/sandcastle.md`): the
+/// documentation generator reads it (`third_party/kanagawa/doc/sandcastle.md`): the
 /// `//|` or `/*|` run before the element and the `//<` or `/*<` run after,
 /// each with its markers and, on a line comment, the one space of margin
 /// taken off. The text is Markdown.
@@ -711,7 +711,7 @@ pub enum Headings {
 }
 
 /// Documentation in the reference's dialect — Pandoc's Markdown, with
-/// svgbob diagrams between `@@` lines (`kanagawa/doc/sandcastle.md`) — as
+/// svgbob diagrams between `@@` lines (`third_party/kanagawa/doc/sandcastle.md`) — as
 /// CommonMark: a diagram becomes a ```` ```svgbob ```` block, a bracketed
 /// span `[text]{#id .anchor}` an HTML `<span id="id">text</span>`, and a
 /// heading what `headings` says. Code, fenced or indented, is left alone.

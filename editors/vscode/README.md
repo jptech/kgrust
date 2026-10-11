@@ -1,13 +1,37 @@
 # Kanagawa for VS Code
 
-A thin client for `kg-lsp`, the Kanagawa language server in
-[`crates/kg-lsp`](../../crates/kg-lsp). It spawns the server and registers the
-`kanagawa` language for `.k` files. Nothing about the language is implemented
-here — the outline, folding, selection ranges, semantic highlighting and
-diagnostics are all computed by the server, from the same syntax tree the
-compiler uses.
+Language support for [Kanagawa](https://github.com/microsoft/kanagawa), the
+high-level language for hardware design, backed by the
+[kgrust](https://github.com/jptech/kgrust) language server: errors as you type,
+go to definition, references and rename, hover with types and documentation,
+completion, signature help, inlay hints, semantic highlighting, the outline,
+folding and formatting. [What the server provides](#what-the-server-provides)
+has the detail.
 
-## The two commands
+**It needs `kg`.** The extension runs `kg lsp`, with `kg` found on `PATH`.
+Install a kgrust release, or build it from source
+(`cargo build --release -p kg-cli`, see the
+[kgrust README](https://github.com/jptech/kgrust#readme)), or point the
+`kanagawa.server.path` setting at the binary. Without it you get the bundled
+syntax highlighting and nothing else.
+
+**One Kanagawa extension at a time.** This extension registers the same
+`kanagawa` language id for `.k` files as upstream Kanagawa's own extension,
+*Kanagawa Language Support* (`tools/editors/vscode` in
+[microsoft/kanagawa](https://github.com/microsoft/kanagawa)). With both
+enabled, their grammars and language settings compete for the same files;
+disable one of them.
+
+## How it works
+
+A thin client for `kg-lsp`, the Kanagawa language server in
+[`crates/kg-lsp`](https://github.com/jptech/kgrust/tree/main/crates/kg-lsp). It
+spawns the server and registers the `kanagawa` language for `.k` files.
+Nothing about the language is implemented here — the outline, folding,
+selection ranges, semantic highlighting and diagnostics are all computed by the
+server, from the same syntax tree the compiler uses.
+
+## Building the extension
 
 ```sh
 npm install          # once, to fetch vscode-languageclient and the TypeScript compiler
@@ -15,7 +39,7 @@ npm run compile      # tsc -p ./  → out/extension.js
 ```
 
 Then press <kbd>F5</kbd> in VS Code with this folder open to launch an Extension
-Development Host, or `npx vsce package` to build a `.vsix`.
+Development Host, or `npx @vscode/vsce package` to build a `.vsix`.
 
 The server is *not* built by either command. Build it from the workspace root:
 
@@ -61,7 +85,7 @@ VS Code paints TextMate scopes first and lets semantic tokens override them, so
 with the server running you see the server's answer.
 
 That matters, because the reference extension's hand-written grammar
-(`../kanagawa/tools/editors/vscode/syntaxes/`) is wrong in three ways that are
+([`tools/editors/vscode/syntaxes/`](https://github.com/microsoft/kanagawa/tree/main/tools/editors/vscode/syntaxes)) is wrong in three ways that are
 visible in an ordinary file. Two of them a regular expression *can* fix, and the
 generated fallback does; the third it genuinely cannot, and only the server
 fixes it:
@@ -94,7 +118,7 @@ first in a run is absorbed into the same doc comment
 (`Parser/Lexer.hs:82-84`).
 
 The server's legend also carries a non-standard `punctuation` token type, which
-is what carries fix #1; `contributes.semanticTokenScopes` in `package.json` maps
+is what carries the first fix above; `contributes.semanticTokenScopes` in `package.json` maps
 it back to a TextMate scope so themes without semantic colouring still look
 right.
 
@@ -112,5 +136,5 @@ beyond how to launch the server:
 | `kanagawa.server.extraEnv` | `{}` | Extra environment variables |
 | `kanagawa.trace.server` | `off` | Log the JSON-RPC conversation |
 
-**Kanagawa: Restart Language Server** and **Kanagawa: Show Language Server Log**
-are in the command palette.
+**Kanagawa: Restart Language Server** and **Kanagawa: Show Server Log** are in
+the command palette; the log is where `kanagawa.trace.server` writes.

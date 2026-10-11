@@ -1,13 +1,18 @@
 #!/bin/zsh
 # The full gate suite — and a gate: it exits non-zero on any regression.
 #
+# docs/gates.md describes every stage, what makes it red and what each gate
+# is blind to; this header is the short form.
+#
 # Red means one of: the build or a test failed; clippy warned (`-D warnings`);
-# a generated file is out of date; `fmt-check`, `corpus` or `ir` failed;
-# `conformance` fell below 100%; the ratchet ledger disagrees with the
-# scoreboard's own logs; or any ratchet — `strict`, `errors`, `ptdiff`,
-# `backend`, `repoint`, `cli` — has an item that is newly failing against
-# `baseline.json` (xtask/src/ratchet.rs). A total that rose while one item
-# fell is red. Improvements are green and ask to be blessed:
+# a generated file is out of date; `fmt-check`, `corpus`, `ir` or
+# `edit-identity` failed; `conformance` fell below 100%; the ratchet ledger
+# disagrees with the scoreboard's own logs; `mem` is over a budget; or any
+# ratchet has an item that is newly failing against `baseline.json`
+# (xtask/src/ratchet.rs) — `strict`, `errors`, `lint`, `resilience`, and with
+# the backend `ptdiff`, `backend`, `output`, `repoint`, `cli`, `loop-left`
+# and `shadow`. A total that rose while one item fell is red. Improvements
+# are green and ask to be blessed:
 #   cargo xtask ratchet --bless <gate>
 #
 # Shape, for speed:
@@ -16,22 +21,21 @@
 #   * the gates that share nothing run together on the release binary, each
 #     spread over threads of its own;
 #   * then `strict-ledger` (which reads the conformance logs), `ir`,
-#     `ptdiff`, `backend` and `repoint` together; `bench` alone and last, on
-#     a quieter machine — a tripwire, reported and never failed — then
-#     `mem`, each use case's peak memory against memory-budgets.json, which
-#     fails the run over a budget (~50 s; `--no-bench` leaves out both).
-# Timings: docs/journal.md, "The testing loop, measured", "The gates,
-# spread over threads" and "The frontend made fast, and exactly". On
-# 2026-09-27, quiet, the whole run took 871 s: tests 328 (a full recompile;
-# 35 s at rest), clippy 100, the first batch 17, the second 72 (the backend
-# replayed from its cache), output 239 (its cache cold), bench 104.
+#     `resilience`, `ptdiff`, `backend`, `repoint` and `cli` together;
+#     `loop-left`, `edit-identity` and `output` one after another; `bench`
+#     alone and last, on a quieter machine — a tripwire, reported and never
+#     failed — then `mem`, each use case's peak memory against
+#     memory-budgets.json, which fails the run over a budget (`--no-bench`
+#     leaves out both).
+# Timings: docs/gates.md, "How long" — about 6 minutes warm, 15–30 cold.
 #
-# `ptdiff` and `backend` read the reference's recorded runs (`cargo xtask
-# ptrace`, which needs the reference's compiler: `scripts/build-backend.sh
-# --reference`) and `backend` loads the backend library from that build; `repoint` and `cli` need python3, and `cli` the
-# build's configured tests and its compiler. Where the build is
-# absent they are red, not quietly skipped — say `--no-backend` to leave
-# them out on purpose (their ratchets are then not checked).
+# The backend gates need the reference's build: `ptdiff` and `backend` read
+# its recorded runs (`cargo xtask ptrace`, after `scripts/build-backend.sh
+# --reference`) and load the backend library from it; `repoint` and `cli`
+# need python3, and `cli` the build's configured tests and its compiler.
+# Where the build is absent they are red, not quietly skipped — say
+# `--no-backend` to leave them out on purpose (their ratchets are then not
+# checked).
 #
 # Usage: scripts/gates.sh [--no-backend] [--no-bench] [--snapshot[=<commit>]] > gates.log 2>&1
 #   The last screen of the log is the summary; target/gates/status.json holds
@@ -123,7 +127,7 @@ memory_watchdog() {
 zmodload zsh/system
 { memory_watchdog $$ 2>&1 | tee target/gates-memory.log >&2 } &!
 kg_env
-# The backend cache (CLAUDE.md): re-run one hit in 20 against the real
+# The backend cache (docs/gates.md): re-run one hit in 20 against the real
 # backend, so its premise is re-proven every milestone.
 export KG_BACKEND_CACHE_VERIFY=${KG_BACKEND_CACHE_VERIFY:-20}
 BUILD_DIR=$KANAGAWA_BUILD
@@ -176,7 +180,7 @@ $X corpus $R > $T/corpus.log 2>&1 & p_corpus=$!
 wait $p_fmt; note fmt-check $? "$(tail -1 $T/fmt.log)"
 wait $p_conf; rc=$?; note conformance $rc "$(grep 'decidable assertions pass' $T/conformance.log)"
 grep FAIL $T/conformance.log | head -5
-# `--strict` exits non-zero by design; its log is read by the ledger below.
+# `--strict`'s verdict is the `strict` ratchet, read from its log below.
 wait $p_strict
 wait $p_err; rc=$?; note errors $rc "$(sed -nE 's/^  (agree|ours silent) +([0-9]+).*/\1 \2,/p' $T/errors.log | tr '\n' ' ')"
 grep -E "NEWLY FAILING|GRADED FEWER|^Error" $T/errors.log | head -10

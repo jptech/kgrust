@@ -1,13 +1,26 @@
 # Frontend desugaring & template-instantiation pipeline — implementation spec
 
+> **Status, 2026-10-11.** Extracted at kanagawa `8e0a3fb` (2026-05-18); the
+> reference is pinned at `98a2d8c` (`reference.lock`). The frontend library
+> (`compiler/hs/lib/`) did not change since; of the files cited here only
+> `compiler/hs/app/Main.hs` did (the `list-deps` mode, #136, which also moved
+> the `--file-list` write ahead of `frontend`), and its citations are
+> re-derived at the pin. §10–§11 are pre-implementation design: the passes run
+> as the program-wide loop in `kg-sem` (`kg_sem::elaborate`) over `kg-hir`'s
+> IR, memoized by `kg-db`, and where §11 and those crates differ, their
+> `lib.rs` are authoritative (which pass runs where: `docs/status.md`,
+> "Frontend passes").
+
 Extracted from the reference Haskell compiler at `third_party/kanagawa` (read-only).
 Every claim below carries a `path:line` citation. Paths are relative to
 `third_party/kanagawa/` unless absolute.
 
-Reference tree state: `compiler/hs/lib/Language/Kanagawa/Frontend.hs` is 457 lines;
+Reference tree state (line counts re-measured at `98a2d8c`):
+`compiler/hs/lib/Language/Kanagawa/Frontend.hs` is 457 lines;
 `Desugar.hs` 213; `Template.hs` 164; `Function.hs` 423; `Closure.hs` 26; `Recursion.hs` 111;
 `Mangle.hs` 64; `Constexpr.hs` 391; `Internal.hs` 57; `Symbols.hs` 88; `TypeCheck.hs` 378;
-`Type/Inference.hs` 69; `Type.hs` 1669; `Parser/Syntax.hs` 968; `compiler/hs/app/Main.hs` 152.
+`Type/Inference.hs` 69; `Type.hs` 1669; `Parser/Syntax.hs` 805; `compiler/hs/app/Main.hs` 183
+(152 at `8e0a3fb`).
 
 ---
 
@@ -59,13 +72,13 @@ that imports the non-`Fix` family (`Mangle.hs:13`) because its `mangle` is a `ca
 ## 1. Entry points
 
 ```haskell
--- compiler/hs/app/Main.hs:76
+-- compiler/hs/app/Main.hs:80
 let desugared = foldr1 append $ frontend passes template_passes template_iterations exprs
 ```
 
 `exprs` is one `NotedExp Src (ParseError …)` **per parsed file** (`Main.hs:70-72`); the whole frontend
 operates on that *list*, and the files are concatenated into a single `SeqF` only afterwards
-(`Main.hs:76`, `Main.hs:104-105`).
+(`Main.hs:80`, `Main.hs:106-107`).
 
 ```haskell
 -- compiler/hs/lib/Language/Kanagawa/Frontend.hs:34-35
@@ -77,8 +90,8 @@ frontend frontendPasses templatePasses templateIterations = desugarPasses fronte
 (`Type.hs:445-450`) is `{ typeof :: !Type, untype :: a }`. So the note carried by every node from here
 on is *(inferred type, source span)*.
 
-After the frontend, `Main.hs:81` collects `nub $ errors $ unnoteType desugared`; a non-empty list
-aborts before codegen (`Main.hs:82-84`).
+After the frontend, `Main.hs:85` collects `nub $ errors $ unnoteType desugared`; a non-empty list
+aborts before codegen (`Main.hs:86-88`).
 
 The `Eq n` constraint on `frontend`/`desugarPasses` (`Frontend.hs:34,37`) is not used by any callee I
 could find — **UNVERIFIED**, likely vestigial.
@@ -200,7 +213,7 @@ Two independent confirmations from the source itself:
 Only three of the nineteen passes can set the error flag: #1 (`checkPar`, `Frontend.hs:48-52`),
 #8 (`instantiateTemplates`, `Template.hs:56`) and #9 (`undefinedSymbols`, `Frontend.hs:87`). Every
 other pass merely propagates it. So a type error produced by, say, `validateProgram` (#19, the last
-pass) never suppresses anything — it just lands in the final `errors` collection in `Main.hs:81`.
+pass) never suppresses anything — it just lands in the final `errors` collection in `Main.hs:85`.
 
 ---
 
@@ -572,7 +585,7 @@ desugarPasses frontendPasses templatePasses templateIterations program = fst $ f
 CLI plumbing: `passes` field with `&= name "frontend-passes" &= explicit &= opt (maxBound::Int)`,
 default `maxBound::Int` (`compiler/hs/app/Options/CmdArgs.hs:104`, field at
 `compiler/hs/app/Options.hs:94`); forwarded as the first argument of `frontend`
-(`compiler/hs/app/Main.hs:76`).
+(`compiler/hs/app/Main.hs:80`).
 
 `length passes = 19`.
 
@@ -586,7 +599,7 @@ The default `maxBound::Int` gives `19 - 9223372036854775807 = -92233720368547757
 still ≥ `minBound`), hence `drop` of a negative number, hence all passes.
 
 **Bisection recipe**: compile with `--frontend-passes=0,1,2,…` and diff `--dump-program` /
-`--dump-types` output (`Main.hs:78-80`, `Main.hs:88-91`) to find the first pass that introduces a
+`--dump-types` output (`Main.hs:82-84`, `Main.hs:92-95`) to find the first pass that introduces a
 regression.
 
 ---
@@ -922,7 +935,7 @@ field-by-field — and leaf payloads — `Name`, `QualifiedName`, `Int`, `Intege
 5. **Where it explicitly does *not* apply**: `deduplicateInstances` compares qualified *names* and node
    kinds, not trees (`Template.hs:144-155`); `inferType`'s fixpoint compares an `[Integer]` measure
    (`Type/Inference.hs:34,41`); symbol tables are `HashMap QualifiedName` (`Symbols.hs:26`).
-6. **Error dedup in the driver is span-sensitive**: `Main.hs:81` does `nub $ errors $ unnoteType
+6. **Error dedup in the driver is span-sensitive**: `Main.hs:85` does `nub $ errors $ unnoteType
    desugared`, over `[(Src, ParseError s e)]`; `Src` has a derived `Eq` (`Parser/Syntax.hs:610-621`),
    so two identical messages at different locations both survive — and two identical messages at the
    *same* location collapse, which matters because template instantiation copies bodies.
@@ -1205,7 +1218,7 @@ the capture value inserted as the first argument, cast to the capture type
 
 ## 10. Whole-program vs per-file — where the Rust query boundary goes
 
-The program is a *list* of per-file ASTs throughout the frontend (`Main.hs:70-76`,
+The program is a *list* of per-file ASTs throughout the frontend (`Main.hs:70-80`,
 `Frontend.hs:34-38`). Three levels of coupling exist:
 
 **(a) Structurally per-file** — `passPar f` maps `f` over files independently
@@ -1271,7 +1284,7 @@ file-local; the *input* is a program-wide `HashMap QualifiedName (NotedExp …)`
 pub struct NodeId(u32);
 
 /// The single 93-constructor functor, mirroring
-/// kanagawa/compiler/hs/lib/Language/Kanagawa/Parser/Syntax.hs:282-584 (ExpF).
+/// third_party/kanagawa/compiler/hs/lib/Language/Kanagawa/Parser/Syntax.hs:282-584 (ExpF).
 /// Children are NodeId, never Box — the tree is a flat arena so passes can
 /// rebuild bottom-up without cloning subtrees.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -1288,7 +1301,7 @@ pub struct Hir {
     // --- side tables: deliberately NOT part of node identity ---
     spans:  Vec<SrcStack>,          // Note.note, Parser/Syntax.hs:586-591
     types:  Vec<Ty>,                // Typed.typeof,  Type.hs:445-450
-    roots:  Vec<NodeId>,            // one per source file (Main.hs:70-76)
+    roots:  Vec<NodeId>,            // one per source file (Main.hs:70-80)
     lists:  Vec<NodeId>,            // backing store for IdList
     names:  Interner<Name>,         // Name = Hashed String, Parser/Syntax.hs:51-52
 }
@@ -1358,7 +1371,7 @@ Error-flag threading reproduces `pass`/`passPar`/`checkPar` exactly: run nothing
 /// Frontend pass order.
 ///
 /// The reference compiler writes this list in `desugarPasses`
-/// (kanagawa/compiler/hs/lib/Language/Kanagawa/Frontend.hs:54-80) and folds it with
+/// (third_party/kanagawa/compiler/hs/lib/Language/Kanagawa/Frontend.hs:54-80) and folds it with
 ///
 ///     fst $ foldr ($) (program, False) $ drop (length passes - frontendPasses) passes
 ///                                                     -- Frontend.hs:38
@@ -1489,7 +1502,7 @@ Mangling gets its own module with a hand-written `fn show_float(f: f32) -> Strin
 
 Everything else in §3.2 checks out: `desugarPasses` is indeed the authoritative list
 (`Frontend.hs:54-80`), the pipeline is encoded in Haskell rather than data, and the frontend does
-produce a fully typed, lowered AST before any ParseTree node is created (`Main.hs:84,97`).
+produce a fully typed, lowered AST before any ParseTree node is created (`Main.hs:88,101`).
 
 ---
 
@@ -1531,7 +1544,7 @@ produce a fully typed, lowered AST before any ParseTree node is created (`Main.h
     definitions are alive until pass 15.
 16. `desugarWithNote` merges the instantiation-site note into every node of an instance
     (`Template.hs:127`, `Desugar.hs:91-94`), producing a `SrcStack` (`Parser/Syntax.hs:623-626`).
-    Diagnostics inside template instances therefore have a *location stack*, and `Main.hs:81`'s `nub`
+    Diagnostics inside template instances therefore have a *location stack*, and `Main.hs:85`'s `nub`
     dedups on that whole stack.
 17. `getSymbols''` builds the map as `HashMap.fromList . reverse . para update` (`Symbols.hs:44`):
     the parent is emitted before its children, and `reverse` + `fromList`'s last-wins mean the
@@ -1578,7 +1591,7 @@ Each names the probe program that would settle it.
    secondary location.
 
 3. **Does `--frontend-passes=0` actually reach codegen, or does the C++ side reject an untyped tree?**
-   `Main.hs:81-84` only checks for `ErrorF` nodes, so the raw parse tree is passed to `compile`.
+   `Main.hs:85-88` only checks for `ErrorF` nodes, so the raw parse tree is passed to `compile`.
    *Probe:* `kanagawa --frontend-passes=0 test/syntax/<any>.k` and observe whether it exits non-zero
    from the C++ side or crashes.
 

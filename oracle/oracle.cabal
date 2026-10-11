@@ -2,6 +2,9 @@ cabal-version:       3.0
 name:                oracle
 version:             1.0.0
 synopsis:            A differential oracle for the Rust port
+license:             MIT
+homepage:            https://github.com/jptech/kgrust
+bug-reports:         https://github.com/jptech/kgrust/issues
 build-type:          Simple
 
 library

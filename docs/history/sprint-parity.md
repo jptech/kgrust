@@ -1,9 +1,16 @@
 # Sprint: parity, one engine, and speed
 
+> **History — finished 2026-10-11.** The parity sprint's plan (W0–W8,
+> milestones S1–S6): every milestone reached but S5's last item (the loop
+> across edits, D1 step 4). What it left open is carried into
+> [`roadmap.md`](../roadmap.md) — next steps and open questions — and the
+> live work into [`plans/`](../plans/README.md). Kept as the record its
+> workstream codes (`W7.5d`, `S5`, …) refer to throughout the code and docs.
+
 *Planned 2026-09-27. The next sprint's basis: it folds the open end of
 [`ir-elaboration.md`](ir-elaboration.md) (M5's leftovers, M6), the deferred
-half of [`performance.md`](performance.md), the pending items of
-[`single-source-of-truth.md`](single-source-of-truth.md), and every gap the
+half of [`performance.md`](../plans/performance.md), the pending items of
+[`single-source-of-truth.md`](../plans/single-source-of-truth.md), and every gap the
 2026-09-27 gate run lists, into one ordered queue.*
 
 *Revised 2026-09-27, after a read-only survey of the code, the gates and
@@ -39,7 +46,7 @@ measure.*
 | production readers of mangled text | about a dozen (`walk.rs`'s splitters, `subtype.rs`'s three, `infer.rs`'s two); W0.4's lint counts them | 0 |
 
 Against the reference's own frontend we are 5–9× faster and lose only on
-memory for the largest programs ([`performance.md`](performance.md) §11).
+memory for the largest programs ([`performance.md`](../plans/performance.md) §11).
 
 ## 2. Rules for the sprint
 
@@ -2026,7 +2033,7 @@ kept on purpose in the plan's register with its reason.
 
 ### W5 — Performance
 
-Measured and exact, as in [`performance.md`](performance.md). Ordered by
+Measured and exact, as in [`performance.md`](../plans/performance.md). Ordered by
 what the editor and the gates feel:
 
 1. **Keystroke** (1.46 s → ≤ 400 ms, then M6's ≤ 100 ms): **moved to
@@ -2499,7 +2506,7 @@ against a from-scratch run.
   rewrote one module — or copies keyed by content (§3.5) with their
   round re-derived.
 - **5d — drafted 2026-09-27, awaiting the owner's review.**
-  [`loop-across-edits.md`](loop-across-edits.md): a library module's
+  [`loop-across-edits.md`](../plans/loop-across-edits.md): a library module's
   round is a function of its state, the copies decided into it that
   round, and the answers it read across the module boundary — so a
   replay per module and round keyed on those reads (W7.4's technique) is
@@ -3010,7 +3017,7 @@ bench's keystroke 378.70 ms worst (`risc-v.k`), its fixpoint 776.52 ms
 (`array.k`); `mem` every budget held. What remains of S5 is D1 step 4
 and the reuse of the passes that read across modules — a design of its
 own (re-askable reads), not a step. Where the session paused, and the
-options from here: [`../handoff.md`](../handoff.md).
+options from here: [`handoff-2026-10-11.md`](handoff-2026-10-11.md).
 
 | Milestone | Contents | Gate evidence |
 |---|---|---|

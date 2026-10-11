@@ -363,7 +363,7 @@ impl CompletedMarker {
 /// Human-readable name of a kind, for "expected ..." messages.
 ///
 /// All frontend errors are reported as `Error 1` by the reference
-/// (`compiler/hs/app/Main.hs:95`), so the wording is free — but it is what a
+/// (`compiler/hs/app/Main.hs:99`), so the wording is free — but it is what a
 /// language-server user actually reads, so it should be good.
 pub fn describe(kind: SyntaxKind) -> String {
     match kind.static_text() {

@@ -1033,7 +1033,7 @@ fn oracle_differential(kanagawa_root: &Path, verbose: bool) -> Result<()> {
         // What this does *not* protect is the thing that motivated it: a
         // rewrite giving a synthesized node the wrong donor. That is caught by
         // per-pass unit tests read off `kg-oracle --notes`, which is now a
-        // house rule (`CLAUDE.md`), because a corpus-wide equality gate cannot
+        // house rule (`docs/gates.md`), because a corpus-wide equality gate cannot
         // exist until the 6.6% is understood.
         let cst = cst_ranges(&db, file);
         let mut bad = 0usize;
