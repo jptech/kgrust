@@ -27,7 +27,8 @@ Pick the smallest tier that can see the change (the table is in
 
 CI is a lighter tier beside these, not one of them:
 [`scripts/ci.sh`](../scripts/ci.sh) — the quick tests, `corpus`,
-`conformance`, `fmt-check`, `lint`, clippy, the links — which GitHub runs on
+`conformance`, `fmt-check`, `lint`, `codegen --check`, clippy, the links,
+over the workspace but `kg-ptrace` — which GitHub runs on
 every push and pull request, sized for its free runners. It covers this
 repository's Rust code and builds neither the backend nor the reference, so
 it runs none of the gates below that need them — `errors`, `ir` and

@@ -49,8 +49,8 @@ far, and reports from Linux are welcome.
    evidence: which test or gate moved, from what to what.
 4. CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs
    [`scripts/ci.sh`](scripts/ci.sh) on Linux — the quick tests, `corpus`,
-   `conformance`, `fmt-check`, `lint`, clippy and the link check, with no
-   backend build — and checks `main` on macOS too. `scripts/ci.sh` runs the
+   `conformance`, `fmt-check`, `lint`, `codegen --check`, clippy and the
+   link check, with no backend build — and checks `main` on macOS too. `scripts/ci.sh` runs the
    same on your machine. The maintainer runs the parity gates before
    merging.
 5. Pull requests are squash-merged: `main` keeps one commit per piece of work.

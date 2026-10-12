@@ -176,8 +176,12 @@ fn sum_group(ps: &str, group: u32) -> u64 {
         .sum()
 }
 
+/// `--` before the group: procps's `kill` (Linux) reads `-KILL -<pgid>` as
+/// two options, exits 0 and signals nothing, so only the leader died and a
+/// grandchild — a backend worker — outlived its budget. macOS's took it.
+/// Found when CI first ran this crate's tests on Linux (2026-10-11).
 fn kill_group(group: u32) {
-    let _ = Command::new("kill").args(["-KILL", &format!("-{group}")]).status();
+    let _ = Command::new("kill").args(["-s", "KILL", "--", &format!("-{group}")]).status();
 }
 
 #[cfg(test)]

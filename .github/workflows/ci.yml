@@ -3,6 +3,8 @@
 # Nothing builds or runs the C++ backend (LLVM, MLIR, CIRCT) or the
 # reference compiler (GHC); the tests that need them skip. The parity gates
 # need both and run locally (`scripts/gates.sh`; AGENTS.md).
+#
+# Actions are pinned by commit, their release named beside it.
 name: CI
 
 on:
@@ -11,9 +13,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read-only: CI reads the repository and writes nothing back.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A pull request's superseded run is dropped; every commit on `main` is graded.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,18 +33,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "macos-14"]') }}
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "macos-15"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # third_party/kanagawa only — the corpus and the library. Its own
-          # submodules (CIRCT, LLVM) are the backend build's, not needed here.
+          persist-credentials: false
+          # third_party/kanagawa only — the corpus, the library, the ABI's
+          # headers. Its own submodules (CIRCT, LLVM) are the backend
+          # build's, not needed here.
           submodules: true
+      - name: libclang (codegen --check; macOS has Xcode's)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libclang-dev
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Pull requests restore `main`'s cache and leave it alone.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Tests and corpus gates
         run: scripts/ci.sh test
 
@@ -46,9 +61,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy and links
         run: scripts/ci.sh lint

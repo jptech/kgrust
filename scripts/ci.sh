@@ -3,17 +3,21 @@
 # and a developer's machine run the same commands.
 #
 #   scripts/ci.sh          # both jobs: `test`, then `lint`
-#   scripts/ci.sh test     # the tests, then the corpus gates: corpus,
-#                          #   conformance, fmt-check, lint
+#   scripts/ci.sh test     # the tests, then the corpus gates (corpus,
+#                          #   conformance, fmt-check, lint) and codegen --check
 #   scripts/ci.sh lint     # clippy, and the documentation's links
 #
-# This repository's Rust code only, sized for GitHub's free runners (Linux:
-# 4 cores, 16 GB, 14 GB of disk). It builds neither the C++ backend nor the
-# reference compiler: the tests that need them skip, and `cargo build`
-# links neither — `kg` loads the backend at run time. The corpus gates read
-# the `third_party/kanagawa` submodule's test files and library; nothing of
-# it is compiled. The parity gates, which need the backend and the
-# reference built, stay local (`scripts/gates.sh`, AGENTS.md).
+# This repository's Rust code only — the whole workspace but kg-ptrace,
+# whose build script compiles against the reference's headers — sized for
+# GitHub's free runners (Linux: 4 cores, 16 GB, 14 GB of disk). It builds
+# neither the C++ backend nor the reference compiler: the tests that need
+# them skip, and `cargo build` links neither — `kg` loads the backend at run
+# time. The corpus gates read the `third_party/kanagawa` submodule's test
+# files, library and ABI headers; nothing of it is compiled. `codegen
+# --check` needs libclang (Xcode's on macOS; `libclang-dev` on Ubuntu, whose
+# bindings come out byte-identical). The parity gates, which need the
+# backend and the reference built, stay local (`scripts/gates.sh`,
+# AGENTS.md).
 #
 # Under CI (`CI` set) the build is lean: one `quick` profile without debug
 # info or incremental state serves the tests and the xtask gates alike.
@@ -54,15 +58,20 @@ step() { # name command…
   fi
 }
 
+# kg-ptrace is the backend interposer; its build script runs bindgen over
+# the reference's headers. Everything else in the workspace, xtask's own
+# tests included — they caught a Linux bug the day they first ran here.
+workspace=(--workspace --exclude kg-ptrace)
 run_test() {
-  step "tests" cargo test --locked --profile quick
+  step "tests" cargo test --locked --profile quick "${workspace[@]}"
   local gate
-  for gate in corpus conformance fmt-check lint; do
-    step "xtask $gate" cargo run --locked --quiet --profile quick -p xtask -- "$gate"
+  for gate in corpus conformance fmt-check lint "codegen --check"; do
+    # shellcheck disable=SC2086 # `codegen --check` is a command and its flag
+    step "xtask $gate" cargo run --locked --quiet --profile quick -p xtask -- $gate
   done
 }
 run_lint() {
-  step "clippy" cargo clippy --locked --all-targets -- -D warnings
+  step "clippy" cargo clippy --locked "${workspace[@]}" --all-targets -- -D warnings
   step "links" python3 scripts/check-links.py
 }
 

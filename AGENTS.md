@@ -141,7 +141,8 @@ the documentation's own rules close [`docs/README.md`](docs/README.md).
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs as two jobs —
 on Linux for every push and pull request, on macOS for `main` — sized for
 GitHub's free runners: `test` (the quick tests, `corpus`, `conformance`,
-`fmt-check`, `lint`) and `lint` (clippy, `check-links.py`). It covers this
+`fmt-check`, `lint`, `codegen --check`) and `lint` (clippy,
+`check-links.py`), over the workspace but `kg-ptrace`. It covers this
 repository's Rust code, and builds neither the backend nor the reference
 — keep it that way; the parity gates stay local. `scripts/ci.sh` runs the
 same on your machine.

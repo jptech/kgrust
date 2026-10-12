@@ -4,6 +4,8 @@
 
 **A fast, modern toolchain for [Kanagawa](https://github.com/microsoft/kanagawa), the hardware design language — written in Rust.**
 
+[![CI](https://github.com/jptech/kgrust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jptech/kgrust/actions/workflows/ci.yml)
+
 [Install](#install) · [Quick start](#quick-start) · [Editor](#editor) · [Build from source](#build-from-source) · [Parity and speed](#parity-and-speed) · [Development](#development)
 
 </div>

@@ -13,7 +13,10 @@ Notable changes to kgrust, newest first. The format follows
 - CI on GitHub Actions, sized for the free runners: `scripts/ci.sh`, the
   tests and corpus gates in one job and clippy and the links in another, on
   Linux for every push and pull request and on macOS for `main`. It builds
-  neither the backend nor the reference compiler.
+  neither the backend nor the reference compiler. It covers the workspace
+  but `kg-ptrace` — `xtask`'s own tests too — and checks the generated
+  files are current (`codegen --check`). Actions are pinned by commit, the
+  token is read-only, and pull requests reuse `main`'s cache.
 - `scripts/build-backend.sh --fetch-boost` installs Boost 1.88's headers
   where the system's are older (Ubuntu 24.04 ships 1.83).
 - Repository metadata on every crate; `publish = false` across the
@@ -45,6 +48,9 @@ Notable changes to kgrust, newest first. The format follows
 - A timing test in `kg-db` failed on a loaded machine (a 20 ms sleep took
   56); it now holds however long a sleep takes.
 - `scripts/vs-haskell.sh` runs on Linux (GNU `time`, `find`, `sed`).
+- On Linux, a gate's child over its memory or time budget lost only its
+  leader: procps's `kill` took `kill -KILL -<group>` as two options and
+  signalled nothing, so a grandchild (a backend worker) ran on.
 
 ## 0.1.0 — first published state, 2026-10-11
 
