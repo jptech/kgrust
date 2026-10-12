@@ -109,6 +109,17 @@ hw = { optimize = 0 }
         assert!(m.profile.contains_key("test"));
     }
 
+    /// A table that sets some keys takes the documented default for the
+    /// rest (`docs/spec/cli.md` §10): `[fmt]` with only `line-width` was
+    /// refused for want of `indent`, and `[lsp]` likewise.
+    #[test]
+    fn a_partial_table_takes_the_defaults_for_the_rest() {
+        let text = "[fmt]\nline-width = 80\n\n[lsp]\ndiagnostics = \"on-save\"\n";
+        let m = parse(text, Utf8Path::new("kanagawa.toml")).unwrap();
+        assert_eq!((m.fmt.line_width, m.fmt.indent, m.fmt.final_newline), (80, 4, true));
+        assert_eq!((m.lsp.diagnostics, m.lsp.max_file_size_kb), (crate::DiagnosticTiming::OnSave, 4096));
+    }
+
     #[test]
     fn an_empty_manifest_is_all_defaults() {
         let m = parse("", Utf8Path::new("kanagawa.toml")).unwrap();

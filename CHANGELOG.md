@@ -17,6 +17,10 @@ Notable changes to kgrust, newest first. The format follows
   but `kg-ptrace` — `xtask`'s own tests too — and checks the generated
   files are current (`codegen --check`). Actions are pinned by commit, the
   token is read-only, and pull requests reuse `main`'s cache.
+- The VS Code extension builds to a `.vsix` with `npm run package`, and
+  <kbd>F5</kbd> in its folder starts an Extension Development Host
+  (`.vscode/launch.json`); its README covers installing, an isolated
+  profile, and which `kg` to point it at.
 - `scripts/build-backend.sh --fetch-boost` installs Boost 1.88's headers
   where the system's are older (Ubuntu 24.04 ships 1.83).
 - Repository metadata on every crate; `publish = false` across the
@@ -39,6 +43,8 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Fixed
 
+- A `kanagawa.toml` whose `[fmt]` or `[lsp]` table set only some keys was
+  refused ("missing field `indent`"); the rest now take their defaults.
 - `cargo xtask status-md` refuses a partial gate run; `docs/status.md` had
   been published with most of its headline as `?`.
 - `cargo xtask` with `KANAGAWA_ROOT` unset doubled the reference's path

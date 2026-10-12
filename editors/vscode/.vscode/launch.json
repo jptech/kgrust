@@ -1,0 +1,16 @@
+{
+  // F5 with this folder open: an Extension Development Host running the
+  // extension from `out/`, compiled first. Open a folder of `.k` files in
+  // the window it starts; `kanagawa.server.path` says which `kg` it runs.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run the extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "compile"
+    }
+  ]
+}

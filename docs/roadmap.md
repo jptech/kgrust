@@ -60,7 +60,13 @@ Independent options, roughly in the order recommended.
    minutes), a no-op `GlobalDataPropagation`, a whole-run cache in
    `kg build` ([`plans/backend-survey.md`](plans/backend-survey.md) §3).
 6. **Smaller:** the editor's rename follow-ups (members through lambdas and
-   abbreviated templates); moving the parser's template checks onto the
+   abbreviated templates); three found trying the VS Code extension
+   (2026-10-11) — hover inside a template defined in another file says
+   "Type not yet inferred" (an open file is answered as its own root, and a
+   module instantiates nothing; answering through the open files that
+   import it would fix it), the outline lists an exported class twice (the
+   class and its `export`), and the formatter half-splits a function body
+   written on one line; moving the parser's template checks onto the
    sorted lowering (a verdict change, through `errors` and `conformance`);
    the 18 recovery positions where ours would mislead (divergence #30);
    the one-shot memory peak; `kg explain` prose for the backend's codes;

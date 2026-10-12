@@ -114,7 +114,8 @@ pub enum Level {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+// `default`: a key the table leaves out takes `Default`'s value, not an error.
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Fmt {
     pub line_width: usize,
     pub indent: usize,
@@ -162,7 +163,8 @@ impl Newline {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+// `default`: a key the table leaves out takes `Default`'s value, not an error.
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Lsp {
     pub diagnostics: DiagnosticTiming,
     pub max_file_size_kb: u64,

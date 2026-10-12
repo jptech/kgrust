@@ -34,30 +34,46 @@ server, from the same syntax tree the compiler uses.
 ## Building the extension
 
 ```sh
-npm install          # once, to fetch vscode-languageclient and the TypeScript compiler
+npm install          # once: vscode-languageclient and the TypeScript compiler
 npm run compile      # tsc -p ./  → out/extension.js
+npm run package      # → kanagawa-kgrust-<version>.vsix
 ```
 
-Then press <kbd>F5</kbd> in VS Code with this folder open to launch an Extension
-Development Host, or `npx @vscode/vsce package` to build a `.vsix`.
+**Without installing it:** open this folder in VS Code and press
+<kbd>F5</kbd> (`.vscode/launch.json`). An Extension Development Host starts
+with the extension compiled from `src/`; open a folder of `.k` files in it.
 
-The server is *not* built by either command. Build it from the workspace root:
+**Installed:** `code --install-extension kanagawa-kgrust-0.1.0.vsix`, and
+`code --uninstall-extension undefined_publisher.kanagawa-kgrust` to remove
+it. The package names no publisher yet — one is chosen when the extension is
+published — so VS Code files it under `undefined_publisher`. To keep it out
+of your usual VS Code, give it a profile and an extensions directory of its
+own:
 
 ```sh
-cargo build -p kg-lsp        # → target/debug/kg-lsp
+code --user-data-dir ~/.vscode-kgrust/data --extensions-dir ~/.vscode-kgrust/extensions \
+     --install-extension kanagawa-kgrust-0.1.0.vsix
+code --user-data-dir ~/.vscode-kgrust/data --extensions-dir ~/.vscode-kgrust/extensions path/to/project
 ```
 
-and point the extension at it:
+**The server** is built by none of these. From the workspace root, either:
+
+- `cargo xtask dist` → `target/dist/kgrust-<version>-<target>/bin/kg`, with
+  the standard library and the code generator beside it, as a release has
+  them; or
+- `cargo build --release -p kg-cli` → `target/release/kg`. A source build
+  bundles no standard library: point the project's `import-dirs` at one —
+  the submodule's `third_party/kanagawa/library`.
+
+Put that `kg` on `PATH`, or name it:
 
 ```jsonc
-{
-  "kanagawa.server.path": "/path/to/kgrust/target/debug/kg-lsp",
-  "kanagawa.server.args": []      // `kg-lsp` needs no subcommand
-}
+{ "kanagawa.server.path": "/path/to/kgrust/target/dist/kgrust-0.1.0-aarch64-apple-darwin/bin/kg" }
 ```
 
-The defaults are `kg` and `["lsp"]`, i.e. the shipping `kg lsp` command, found
-on `PATH`.
+The defaults are `kg` and `["lsp"]`, the shipping `kg lsp` command, found on
+`PATH`. A bare `kg-lsp` binary (`cargo build -p kg-lsp`) works too, with
+`"kanagawa.server.args": []`.
 
 ## What the server provides
 
