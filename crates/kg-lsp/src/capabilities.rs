@@ -64,7 +64,9 @@ pub fn server_capabilities(enc: PositionEncoding) -> ServerCapabilities {
         // `.` re-asks for the member list; every other keystroke filters the
         // complete list the last answer gave.
         completion_provider: Some(CompletionOptions {
-            trigger_characters: Some(vec![".".to_owned()]),
+            // `:` for a path's `::` (`mode::`); a single `:` asks too, and
+            // gets no list (`completion`).
+            trigger_characters: Some(vec![".".to_owned(), ":".to_owned()]),
             // The documentation, read when an item is focused.
             resolve_provider: Some(true),
             ..CompletionOptions::default()

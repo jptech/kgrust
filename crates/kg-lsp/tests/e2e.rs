@@ -196,9 +196,10 @@ fn a_whole_session_initialize_through_exit() {
     assert!(caps.signature_help_provider.is_some());
     assert!(caps.inlay_hint_provider.is_some());
     // Completion joined on 2026-09-06, with `.` as its trigger — advertised
-    // the day `handlers::completion` answered it, not before.
+    // the day `handlers::completion` answered it, not before — and `:` on
+    // 2026-10-11, the day it answered a path's `::`.
     let completion = caps.completion_provider.as_ref().expect("completion is answered");
-    assert_eq!(completion.trigger_characters.as_deref(), Some(&[".".to_owned()][..]));
+    assert_eq!(completion.trigger_characters.as_deref(), Some(&[".".to_owned(), ":".to_owned()][..]));
     // The client offered nothing, so the mandatory default was chosen.
     assert_eq!(caps.position_encoding, Some(lsp_types::PositionEncodingKind::UTF16));
 
@@ -1992,5 +1993,78 @@ fn a_declaration_s_documentation_reaches_hover_and_resolved_completion() {
         other => panic!("resolved without documentation: {other:?}"),
     };
     assert!(documentation.contains("Doubles `x`.\nTwice, exactly.\n\nPure."), "{documentation}");
+    shut_down(client, seen);
+}
+
+/// `mode::` completes the enum's constants, as VS Code asks for them — `:`
+/// triggers the request — each with its value beside its type and, resolved,
+/// its `//<` comment; hover says the value too. A `:` typed alone, as in
+/// `public:`, gets no list. Red with the qualified context gone (the scopes'
+/// names), with the value left out of the detail, or with a single `:`
+/// answered.
+#[test]
+fn an_enum_qualifier_completes_its_constants_with_their_values() {
+    // Comma first, as upstream writes a documented enum (`isa.k`): a `//<`
+    // documents the element just before it, and after `pass,` that is no
+    // constant.
+    const ENUM: &str = "enum mode : uint2\n{ pass   //< Forward it.\n, smooth //< Average it.\n, hold = 3\n}\n\nclass C\n{\npublic:\n    bool f(mode m)\n    {\n        return m == mode::smooth;\n    }\n}\n\nexport C;\n";
+    let mut client = Client::start();
+    let mut seen = Vec::new();
+    let uri = Uri::from_str("file:///workspace/modes.k").unwrap();
+    let id = client.request::<req::Initialize>(InitializeParams::default());
+    let init: lsp_types::InitializeResult = result(client.response(&id, &mut seen));
+    let triggers = init.capabilities.completion_provider.and_then(|c| c.trigger_characters).unwrap_or_default();
+    assert!(triggers.iter().any(|t| t == ":"), "`:` must trigger completion: {triggers:?}");
+    client.notify::<notif::Initialized>(InitializedParams {});
+    client.notify::<notif::DidOpenTextDocument>(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: uri.clone(), language_id: "kanagawa".to_owned(), version: 1, text: ENUM.to_owned() },
+    });
+    let _ = client.diagnostics_for(&uri, &mut seen);
+
+    let hover = hovered(&mut client, &mut seen, &uri, after(ENUM, "m == mode::", "smooth"));
+    assert!(hover.contains("smooth = 1"), "{hover}");
+
+    let typed = ENUM.replace("mode::smooth;", "mode::;");
+    client.notify::<notif::DidChangeTextDocument>(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier { uri: uri.clone(), version: 2 },
+        content_changes: vec![TextDocumentContentChangeEvent { range: None, range_length: None, text: typed.clone() }],
+    });
+    let complete = |client: &mut Client, seen: &mut Vec<Notification>, position: Position| {
+        let id = client.request::<req::Completion>(lsp_types::CompletionParams {
+            text_document_position: TextDocumentPositionParams { text_document: TextDocumentIdentifier { uri: uri.clone() }, position },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: Some(lsp_types::CompletionContext {
+                trigger_kind: lsp_types::CompletionTriggerKind::TRIGGER_CHARACTER,
+                trigger_character: Some(":".to_owned()),
+            }),
+        });
+        let offered: Option<lsp_types::CompletionResponse> = result(client.response(&id, seen));
+        offered
+    };
+    let Some(lsp_types::CompletionResponse::Array(offered)) = complete(&mut client, &mut seen, after(&typed, "m == mode::", ";")) else {
+        panic!("`mode::` must answer with a list")
+    };
+    let listed: Vec<(String, String)> =
+        offered.iter().map(|i| (i.label.clone(), i.detail.clone().unwrap_or_default())).collect();
+    assert_eq!(
+        listed.iter().map(|(label, _)| label.as_str()).collect::<Vec<_>>(),
+        ["pass", "smooth", "hold"],
+        "{listed:?}"
+    );
+    for ((_, detail), value) in listed.iter().zip(["= 0", "= 1", "= 3"]) {
+        assert!(detail.ends_with(value), "{listed:?}");
+    }
+    let pass = offered.into_iter().next().expect("`pass`");
+    let id = client.request::<req::ResolveCompletionItem>(pass);
+    let resolved: lsp_types::CompletionItem = result(client.response(&id, &mut seen));
+    let documentation = match resolved.documentation {
+        Some(lsp_types::Documentation::MarkupContent(m)) => m.value,
+        other => panic!("resolved without documentation: {other:?}"),
+    };
+    assert!(documentation.contains("Forward it."), "{documentation}");
+
+    let single = complete(&mut client, &mut seen, after(&typed, "public:", "\n"));
+    assert!(single.is_none(), "a single `:` gets no list: {single:?}");
     shut_down(client, seen);
 }

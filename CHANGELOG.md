@@ -17,6 +17,11 @@ Notable changes to kgrust, newest first. The format follows
   but `kg-ptrace` — `xtask`'s own tests too — and checks the generated
   files are current (`codegen --check`). Actions are pinned by commit, the
   token is read-only, and pull requests reuse `main`'s cache.
+- Completion after a path's `::`: an enum's constants, each with its value
+  and documentation (`mode::` → `pass = 0`, `smooth = 1`); what a class,
+  struct or union declares; what a `using` alias's type declares; what an
+  aliased import exposes. Typing `:` asks for it. Hover shows an enum
+  constant's value too.
 - The VS Code extension builds to a `.vsix` with `npm run package`, and
   <kbd>F5</kbd> in its folder starts an Extension Development Host
   (`.vscode/launch.json`); its README covers installing, an isolated

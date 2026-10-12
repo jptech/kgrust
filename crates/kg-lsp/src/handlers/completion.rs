@@ -54,6 +54,14 @@ pub fn completion(state: &GlobalState, params: &CompletionParams) -> Answer<Opti
     let snap = state.snapshot(&at.text_document.uri)?;
     let offset = convert::offset(snap.line_index(), state.encoding(), at.position);
 
+    // `:` triggers completion for a path's `::`; typed alone — `public:`,
+    // `case 1:`, a ternary's — it is no place for a list, and a client
+    // would pop the scopes' names up at every one.
+    let by_colon = params.context.as_ref().and_then(|c| c.trigger_character.as_deref()) == Some(":");
+    if by_colon && !state.with_db(snap.file, |db| db.is_qualified_completion(snap.file, offset)).unwrap_or(false) {
+        return Ok(None);
+    }
+
     let items = state
         .with_db(snap.file, |db| {
             let roots = [snap.file];
@@ -76,10 +84,20 @@ pub fn completion(state: &GlobalState, params: &CompletionParams) -> Answer<Opti
                         // No loop yet, or nothing it can show: no detail.
                         None => (None, None),
                     };
+                    let definition = db.completion_definition(&roots, &c);
+                    // An enum constant's value beside its type, as the loop
+                    // folded it: what picking between `mode::` constants
+                    // needs to know.
+                    let value = looped.as_ref().zip(definition.as_ref()).and_then(|(l, d)| db.enum_constant_value(l, d));
+                    let detail = match (detail, value) {
+                        (Some(ty), Some(v)) => Some(format!("{ty} = {v}")),
+                        (None, Some(v)) => Some(format!("= {v}")),
+                        (detail, None) => detail,
+                    };
                     // Where the declaration is, for `completionItem/resolve` to
                     // read its documentation from when the item is focused —
                     // not for every candidate of a long list.
-                    let data = db.completion_definition(&roots, &c).map(|def| {
+                    let data = definition.map(|def| {
                         serde_json::json!({
                             "root": snap.file.0,
                             "file": def.range.file.0,

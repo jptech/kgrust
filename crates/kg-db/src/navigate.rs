@@ -571,6 +571,17 @@ impl Db {
         looped.answer_at(def.def.module, declaration.text_range(), declaration.kind(), self.interner(), shown)
     }
 
+    /// An enum constant's value, as `looped` folded it
+    /// ([`crate::looped::Looped::enum_value_at`]); `None` for any other
+    /// declaration, and where the loop has no literal for it.
+    pub fn enum_constant_value(&self, looped: &crate::looped::EditorLoop, def: &Definition) -> Option<kg_const::ConstInt> {
+        if def.kind != DefKind::EnumConstant {
+            return None;
+        }
+        let declaration = self.declaration_node(def)?;
+        looped.enum_value_at(def.def.module, declaration.text_range(), declaration.kind())
+    }
+
     /// The declaration a [`Definition`] names: from [`Item::range`] — the name
     /// token (`symbolLoc`, `SymbolTable.hs:199`) — two steps up. The token's
     /// parent is the `NAME`, or the `NAME_REF` a lambda capture is declared

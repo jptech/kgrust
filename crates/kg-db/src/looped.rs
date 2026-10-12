@@ -272,6 +272,22 @@ impl Looped {
         self.answer_by(module, range, kind, interner, shown, &|m, id| Some(m.types.get(id)))
     }
 
+    /// The value the loop gave the enum constant declared by the CST node
+    /// at `range` with `kind`: `reify_enums` numbers an implicit constant
+    /// on from the one before (`pass1.rs`) and the constant folding leaves
+    /// each an integer literal, which is what the type checker reads
+    /// (`Type.hs:1087-1090`). `None` where the final tree holds no such
+    /// constant, or its value is not a literal.
+    pub fn enum_value_at(&self, module: ModuleSource, range: kg_base::TextRange, kind: kg_syntax::SyntaxKind) -> Option<kg_const::ConstInt> {
+        let id = self.index(module)?.node(range, kind)?;
+        let ir = &self.module(module)?.ir;
+        let kg_hir::Exp::EnumConstant { value: Some(v), .. } = ir.arena[id].exp else { return None };
+        match &ir.arena[v].exp {
+            kg_hir::Exp::IntLiteral { value, .. } => Some(value.clone()),
+            _ => None,
+        }
+    }
+
     /// [`Looped::answer_at`] for the call at `range`: the function it
     /// invokes — `FunctionCall`'s callee, which `resolve` renamed to the
     /// instance the call compiles (`Template.hs:158-159`), typed that
@@ -456,6 +472,11 @@ impl EditorLoop {
         shown: &dyn Fn(&kg_ty::Ty) -> bool,
     ) -> Option<IrAnswer> {
         self.looped.answer_at(module, self.to_loop(module, range)?, kind, interner, shown)
+    }
+
+    /// [`Looped::enum_value_at`] at a range of the current text.
+    pub fn enum_value_at(&self, module: ModuleSource, range: kg_base::TextRange, kind: kg_syntax::SyntaxKind) -> Option<kg_const::ConstInt> {
+        self.looped.enum_value_at(module, self.to_loop(module, range)?, kind)
     }
 
     /// [`Looped::callee_at`] at a range of the current text.

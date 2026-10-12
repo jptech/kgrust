@@ -1,12 +1,25 @@
 //! `textDocument/completion` — what a name at the caret could be.
 //!
-//! Two contexts, decided by the token to the left of the caret:
+//! Three contexts, decided by the token to the left of the caret:
 //!
 //! * **After a `.`**, or inside the selector of a `FIELD_EXPR`: the members of
 //!   the base expression's type — the same route [`Db::definition_at`] takes for
 //!   a `.field`, because `a.b` names `b` *inside the type of `a`*
 //!   (`tLookupField`, `Type.hs:961-971`) and never a symbol. A struct offers
 //!   its fields, a class its fields and methods.
+//! * **After a path's `::`**, or on the name after one: what the qualifier
+//!   holds, in the order it is declared. The qualifier is resolved as
+//!   navigation resolves it ([`Db::definitions_at`]) — `mode` in `mode::`
+//!   is the `mode` of `mode::pass`. An enum offers its constants; a class,
+//!   struct or union what is declared inside it — a nested type, a method
+//!   (`decltype(Class::Run)`) — but not a struct's or union's fields, which
+//!   the reference's symbol map never holds (`Symbols.hs:48-49`); a `using`
+//!   alias what the type it names declares, through the loop's type of it
+//!   (`using RV = RISC_V<…>; RV::int_t`); an aliased import (`import
+//!   data.bits as B`) the names its module exposes, which `B::` is the only
+//!   way to reach (`SymbolTable.hs:276-278`). Any other qualifier — one
+//!   that names nothing, a template parameter — offers nothing: the names
+//!   in scope are not what can follow a `::`.
 //! * **Anywhere else**: the names a bare identifier here could resolve to, in
 //!   the order `findSymbol` would try them (`SymbolTable.hs:242-270`): the
 //!   enclosing scopes innermost first ([`crate::navigate::introduces_scope`]),
@@ -64,7 +77,8 @@ pub struct Completion {
     /// The declaration, for a caller that wants its type or location.
     pub def: DefId,
     /// Where the candidate came from, for ordering: `0` the enclosing scopes,
-    /// `1` this file's top level, `2` an import, `3` a member of a type.
+    /// `1` this file's top level, `2` an import, `3` a member of a type or a
+    /// name under a qualifier.
     pub rank: u8,
     /// The loop's type for a member it listed off the base's type: the
     /// instance's own member — a template's member has a type per
@@ -102,7 +116,126 @@ impl Db {
         if let Some(base) = member_base(&anchor) {
             return looped.and_then(|l| self.loop_members(l, module, &base)).unwrap_or_default();
         }
+        if let Some(qualifier) = path_qualifier(&anchor) {
+            return self.qualified_names(roots, file, &qualifier);
+        }
         self.names_in_scope(roots, module, &anchor)
+    }
+
+    /// Whether a completion at `offset` follows a path's `::` — the context
+    /// a client asks about when `:` triggered it, since a single `:` (a
+    /// label, a `case`, a ternary) wants no list at all.
+    pub fn is_qualified_completion(&self, file: FileId, offset: TextSize) -> bool {
+        let root = self.parse(file).syntax_node();
+        token_left_of(&root, offset).and_then(|anchor| path_qualifier(&anchor)).is_some()
+    }
+
+    /// What can follow `qualifier::` ([the module docs](self)).
+    fn qualified_names(&self, roots: &[FileId], file: FileId, qualifier: &SyntaxToken) -> Vec<Completion> {
+        let at = qualifier.text_range().start();
+        let found = self.definitions_at(roots, file, at);
+        if !found.is_empty() {
+            // Several where the qualifier is declared more than once — a
+            // redefinition the parser rejects, a snippet accumulator, an
+            // edit halfway through a rename: what each declares, the first
+            // spelling kept, as the scopes' names keep the nearest.
+            let mut seen: FxHashSet<String> = FxHashSet::default();
+            return found
+                .iter()
+                .flat_map(|def| match def.kind {
+                    DefKind::Enum | DefKind::Class | DefKind::Struct | DefKind::Union | DefKind::Template => vec![def.clone()],
+                    DefKind::Alias => self.type_definitions_at(roots, file, at),
+                    _ => Vec::new(),
+                })
+                .flat_map(|holder| self.nested_names(&holder))
+                .filter(|c| seen.insert(c.name.clone()))
+                .collect();
+        }
+        let module = ModuleSource::File(file);
+        let program = self.program(roots);
+        let alias = self.interner().intern(qualifier.text());
+        let Some(import) = program.graph.imports(module).iter().find(|i| i.alias == Some(alias)) else {
+            return Vec::new();
+        };
+        program
+            .graph
+            .import_target(module, import.id)
+            .and_then(|target| program.graph.interface(target))
+            .map(|interface| self.exposed_names(&program, interface))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(name, kind, def)| Completion { name, kind, def, rank: 3, ty: None })
+            .collect()
+    }
+
+    /// What `holder` declares inside it, in declaration order: the items
+    /// it is the parent of — through a `template <…>`, whose target is the
+    /// declaration the names are inside — less what `X::` cannot name.
+    fn nested_names(&self, holder: &Definition) -> Vec<Completion> {
+        let module = holder.def.module;
+        let tree = self.item_tree(module);
+        let interner = self.interner();
+        let mut holders = vec![holder.def.item];
+        holders.extend(
+            tree.items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item.is_template && item.parent == Some(holder.def.item))
+                .map(|(i, _)| ItemId(i as u32)),
+        );
+        let aggregate = matches!(holder.kind, DefKind::Struct | DefKind::Union);
+        tree.items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.parent.is_some_and(|p| holders.contains(&p)) && !item.is_template)
+            .filter(|(_, item)| match holder.kind {
+                DefKind::Enum => item.kind == DefKind::EnumConstant,
+                // A struct's or union's fields are no `S::` name.
+                _ if aggregate && item.is_field() => false,
+                _ => !matches!(
+                    item.kind,
+                    DefKind::Error | DefKind::ExportType | DefKind::FuncParam | DefKind::Capture | DefKind::TemplateParam
+                ),
+            })
+            .filter_map(|(i, item)| {
+                let name = interner.resolve(item.qualified_name.last()?).to_string();
+                // `$this` and the like: names the reference makes, no one writes.
+                if name.starts_with(['$', '?']) {
+                    return None;
+                }
+                // A nested template is named by its target's spelling; the
+                // `Template` item stands for it.
+                Some(Completion { name, kind: item.kind, def: DefId::new(module, ItemId(i as u32)), rank: 3, ty: None })
+            })
+            .collect()
+    }
+
+    /// Every name `interface` exposes for use under its module's namespace —
+    /// `[@ns, X]`; anything deeper is a member a name cannot reach — in
+    /// spelling order.
+    fn exposed_names(
+        &self,
+        program: &crate::program::Program,
+        interface: &kg_resolve::ModuleInterface,
+    ) -> Vec<(String, DefKind, DefId)> {
+        let interner = self.interner();
+        let mut names: Vec<(SymbolPath, DefId)> =
+            interface.visible.values().flat_map(|syms| syms.iter().map(|(k, d)| (k.clone(), *d))).collect();
+        // By spelling, not by `SymbolPath`'s own order: that compares
+        // interned ids, which number names in the order this database
+        // first met them — so the list's order (the client's
+        // `sort_text`) depended on what else the session had opened.
+        // Found by `xtask resilience`, whose `--jobs 1` and default
+        // readings parted on it (2026-09-27).
+        names.sort_by_cached_key(|(key, def)| (key.segments().iter().map(|&s| interner.resolve(s)).collect::<Vec<_>>(), *def));
+        names
+            .into_iter()
+            .filter(|(key, _)| key.segments().len() == 2)
+            .filter_map(|(key, def)| {
+                let item = program.items().item(def)?;
+                Some((interner.resolve(key.last()?).to_string(), item.kind, def))
+            })
+            .collect()
     }
 
     /// The member list `looped` gives at `offset`: `None` where the caret
@@ -276,30 +409,8 @@ impl Db {
             }
             let Some(target) = program.graph.import_target(module, import.id) else { continue };
             let Some(interface) = program.graph.interface(target) else { continue };
-            let mut names: Vec<(SymbolPath, DefId)> = interface
-                .visible
-                .values()
-                .flat_map(|syms| syms.iter().map(|(k, d)| (k.clone(), *d)))
-                .collect();
-            // By spelling, not by `SymbolPath`'s own order: that compares
-            // interned ids, which number names in the order this database
-            // first met them — so the list's order (the client's
-            // `sort_text`) depended on what else the session had opened.
-            // Found by `xtask resilience`, whose `--jobs 1` and default
-            // readings parted on it (2026-09-27).
-            names.sort_by_cached_key(|(key, def)| {
-                (key.segments().iter().map(|&s| interner.resolve(s)).collect::<Vec<_>>(), *def)
-            });
-            for (key, def) in names {
-                // `[@ns, X]` is the exposed spelling; anything deeper is a
-                // qualified member a bare name cannot reach.
-                if key.segments().len() != 2 {
-                    continue;
-                }
-                let Some(item) = program.items().item(def) else { continue };
-                if let Some(name) = key.last() {
-                    offer(interner.resolve(name).to_string(), item.kind, def, 2);
-                }
+            for (name, kind, def) in self.exposed_names(&program, interface) {
+                offer(name, kind, def, 2);
             }
         }
         out
@@ -344,6 +455,42 @@ fn token_left_of(root: &SyntaxNode, offset: TextSize) -> Option<SyntaxToken> {
     }
     // Otherwise the token ending at the caret, skipping trivia leftwards.
     let mut tok = at.left_biased();
+    while let Some(t) = tok {
+        if !t.kind().is_trivia() {
+            return Some(t);
+        }
+        tok = t.prev_token();
+    }
+    None
+}
+
+/// The qualifier's last name when `anchor` is a path's `::` or the name
+/// right after one: `mode` in `mode::` and in `mode::pa`. The parser keeps
+/// a `::` with nothing after it as a `PATH` ending in an empty segment.
+fn path_qualifier(anchor: &SyntaxToken) -> Option<SyntaxToken> {
+    let colons = match anchor.kind() {
+        SyntaxKind::COLON2 => anchor.clone(),
+        SyntaxKind::IDENT => {
+            let segment = anchor.parent().filter(|p| p.kind() == SyntaxKind::NAME_REF)?.parent()?;
+            if segment.kind() != SyntaxKind::PATH_SEGMENT {
+                return None;
+            }
+            previous_token(segment.first_token()?)?
+        }
+        _ => return None,
+    };
+    if colons.kind() != SyntaxKind::COLON2 || colons.parent()?.kind() != SyntaxKind::PATH {
+        return None;
+    }
+    let before = previous_token(colons)?;
+    (before.kind() == SyntaxKind::IDENT
+        && before.parent().is_some_and(|p| p.kind() == SyntaxKind::NAME_REF))
+    .then_some(before)
+}
+
+/// The non-trivia token before `token`.
+fn previous_token(token: SyntaxToken) -> Option<SyntaxToken> {
+    let mut tok = token.prev_token();
     while let Some(t) = tok {
         if !t.kind().is_trivia() {
             return Some(t);
@@ -517,6 +664,74 @@ mod tests {
             ("main.k", "import a as m\n\ninline void main()\n{\n    $0\n}\n"),
         ]);
         assert_eq!(out, ["main"]);
+    }
+
+    /// After `E::`, the enum's constants in declaration order — the
+    /// qualifier resolved as navigation resolves it, through an import too
+    /// — and none of the scopes' names; with part of a name after the `::`,
+    /// the same list, which the client filters. Red with the qualified
+    /// context gone: the scopes' names come back.
+    #[test]
+    fn an_enum_qualifier_offers_its_constants() {
+        let local = "enum mode : uint2\n{\n    pass,\n    smooth,\n    hold\n}\n\ninline bool main(mode m)\n{\n    return m == mode::$0;\n}\n";
+        assert_eq!(names(&[("main.k", local)]), ["pass", "smooth", "hold"]);
+        assert_eq!(names(&[("main.k", &local.replace("mode::$0", "mode::sm$0"))]), ["pass", "smooth", "hold"]);
+        let imported = names(&[
+            ("t.k", "module t\n    { mode\n    }\n\nenum mode : uint2\n{\n    pass,\n    smooth\n}\n"),
+            ("main.k", "import t\n\ninline void main()\n{\n    mode x = mode::$0\n}\n"),
+        ]);
+        assert_eq!(imported, ["pass", "smooth"]);
+    }
+
+    /// After a class's `::`, what is declared inside it — a nested type, a
+    /// nested template, a method — and after a struct's, nothing: its fields
+    /// are no `S::` name. After a `using` alias, what the type it names
+    /// declares, read through the loop's type of the alias — so the buffer
+    /// is loaded parsing first, as an editor gets there.
+    #[test]
+    fn an_aggregate_qualifier_offers_what_is_declared_inside_it() {
+        let text = "class Foo\n{\npublic:\n    struct Inner\n    {\n        uint32 x;\n    }\n\n    template <auto N>\n    struct Bar\n    {\n        uint32 y;\n    }\n\n    uint32 run()\n    {\n        return 0;\n    }\n}\n\nstruct S\n{\n    uint32 field;\n}\n\nusing F = Foo;\n\ninline void main()\n{\n    static Foo::$0\n}\n";
+        assert_eq!(names(&[("main.k", text)]), ["Inner", "Bar", "run"]);
+        assert_eq!(names(&[("main.k", &text.replace("Foo::$0", "S::$0"))]), Vec::<String>::new());
+        let aliased = text.replace("static Foo::$0", "static F::$0");
+        let parsing = text.replace("    static Foo::$0\n", "    static F::Inner i;\n");
+        assert_eq!(names_after(&parsing, &aliased), ["Inner", "Bar", "run"]);
+    }
+
+    /// `m::` after `import a as m` offers what `a` exposes — the only way to
+    /// reach it (`SymbolTable.hs:276-278`) — and a qualifier that names
+    /// neither an enum nor an alias offers nothing, rather than the scopes.
+    #[test]
+    fn an_import_alias_offers_its_module_s_names() {
+        let a = (
+            "a.k",
+            "module a\n    { Aa\n    , f\n    }\n\nstruct Aa\n{\n    uint32 x;\n}\n\ninline void f()\n{\n}\n\nstruct Hidden\n{\n    uint32 y;\n}\n",
+        );
+        assert_eq!(names(&[a, ("main.k", "import a as m\n\ninline void main()\n{\n    m::$0\n}\n")]), ["Aa", "f"]);
+        assert_eq!(names(&[a, ("main.k", "import a as m\n\ninline void main()\n{\n    other::$0\n}\n")]), Vec::<String>::new());
+    }
+
+    /// Each constant's value as the loop folded it: written, counted on from
+    /// the one before, computed from another constant — the programming
+    /// guide's `CrazyNumbers`.
+    #[test]
+    fn an_enum_constant_s_value_is_the_loop_s() {
+        let mut db = db();
+        let text = "enum crazy : uint5\n{\n    one = 1,\n    five = one + 2,\n    nine = 0,\n    fifteen\n}\n\nclass C\n{\npublic:\n    crazy get()\n    {\n        return crazy::fifteen;\n    }\n}\n\nexport C;\n";
+        let file = write(&mut db, "main.k", text);
+        assert!(db.diagnostics(&[file], file).iter().all(|d| !d.is_error()));
+        let looped = db.editor_loop_ready(&[file]).expect("a loop");
+        let at = TextSize::new((text.find("crazy::fifteen").unwrap() + "crazy::".len()) as u32);
+        let values: Vec<String> = db
+            .completions_with(&[file], file, at, Some(&looped))
+            .iter()
+            .map(|c| {
+                let def = db.completion_definition(&[file], c).expect("a declaration");
+                let value = db.enum_constant_value(&looped, &def).map_or("?".to_owned(), |v| v.to_string());
+                format!("{} = {value}", c.name)
+            })
+            .collect();
+        assert_eq!(values, ["one = 1", "five = 3", "nine = 0", "fifteen = 1"]);
     }
 
     /// Imported names come in spelling order whatever the database met

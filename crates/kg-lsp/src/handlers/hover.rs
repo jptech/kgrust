@@ -142,6 +142,12 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
             let ir = db
                 .member_answer_at(&looped, snap.file, offset, &printable)
                 .or_else(|| (found.len() == 1).then(|| db.ir_answer_of_definition(&looped, first, &printable)).flatten());
+            // An enum constant's value beside its name, as the loop folded
+            // it: `const mode smooth = 1`.
+            let name = match (found.len(), db.enum_constant_value(&looped, first)) {
+                (1, Some(value)) => format!("{name} = {value}"),
+                _ => name,
+            };
             let shown = match ir {
                 Some(IrAnswer::Written(ty)) => markdown(&declared, &name, &ty, names),
                 Some(IrAnswer::Copies { types, untyped, budget_exhausted }) => {
