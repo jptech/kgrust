@@ -21,7 +21,15 @@ written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10
   by `scripts/build-backend.sh`.
 - **The tools:** `kg check`, `build`, `fmt`, `lsp`, `doc`, `dump`,
   `explain`, and the argv-compatible `kanagawa`; a release archive from
-  `cargo xtask dist`; the VS Code extension in `editors/vscode`.
+  `cargo xtask dist`; the VS Code extension in `editors/vscode`, which
+  packages (`npm run package`) and installs locally — completion after
+  `::` (an enum's constants with their values) its latest feature.
+- **Published** at [github.com/jptech/kgrust](https://github.com/jptech/kgrust),
+  with CI on every push and pull request (`scripts/ci.sh`: the Rust code
+  on Linux, and on macOS for `main`). The backend build and the parity
+  gates are tested on macOS only; on Linux the backend's build compiles
+  LLVM, MLIR and CIRCT and was not carried further ([`journal.md`](journal.md),
+  2026-10-11).
 - **Speed:** `kg check` is 12–46× the reference frontend per core, 8–16×
   against it on 16 cores ([`plans/performance.md`](plans/performance.md)
   §11). A whole build is 92–98% the shared C++ backend
@@ -39,11 +47,12 @@ Independent options, roughly in the order recommended.
    …); seed 20261010's five; divergences #39–#41. Each lands with
    `kg-oracle --errors` evidence and a mutant-proven test; then new seeds
    until a run's silent and false-alarm buckets are empty.
-2. **Publishing.** A release per platform (`cargo xtask dist`; the backend
-   build and the archive are untested on Linux, where CI tests the Rust
-   tools), the VS Code extension on a marketplace (its publisher and
-   name are open, below), doc tests for Markdown code blocks like
-   upstream's `chkdoc` ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
+2. **Publishing.** A release per platform (`cargo xtask dist`; on Linux the
+   backend build wants finishing — at fewer jobs than Docker's 8 GB
+   allowed — and the archive trying), the VS Code extension on a
+   marketplace (it packages already; its publisher and name are open,
+   below), doc tests for Markdown code blocks like upstream's `chkdoc`
+   ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
 3. **The loop on more than one core, and its tail rounds.** The loop runs
    on one core where the reference gains 2.2–3.5× from sixteen; `array.k`
    and `float.k` spend half their loop in a tail of cheap rounds that
@@ -117,6 +126,9 @@ Each blocks only its own item; the work assumes the first answer meanwhile.
 - **The toolchain is pinned** (`rust-toolchain.toml`, 1.92.0).
 - **Branches, squash-merged** (2026-10-11): `main` is the published
   history, one commit per piece of work ([`AGENTS.md`](../AGENTS.md)).
+- **CI is the light tier only** (2026-10-11): free runners, this
+  repository's Rust code (`scripts/ci.sh`); it never builds or runs the
+  backend or the reference, and the parity gates stay local.
 
 The journal's index ([`journal.md`](journal.md)) lists every decision that
 binds the code, each with its entry.

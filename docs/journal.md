@@ -62,6 +62,7 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-10-10 | A parse-time check asks what the parser's table holds at that point of the parse (`innermost_in_parse_table`): a declaration is registered once parsed whole, a class's types, templates and variables from the class's start, a struct's field never. `errorMsg` replaces a node whole, so a clause that reports at a node drops what an earlier pass reported inside it (`staticAssert`, `checkArraySize`, `checkEnumConsts`: `Cx::replacing`), as an earlier error silences a guarded clause inside it | "The fuzzer's silent buckets: the parser's table, and the copies' passes — 2026-10-10" |
 | 2026-10-10 | What each module's round read across its boundary is keyed beside the copies decided into it (the read door, `kg_sem::reads`): lookups and their answers, other modules' nodes, types and sources, and what the program decides as a whole, each spelled where it was written — never by id — with its positions ranked so relocation carries them; a rewrite's reads count only where it rewrote. The shadow follows a module only while both keys agree, and no round it follows is unequal; the door costs about 1–2% of the loop | "The read door: what a round read across the boundary, keyed — 2026-10-10" |
 | 2026-10-11 | The editor takes each followed module's prefix pass from its kept run where every key before the pass agreed — the nodes the pass appended as it left them, heads carried, expansions found and never interned, children named through the same chain of forks, types carried by the pass's own pairs — and `edit-identity` runs every pass taken on a fork as well and compares. Exact over every root; no keystroke won, the prefix being the edited root's: the next reuse needs re-askable reads | "The prefix pass reused, and where the keystroke is — 2026-10-11" |
+| 2026-10-11 | CI is the light tier only: free runners, this repository's Rust code (`scripts/ci.sh`); it never builds or runs the backend or the reference, and the parity gates stay local (the maintainer's decision) | "Published, a light CI, Linux, and completion after `::`" |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -17854,3 +17855,89 @@ time in `RemoveUnusedGlobals`' liveness, whose work list pops blocks by
 address (`data_flow_work_list.h:28`). On the small programs that ordering
 swings two passes 2–3×; on the largest it swings the build by an order of
 magnitude. Read any `risc-v.k` backend timing with that in mind.
+
+## Published, a light CI, Linux, and completion after `::` — 2026-10-11
+
+The evening after the repository went public (`d5242d4`), in the order it
+happened.
+
+**CI is the light tier, and stays light** (the maintainer's decision). The
+first workflow built the workspace four ways — `build`, clippy, the quick
+tests, and `cargo xtask` in release with debug info — 4.2 GB of `target/`
+in a fresh clone, and its first run failed a timing test (below). Asked for
+something that fits GitHub's free runners and grades this repository's Rust
+code only, it became `scripts/ci.sh`: two jobs, `test` (the quick tests over
+the workspace but `kg-ptrace`, then `corpus`, `conformance`, `fmt-check`,
+`lint`, `codegen --check`, all on one lean `quick` profile — no debug info,
+no incremental state) and `lint` (clippy, the links). Linux on every push and
+pull request, macOS on `main`. Measured cold, 4 jobs: ~150 s, `target/`
+~600 MB, the largest process 2.1 GB; on GitHub 4–7 min a job, the cache
+warm. A heavy tier — the backend built and driven, a release archive, the
+parity gates — was written and then dropped at the maintainer's request: the
+backend and the reference never run in CI, and the parity gates stay
+`scripts/gates.sh`. `codegen --check` needs libclang; Ubuntu 24.04's
+(18) writes the ABI bindings byte-identical to the checked-in ones, so the
+Linux job installs `libclang-dev`.
+
+**A timing test asserted how long a sleep takes.** `kg-db`'s
+`a_phase_is_timed_exclusive_of_the_phases_inside_it` slept 20 ms in a phase
+and 40 ms in a nested one and asserted the parent's own time stayed under the
+child's; a GitHub macOS runner slept the 20 ms for 56. It now asserts what
+exclusive timing means — the two add up to the parent's wall time, never more
+than the test's own clock measured for the block — which holds however long
+a sleep takes, and still fails with the nested time left unsubtracted.
+
+**On Linux, a gate's group kill signalled nothing.** `xtask`'s tests, first
+run on Linux for CI, failed
+`a_child_tree_over_its_memory_is_stopped_with_its_grandchildren`: procps's
+`kill` reads `kill -KILL -<pgid>` as two options, exits 0 and signals
+nothing, so a child over its budget lost only its leader and a grandchild —
+a backend worker — ran on, holding the pipe the drain waits on.
+`kill -s KILL -- -<pgid>` is the spelling procps's and macOS's both take.
+The light tier is otherwise green in a clean `ubuntu:24.04`.
+
+**The backend on Linux is not proven.** In Docker (`ubuntu:24.04`, 8 GB),
+`scripts/build-backend.sh --fetch-boost` — Boost 1.88's headers installed
+into `target/boost`, Ubuntu's being 1.83; CMake from `pipx`, Ubuntu's 3.28
+being too old — configured and compiled all of LLVM, MLIR and CIRCT in ~11
+minutes at `-j6`, then lost `compiler.cpp` to the out-of-memory killer:
+six of the backend's own sources at once did not fit (how much each takes
+was not measured). Not carried through at fewer jobs; the docs say the
+backend is tested on macOS only.
+
+**The VS Code extension, tried on a scratch project.** It packages
+(`npm run package`, ~300 KB with its language client) and installs; with no
+publisher yet, VS Code files it under `undefined_publisher`. Driving the
+server as the editor does found a manifest bug — `[fmt]` or `[lsp]` with
+only some keys was refused, "missing field `indent`", the structs not
+defaulting their fields — and three gaps, now on the roadmap: hover inside a
+template defined in another file says "Type not yet inferred" (an open file
+is answered as its own root, and a module instantiates nothing); the outline
+lists an exported class twice; the formatter half-splits a one-line body.
+
+**A `//<` after a comma documents the comma.** A doc comment after an
+element documents the element ending just before it, so `pass, //< doc`
+documents nothing a tool shows. Upstream writes a documented enum comma
+first (`isa.k`: `{ zero = 0 //< …` / `, ra = 1 //< …`), and so should an
+example. The formatter keeps that layout.
+
+**Completion after `::`.** `mode::` listed every name in scope. A third
+completion context answers it with what the qualifier holds, the qualifier
+resolved as navigation resolves it (`Db::definitions_at` on its last name):
+an enum's constants in declaration order; what a class, struct or union
+declares, by the item tree's parent links, through a `template <…>`, less a
+struct's or union's fields (the reference's symbol map holds none,
+`Symbols.hs:48-49`); what a `using` alias's type declares, through the loop's
+type of it (`RV::int_t` resolves by type, not by the symbol map); what an
+aliased import exposes. An enum constant's value is read from the loop's
+final tree, where constant folding leaves an integer literal
+(`Looped::enum_value_at`) — no second implementation of enum numbering — and
+shown beside its type in the detail and in hover. `:` triggers completion;
+the server answers a single `:` with nothing. `resilience` was re-blessed:
+44 answers after `::` (the scopes' names) gave way to 34 right ones and 10
+empties — qualifiers that name nothing, and snippet accumulators where the
+qualifier is redefined and resolves to another snippet's declaration.
+
+**`split-debuginfo = "off"`** for `dev`, which `quick` inherits: macOS's
+default, `unpacked`, kept every object file beside the rlibs and never
+collected them; `target/quick` had reached 142 GB.
