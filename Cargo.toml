@@ -128,6 +128,12 @@ print_stdout = "allow"
 [profile.release]
 debug = 1
 
+# macOS defaults to `unpacked`, which keeps every `.rcgu.o` beside the rlib for
+# the debugger and never collects them: one rebuild leaves ~7k files per crate,
+# and `target/quick` reached 142 GB. `quick` inherits this.
+[profile.dev]
+split-debuginfo = "off"
+
 # Building the reference corpus tooling is slow in debug; tests over 480 files are not.
 [profile.dev.package."*"]
 opt-level = 2

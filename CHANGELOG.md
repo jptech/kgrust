@@ -34,6 +34,10 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Changed
 
+- On macOS, the `dev` and `quick` profiles keep debug info in the binaries
+  (`split-debuginfo = "off"`): the default, `unpacked`, left every object
+  file beside the build output and never collected them, so `target/quick`
+  grew without bound.
 - The documentation reorganised for readers outside the project: a map by
   audience with a note on how to read the pre-publication record, a
   roadmap of where it stands, what is next and the open questions, and the
