@@ -110,8 +110,9 @@ checks." line. About half an hour from scratch on 16 cores, a 6 GB tree, a
 (`scripts/build-reference.sh`: cabal over a copy of `compiler/`, and
 upstream's CMake configured — not built — for its test definitions), which
 is what the parity gates record and run (`KANAGAWA_BUILD`,
-`target/reference`). `cargo xtask dist` packages a release: `kg`,
-`kanagawa` and the library beside them in `bin/`, the standard library in
+`target/reference`). `cargo xtask dist` packages a release: `kg` and
+`kanagawa`, built with the `ship` profile (`release` with fat LTO and one
+codegen unit), and the library beside them in `bin/`, the standard library in
 `share/kanagawa/library` — which `kg` and `kg lsp` search last when no
 import directory provides `base.k` (`Settings::or_bundled_library`) — and
 the licenses, `THIRD-PARTY-NOTICES.md` generated from the submodule and

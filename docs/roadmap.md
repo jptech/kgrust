@@ -7,7 +7,7 @@ project got here is in [`history/`](history/README.md) — the parity sprint
 ([`history/sprint-parity.md`](history/sprint-parity.md)) and the handoff
 written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10-11.md)).
 
-## Where it stands (2026-10-11)
+## Where it stands (2026-10-12)
 
 - **The frontend is at parity with the reference** on everything the
   reference's own corpus can grade: every decidable conformance assertion
@@ -32,7 +32,8 @@ written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10
   2026-10-11).
 - **Speed:** `kg check` is 12–46× the reference frontend per core, 8–16×
   against it on 16 cores ([`plans/performance.md`](plans/performance.md)
-  §11). A whole build is 92–98% the shared C++ backend
+  §11), measured with the `release` build; the release archives, built
+  with link-time optimisation, check 6–10% faster again. A whole build is 92–98% the shared C++ backend
   ([`plans/backend-survey.md`](plans/backend-survey.md)).
 
 ## Next

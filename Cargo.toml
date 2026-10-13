@@ -128,6 +128,15 @@ print_stdout = "allow"
 [profile.release]
 debug = 1
 
+# What `cargo xtask dist` ships: `release` optimised as one program. `kg check`
+# 6–10% faster and `kg` 30% smaller, its output over the corpus identical
+# (2026-10-12, docs/journal.md). It takes a minute more to build, so the gates
+# and `cargo xtask` stay on `release`. Not `dist`: that is the archives' folder.
+[profile.ship]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+
 # macOS defaults to `unpacked`, which keeps every `.rcgu.o` beside the rlib for
 # the debugger and never collects them: one rebuild leaves ~7k files per crate,
 # and `target/quick` reached 142 GB. `quick` inherits this.

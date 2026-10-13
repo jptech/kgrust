@@ -49,6 +49,10 @@ Notable changes to kgrust, newest first. The format follows
   pin. `spec/cli.md` gains "as built" boxes for `kg` and `kanagawa.toml`.
 - `kg --help` names `build` and `doc`. The VS Code extension needs VS Code
   1.82 or later (its language client's minimum).
+- Release archives are built with link-time optimisation (`cargo xtask
+  dist` uses a new `ship` profile: fat LTO, one codegen unit). `kg check`
+  runs 6–10% faster, `kg` is 30% smaller (11.9 → 8.3 MB), and its output
+  over the corpus is unchanged.
 
 ### Fixed
 
@@ -58,6 +62,9 @@ Notable changes to kgrust, newest first. The format follows
   been published with most of its headline as `?`.
 - `cargo xtask` with `KANAGAWA_ROOT` unset doubled the reference's path
   (2,088 conformance failures); a relative root is now made absolute.
+- CI's cache is keyed on `Cargo.toml`'s profiles and `scripts/ci.sh` too.
+  A profile change had left it matching in full but stale: every run
+  rebuilt every dependency, and the cache was never saved again.
 - The VS Code extension's `.vsix` left out its language client
   (`node_modules` was excluded), so a packaged extension would not load.
 - A timing test in `kg-db` failed on a loaded machine (a 20 ms sleep took

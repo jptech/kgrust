@@ -153,6 +153,10 @@ Checking a design, against the reference frontend ([details](docs/plans/performa
 | `numeric/float.k` | 30.4 s | 10.6 s | 0.66 s | 16× |
 | `processor/risc-v.k` | 54.0 s | 24.6 s | 1.95 s | 13× |
 
+Those are the `release` build's times. The release archives are optimised as one
+program and check 6–10% faster again, with identical output
+([measured 2026-10-12](docs/journal.md#quick-wins-a-stale-ci-cache-and-the-shipped-binaries-optimised-whole--2026-10-12)).
+
 A whole build is mostly the shared code generator, so `kg build` finishes 1.5–2× sooner
 end to end (measured 2026-10-11; [where the time goes](docs/plans/backend-survey.md)). Deliberate differences
 from the reference are listed, each with its reason, in

@@ -60,7 +60,7 @@ code --user-data-dir ~/.vscode-kgrust/data --extensions-dir ~/.vscode-kgrust/ext
 
 - `cargo xtask dist` → `target/dist/kgrust-<version>-<target>/bin/kg`, with
   the standard library and the code generator beside it, as a release has
-  them; or
+  them, and optimised as a release is (a minute longer to build); or
 - `cargo build --release -p kg-cli` → `target/release/kg`. A source build
   bundles no standard library: point the project's `import-dirs` at one —
   the submodule's `third_party/kanagawa/library`.

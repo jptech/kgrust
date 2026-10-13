@@ -40,9 +40,9 @@ pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: boo
         );
     }
 
-    eprintln!("dist: building kg and kanagawa (release)");
+    eprintln!("dist: building kg and kanagawa (the `ship` profile)");
     let status = Command::new(env!("CARGO"))
-        .args(["build", "--release", "-p", "kg-cli", "--bin", "kg", "--bin", "kanagawa"])
+        .args(["build", "--profile", "ship", "-p", "kg-cli", "--bin", "kg", "--bin", "kanagawa"])
         .current_dir(&workspace)
         .status()?;
     if !status.success() {
@@ -57,7 +57,7 @@ pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: boo
     std::fs::create_dir_all(stage.join("bin"))?;
     for bin in ["kg", "kanagawa"] {
         let exe = if cfg!(windows) { format!("{bin}.exe") } else { bin.to_owned() };
-        copy(&workspace.join("target/release").join(&exe), &stage.join("bin").join(&exe))?;
+        copy(&workspace.join("target/ship").join(&exe), &stage.join("bin").join(&exe))?;
     }
     if !no_backend {
         copy(&backend_lib, &stage.join("bin").join(lib_name))?;

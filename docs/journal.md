@@ -63,6 +63,7 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-10-10 | What each module's round read across its boundary is keyed beside the copies decided into it (the read door, `kg_sem::reads`): lookups and their answers, other modules' nodes, types and sources, and what the program decides as a whole, each spelled where it was written — never by id — with its positions ranked so relocation carries them; a rewrite's reads count only where it rewrote. The shadow follows a module only while both keys agree, and no round it follows is unequal; the door costs about 1–2% of the loop | "The read door: what a round read across the boundary, keyed — 2026-10-10" |
 | 2026-10-11 | The editor takes each followed module's prefix pass from its kept run where every key before the pass agreed — the nodes the pass appended as it left them, heads carried, expansions found and never interned, children named through the same chain of forks, types carried by the pass's own pairs — and `edit-identity` runs every pass taken on a fork as well and compares. Exact over every root; no keystroke won, the prefix being the edited root's: the next reuse needs re-askable reads | "The prefix pass reused, and where the keystroke is — 2026-10-11" |
 | 2026-10-11 | CI is the light tier only: free runners, this repository's Rust code (`scripts/ci.sh`); it never builds or runs the backend or the reference, and the parity gates stay local (the maintainer's decision) | "Published, a light CI, Linux, and completion after `::`" |
+| 2026-10-12 | Release archives are built with the `ship` profile (`release`, fat LTO, one codegen unit); the gates and `cargo xtask` stay on `release`, which builds a minute faster | "Quick wins: a stale CI cache, and the shipped binaries optimised whole" |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -17941,3 +17942,41 @@ qualifier is redefined and resolves to another snippet's declaration.
 **`split-debuginfo = "off"`** for `dev`, which `quick` inherits: macOS's
 default, `unpacked`, kept every object file beside the rlibs and never
 collected them; `target/quick` had reached 142 GB.
+
+## Quick wins: a stale CI cache, and the shipped binaries optimised whole — 2026-10-12
+
+**CI's cache had gone stale while reporting a full match.** `e3963f4`
+changed `[profile.dev]`, which every dependency's fingerprint includes.
+`Swatinem/rust-cache`'s key hashes `Cargo.toml`'s dependencies, not its
+profiles, so the key did not move: the next run restored the old cache
+("full match: true"), rebuilt every dependency, and skipped the save
+("Cache up-to-date"). It would have stayed so until `Cargo.lock` changed.
+The test job's build went from 1 min 56 s to 2 min 24 s on Linux and from
+2 min 09 s to 3 min 32 s on macOS (runs 38199601208 and 38201690028). The
+key now also hashes `Cargo.toml`, `.cargo/config.toml` and `scripts/ci.sh`,
+whose exported `CARGO_PROFILE_*` overrides are fingerprinted the same way.
+
+**The `ship` profile.** `cargo xtask dist` now builds `release` with
+`lto = "fat"` and `codegen-units = 1`. An interleaved A/B, nine rounds,
+`kg check -I library`, cwd outside the reference, load ~3, at `4241b0a`:
+
+| Program | `release` (median) | `ship` (median) | ratio |
+|---|---:|---:|---:|
+| `data/cache.k` | 0.221 s | 0.203 s | 0.92 |
+| `data/array.k` | 0.803 s | 0.735 s | 0.92 |
+| `numeric/float.k` | 0.669 s | 0.606 s | 0.91 |
+| `processor/risc-v.k` | 1.931 s | 1.807 s | 0.94 |
+
+`kg` shrinks from 11.9 to 8.3 MB. Both binaries gave identical exit code,
+stdout and stderr on all 471 `.k` files under the submodule's `test/` and
+`library/`. The profile costs ~1 min of build from scratch on 16 cores,
+which is why the gates and `cargo xtask` stay on `release`: every rebuild
+would pay it. Its name is not `dist` because `target/dist` holds the
+archives. The README's speed table is still `release`'s, so the shipped
+binary beats it slightly.
+
+**Not worth doing.** The inner loop is already short: a real edit to
+`kg-syntax` or `kg-db`, then `cargo test --workspace --profile quick
+--no-run`, takes ~2.8 s, and the tests themselves run in ~17 s, `query.rs`
+the longest at 6 s. Dropping the dependencies' debug info would not shorten
+the link on macOS, where the linker leaves the DWARF in the object files.

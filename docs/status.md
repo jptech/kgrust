@@ -85,7 +85,8 @@ into the reference's C++ backend (libkanagawa-backend) ─▶ RTL
 `kanagawa` binary run all of it. Against the reference's own frontend,
 `kg check` is 12–46× faster per core and 8–16× faster than the reference
 running on 16 cores ([`plans/performance.md`](plans/performance.md) §11,
-2026-10-11).
+2026-10-11, the `release` build; the release archives' is 6–10% faster
+again).
 
 ## Frontend passes
 

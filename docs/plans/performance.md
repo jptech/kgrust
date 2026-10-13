@@ -587,6 +587,11 @@ testing loop every later step uses.
   over stdio on a copy of `risc-v.k` under a manifest importing
   `library/`, ~1.35 → ~0.95 s an edit. What would bring that under
   400 ms is the library's inference carried across edits — W7.5d again.
+- **The shipped binaries, 2026-10-12.** `cargo xtask dist` builds the
+  `ship` profile, `release` with `lto = "fat"` and `codegen-units = 1`:
+  `kg check` 6–10% faster in an interleaved A/B, `kg` 30% smaller, its
+  output over the corpus identical (§11; journal, 2026-10-12). The gates
+  and `cargo xtask` stay on `release`, which builds a minute faster.
 
 ## 11. Standing against the reference (re-measured 2026-10-11: one core, every core)
 
@@ -677,6 +682,11 @@ Read with care:
   start of 2026-09-26's work — 1.6× and 2.1× the reference's speed; the
   ratio was 9× by that day's end, and is 12–46× per core on 2026-10-11,
   8–16× against the reference on all 16 cores (the table).
+- **Ours is the `release` build.** The release archives are built with
+  the `ship` profile (§10, 2026-10-12), which checks 6–10% faster again
+  with identical output — an interleaved A/B against `release`, nine
+  rounds: `array.k` 0.80 → 0.74 s, `float.k` 0.67 → 0.61 s, `risc-v.k`
+  1.93 → 1.81 s. The table is not re-measured with it.
 
 ## 12. Memory per use case (2026-10-10)
 

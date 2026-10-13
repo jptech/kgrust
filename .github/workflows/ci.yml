@@ -53,6 +53,12 @@ jobs:
         with:
           # Pull requests restore `main`'s cache and leave it alone.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # The action's own key hashes Cargo.toml's dependencies, not its
+          # profiles, nor the profile overrides scripts/ci.sh exports. A
+          # change to either rebuilt every dependency on every run while
+          # the stale cache still matched in full and was never saved again
+          # (2026-10-11, `split-debuginfo`).
+          key: ${{ hashFiles('Cargo.toml', '.cargo/config.toml', 'scripts/ci.sh') }}
       - name: Tests and corpus gates
         run: scripts/ci.sh test
 
@@ -69,5 +75,6 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: ${{ hashFiles('Cargo.toml', '.cargo/config.toml', 'scripts/ci.sh') }}
       - name: Clippy and links
         run: scripts/ci.sh lint
