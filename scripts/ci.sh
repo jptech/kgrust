@@ -4,7 +4,8 @@
 #
 #   scripts/ci.sh          # both jobs: `test`, then `lint`
 #   scripts/ci.sh test     # the tests, then the corpus gates (corpus,
-#                          #   conformance, fmt-check, lint) and codegen --check
+#                          #   conformance, fmt-check, lint), codegen --check,
+#                          #   and `kg check` and `kg fmt --check` of examples/
 #   scripts/ci.sh lint     # clippy, and the documentation's links
 #
 # This repository's Rust code only — the whole workspace but kg-ptrace,
@@ -69,6 +70,16 @@ run_test() {
     # shellcheck disable=SC2086 # `codegen --check` is a command and its flag
     step "xtask $gate" cargo run --locked --quiet --profile quick -p xtask -- $gate
   done
+  step "examples" check_examples
+}
+# The examples, checked against every device they target and for format.
+# Building and simulating them needs the backend: examples/gemm/run.sh.
+check_examples() {
+  local kg=(cargo run --locked --quiet --profile quick -p kg-cli --bin kg --) device
+  for device in mock agilex-7-f-023 ultrascaleplus-xcu250; do
+    KG_TARGET_DEVICE=$device "${kg[@]}" check -C examples/gemm || return
+  done
+  "${kg[@]}" fmt --check examples/gemm/src examples/gemm/config
 }
 run_lint() {
   step "clippy" cargo clippy --locked "${workspace[@]}" --all-targets -- -D warnings

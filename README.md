@@ -89,6 +89,10 @@ shadow = "deny"
 
 `kg check` with no arguments then checks the whole project; `kg --help` shows the rest.
 
+For a whole design, see [`examples/gemm`](examples/gemm/README.md): a matrix-multiply
+accelerator in four number formats (fp32, bf16, int8 and OCP MXINT8), tuned for the Agilex 7
+and the Alveo U250, and co-simulated in Verilator against a bit-exact model.
+
 ## Editor
 
 The language server answers every editor feature from the compiler's own analysis, so

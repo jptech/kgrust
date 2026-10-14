@@ -13,6 +13,7 @@ the why).
 | [`../editors/vscode/README.md`](../editors/vscode/README.md) | current | the VS Code extension and what the language server provides |
 | [`known-divergences.md`](known-divergences.md) | current | every deliberate difference from the reference compiler, each with what removing it would cost |
 | [`spec/cli.md`](spec/cli.md) §9–10 | current, with an as-built box | the command line and `kanagawa.toml` |
+| [`../examples/gemm/README.md`](../examples/gemm/README.md) | current | a complete design: a GEMM accelerator in four number formats for two FPGAs, built with `kg build` and co-simulated in Verilator |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | record | what changed, release by release |
 
 ## Understand it

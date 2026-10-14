@@ -1,0 +1,21 @@
+# The GEMM accelerator: four exported tops, one per number format.
+#   kg check                       all four, against the mock device
+#   kg build --profile u250 ...    for the Alveo U250 (see README.md)
+
+[package]
+name = "gemm"
+version = "0.1.0"
+
+[project]
+sources = ["src/gemm_fp32.k", "src/gemm_bf16.k", "src/gemm_int8.k", "src/gemm_mxint8.k"]
+# `config` holds the geometry and its per-device overrides (config/device/);
+# the standard library comes from the kgrust checkout's Kanagawa submodule.
+import-dirs = ["src", "config", "../../third_party/kanagawa/library"]
+parse-docs = true
+
+# A board per profile: `--profile agilex` is `--target-device agilex-7-f-023`.
+[profile.agilex.project]
+target-device = "agilex-7-f-023"
+
+[profile.u250.project]
+target-device = "ultrascaleplus-xcu250"

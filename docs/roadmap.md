@@ -24,6 +24,10 @@ written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10
   `cargo xtask dist`; the VS Code extension in `editors/vscode`, which
   packages (`npm run package`) and installs locally — completion after
   `::` (an enum's constants with their values) its latest feature.
+- **An example design**, [`examples/gemm`](../examples/gemm/README.md): a
+  matrix-multiply accelerator in fp32, bf16, int8 and MXINT8, tuned per
+  device (Agilex 7 F, Alveo U250), built by `kg build` and co-simulated in
+  Verilator bit-exact against a model, on all twelve device-format pairs.
 - **Published** at [github.com/jptech/kgrust](https://github.com/jptech/kgrust),
   with CI on every push and pull request (`scripts/ci.sh`: the Rust code
   on Linux, and on macOS for `main`). The backend build and the parity
@@ -69,7 +73,15 @@ Independent options, roughly in the order recommended.
    liveness work list (which swings `risc-v.k`'s backend from ~4 to 30+
    minutes), a no-op `GlobalDataPropagation`, a whole-run cache in
    `kg build` ([`plans/backend-survey.md`](plans/backend-survey.md) §3).
-6. **Smaller:** the editor's rename follow-ups (members through lambdas and
+6. **Two found building `examples/gemm`** (2026-10-13; journal, "The
+   first example"). A relative path with two leading `..` loses one in
+   `kg_vfs::canonical` (`crates/kg-vfs/src/lib.rs:213`), so `kg check
+   src/x.k` misses a manifest's `../../lib` import directory (`check`,
+   `build`, `doc`, `dump` and `kanagawa`). And explicit template
+   arguments on a module-qualified call (`m::f<T>(x)`) inside a class
+   template's method are silent here where the reference rejects them;
+   `kg build` then declines with "unsorted path".
+7. **Smaller:** the editor's rename follow-ups (members through lambdas and
    abbreviated templates); three found trying the VS Code extension
    (2026-10-11) — hover inside a template defined in another file says
    "Type not yet inferred" (an open file is answered as its own root, and a

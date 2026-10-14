@@ -17980,3 +17980,61 @@ binary beats it slightly.
 --no-run`, takes ~2.8 s, and the tests themselves run in ~17 s, `query.rs`
 the longest at 6 s. Dropping the dependencies' debug info would not shorten
 the link on macOS, where the linker leaves the DWARF in the object files.
+
+## The first example: a GEMM accelerator, and what building it found — 2026-10-13
+
+**`examples/gemm`** is the first design written for kgrust rather than taken
+from the corpus: `C = A · Bᵀ` in fp32, bf16, int8 and OCP MXINT8, with a
+geometry chosen per device by a device-specific module, built by
+`kg build`, and co-simulated in Verilator against a model that adds in the
+engine's order. All twelve device-format pairs agree with the model bit for
+bit, also under random back-pressure
+(`examples/gemm/run.sh -d mock -d agilex-7-f-023 -d ultrascaleplus-xcu250`,
+and `-- --stall 0.7`). Full-size problems run at 90–99% of peak. Eight
+planted bugs were each caught by mismatching elements of C
+(`scripts/mutant.sh`; the list is in the example's README). The RTL kgrust
+writes is the reference compiler's for all twelve pairs, apart from source
+locations: both `kanagawa` binaries, same arguments, the SV diffed with
+comments and `line N` stripped.
+
+What it found, beyond the design:
+
+- **A relative path loses a `..`.** `kg_vfs::canonical`
+  (`crates/kg-vfs/src/lib.rs:213`) pops a `..` it has already kept, so
+  `../../lib` becomes `lib`. From `examples/gemm`, `kg check src/gemm_fp32.k`
+  could not find the library through the manifest's
+  `../../third_party/kanagawa/library`; `kg check` alone, an absolute path,
+  or the same command run from `src/` worked. It reaches every command that
+  reads through the `Vfs`: `check`, `build`, `doc`, `dump` and the
+  `kanagawa` compat binary. `fmt` reads the disk directly and is
+  unaffected. The fix is to pop only a normal component. Open.
+- **A parity gap in which kgrust stays silent.** The reference rejects
+  explicit template arguments on a module-qualified call, `m::ops::f<T>(x)`,
+  as a syntax error at `<`. kgrust rejects it in a plain class, though as
+  "Symbol name not in scope: `m`" at the `m`, not as the reference's parse
+  error. Inside a class template's method kgrust accepts it, and `kg build`
+  then declines with "cannot yet lower this program: unsorted path". It
+  declines rather than miscompiling, so it fails toward silence, but it is
+  the first bucket of roadmap item 1 found outside the fuzzer. Open; the
+  repro is three files: a module exposing a template `f`, and a class
+  template calling `m::ops::f<T>(x)`.
+- **A device module's default must not sit beside its importer.**
+  `findFile (dir:importDirs)` (`Parser/IO.hs:103`) searches the importing
+  file's own directory before any `device/<target>/` directory. A
+  `src/gemm/config.k` imported from `src/gemm_fp32.k` therefore shadowed
+  every device's override, and `--target-device agilex-7-f-023` built and
+  passed with the mock's geometry. kgrust does as the reference does. The
+  example keeps its configuration in an import directory of its own, and a
+  warning for the shadowing would be a lint beyond the reference's.
+- **Upstream's SV simulation helpers do not build in Verilator 5.052**
+  (Homebrew's, where upstream pins 5.040): `runtime/rtl/sim/` uses
+  `mailbox #(T)` and class parameters without defaults, which 5.052
+  rejects. The core runtime, the mock HAL, Xilinx's behavioural
+  `hal_dsp.sv` and `sim/string_table.sv` build cleanly, so the example
+  drives its ports from C++ instead. A `kg test` (developer-tooling §2.3)
+  would meet the same thing.
+- **The soft-float library is IEEE where it is used.** On the U250,
+  `float32` arithmetic is the library's `float32_*_denormoff` built on
+  `umul18` DSPs. It agreed bit for bit with C's round-to-nearest-even
+  arithmetic, flushing subnormals, across every product and sum the fp32,
+  bf16 and MX tests made. No gate simulates it.

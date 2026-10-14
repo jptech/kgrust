@@ -8,6 +8,11 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Added
 
+- `examples/gemm`: a matrix-multiply accelerator, `C = A · Bᵀ`, in fp32,
+  bf16, int8 and OCP MXINT8. Its geometry is chosen per device (Agilex 7 F,
+  Alveo U250, mock) through device-specific modules. `run.sh` builds it
+  with `kg build`, verilates it, and checks every element of C bit for bit
+  against a model, under random back-pressure too.
 - `AGENTS.md`, the working rules for people and coding agents alike, and
   `CONTRIBUTING.md`; `docs/gates.md`, every gate in one place.
 - CI on GitHub Actions, sized for the free runners: `scripts/ci.sh`, the
