@@ -113,24 +113,104 @@ directory. The standard library uses this to choose a device's DSPs and
 float32 operators, and this design uses it to choose its geometry. On the
 U250, with no hardened floating point, the float32 array is narrow and the
 integer arrays are wide. On Agilex 7 every float32 multiply and add is a DSP
-block. In the generated RTL:
-
-| Build | float32 multiply / add | Integer multiply |
-|---|---|---|
-| `fp32` on Agilex 7 | 128 `fmul32` + 128 `fadd32` DSP blocks | — |
-| `fp32` on U250 | soft logic: 64 `umul18` DSP48s (4 per multiply) | — |
-| `mxint8` on Agilex 7 | 8 `fadd32` | 256 `imul27` |
-| `mxint8` on U250 | soft logic: 4 adders | 128 `imul18` |
-| `int8` on Agilex 7 / U250 | — | 128 `imul27` / 128 `imul18` |
-
-An integer `*` goes to the device's DSPs too: the library chooses the
+block. An integer `*` goes to the device's DSPs too: the library chooses the
 multiplier from the operand widths (`integer_mul_src_width` in the device
-configuration).
+configuration). [Resources and throughput](#resources-and-throughput) has
+what each build costs.
 
 The configuration has an import directory of its own (`config/`) because the
 importing file's own directory is searched before any device directory. A
 default `gemm/config.k` beside `src/gemm_fp32.k` would win over every
 device's override.
+
+## Resources and throughput
+
+These are estimates, not place-and-route results: no board build has been
+run, so achieved clock and logic (LUT/ALM) usage are unknown. Measured
+2026-10-13, on the RTL this directory builds. Two sources:
+
+* **DSPs**: the DSP HAL instances in the RTL `kg build` writes, one hardware
+  block or slice each. On Agilex 7 an `fmul32`, `fadd32` or `imul27` is a
+  variable-precision DSP block. On the U250 an `umul18` or `imul18` is a
+  DSP48E2 slice.
+* **Memories, FIFOs and pipeline registers**: the code generator's own
+  resource report, mapped onto each device's RAM shapes as the library's
+  device configuration declares them. Make it with the compatibility binary
+  (`kg build --emit resource-usage` is parsed but not wired up yet):
+
+  ```sh
+  kanagawa --backend=sv --target-device=agilex-7-f-023 --frequency=400 \
+      --import-dir=src --import-dir=config --import-dir=<kanagawa>/library \
+      --resource-usage=out/resources --output=out/ src/gemm_fp32.k
+  ```
+
+  `--frequency` goes into the report only. The RTL is the same with or
+  without it, so these figures describe exactly the RTL simulated above.
+
+### Clocks
+
+The clocks are illustrative, chosen below the DSP ratings for the modes this
+design uses:
+
+* **Agilex 7 F (AGF023), 400 MHz.** The F- and I-Series data sheet
+  (DS-1060, 2025.08.29, table 31) rates the DSP block's FP32 multiply,
+  add, multiply-add and accumulate modes at 750, 579, 507 and 475 MHz for
+  speed grades −1V, −2V, −3V/−3E and −4F/−4X, and its 27 × 27 integer mode
+  at 900 to 600 MHz. 400 MHz is under even the slowest grade.
+* **Alveo U250 (XCU250, −2L), 300 MHz.** A fully pipelined DSP48E2 is
+  rated at 644 to 891 MHz, depending on speed grade and core voltage, and
+  URAM at 600 MHz at −2 ([DS923]). The lower clock leaves room for the
+  soft-float adders, which are long chains of LUT logic.
+
+### Agilex 7 F-Series AGF023, `--profile agilex`
+
+Device totals ([product table], and the library's device configuration):
+1,640 DSP blocks, 10,464 M20K, 39,120 MLABs.
+
+| Format | MAC/cycle | DSP blocks | M20K | MLABs | Pipeline register bits | Peak @ 400 MHz | Measured, 64×64×128 |
+|---|---|---|---|---|---|---|---|
+| fp32 | 128 | 256 (15.6%): 128 `fmul32` + 128 `fadd32` | 34 (0.3%) | 416 (1.1%) | 31K | 102.4 GFLOPS | 98.6 GFLOPS (96%) |
+| bf16 | 128 | 256 (15.6%): 128 `umul27` + 128 `fadd32` | 28 (0.3%) | 208 (0.5%) | 39K | 102.4 GFLOPS | 98.2 GFLOPS (96%) |
+| int8 | 128 | 128 (7.8%): `imul27` | 25 (0.2%) | 112 (0.3%) | 15K | 102.4 GOPS | 100.5 GOPS (98%) |
+| mxint8 | 256 | 264 (16.1%): 256 `imul27` + 8 `fadd32` | 28 (0.3%) | 112 (0.3%) | 30K | 204.8 GOPS | 194.2 GOPS (95%) |
+
+### Alveo U250 (XCU250), `--profile u250`
+
+Device totals ([DS962]; the library's device configuration): 12,288 DSP48E2
+slices, 5,376 RAMB18 (2,688 RAMB36), 1,280 URAM.
+
+| Format | MAC/cycle | DSP48E2 | RAMB18 | URAM | LUTRAM | Pipeline register bits | Peak @ 300 MHz | Measured, 64×64×128 |
+|---|---|---|---|---|---|---|---|---|
+| fp32 | 16 | 64 (0.5%): `umul18`, 4 per multiply | 21 (0.4%) | 6 (0.5%) | — | 69K | 9.6 GFLOPS | 9.2 GFLOPS (96%) |
+| bf16 | 32 | 32 (0.3%): `umul18` | 21 (0.4%) | 6 (0.5%) | — | 106K | 19.2 GFLOPS | 17.8 GFLOPS (92%) |
+| int8 | 128 | 128 (1.0%): `imul18` | 28 (0.5%) | — | 64 Kb | 12K | 76.8 GOPS | 75.8 GOPS (99%) |
+| mxint8 | 128 | 128 (1.0%): `imul18` | 13 (0.2%) | 4 (0.3%) | 66 Kb | 27K | 76.8 GOPS | 74.2 GOPS (97%) |
+
+How to read these:
+
+* **Peak** is two operations per multiply-accumulate, every cycle.
+  **Measured** applies the co-simulation's sustained MAC/cycle on the
+  full-size problem (the `full` row, `./run.sh -d <target>`) to the same
+  clock. Operations count elements, so an MXINT8 block is 32
+  multiply-accumulates.
+* **Memories**: `A` is one copy. `B` is `lanes` narrow memories, which the
+  code generator puts in MLABs or LUTRAM when they are shallow. `C` is read
+  in two places (`strip` and `read_c`), so it is stored twice. The M20K and
+  RAMB18 counts include the FIFOs' share. On every build that is entirely
+  the loop's reorder buffer: 7 M20K on Agilex, 5–8 RAMB18 on the U250
+  (see below for removing it).
+* **Pipeline register bits** are the code generator's count of its own
+  pipeline registers. They exclude the registers inside DSP and RAM
+  primitives, and the U250 rows are dominated by the soft-float adders.
+* **What limits each build.** None of these builds is DSP- or RAM-bound.
+  Agilex fp32 uses 16% of the DSPs, so its array could be about six times
+  wider. On the U250 the limit for fp32 and bf16 is the soft-float adders'
+  LUTs, which only synthesis can count. The integer arrays could be far
+  wider, bounded by how wide `B`'s memories can be read in a cycle.
+
+[product table]: https://cdrdv2-public.intel.com/690880/agilex-7-fpgas-and-socs-f-series-product-table.pdf
+[DS923]: https://docs.amd.com/r/en-US/ds923-virtex-ultrascale-plus/DSP48-Slice-Switching-Characteristics
+[DS962]: https://docs.amd.com/r/en-US/ds962-u200-u250
 
 ## Simulating
 
@@ -211,7 +291,36 @@ This is the compute core. A board build also needs:
   every backend option (`--frequency`, `--register-ratio`, …); `kg build`
   takes the common ones.
 
-Ways to take it further: pack two int8 products per DSP (the Agilex library
-exposes `umul18x2`), give bf16's 8 × 8 mantissa multiply to LUTs
-(`lutmul`) rather than a 27 × 27 DSP, and double-buffer `A` and `B` so that
-loads overlap `compute`.
+Ways to take it further, part by part:
+
+* **Agilex 7, Stratix 10: one copy of `C`.** Their M20Ks have a quad-port
+  mode, which serves `C`'s two read sites from one copy. Declaring
+  `using c_row_t = Acc[Lanes]; [[memory, quad_port]] c_row_t[MaxM * NtMax] _c;`
+  takes `C` from 14 M20K to 7. Tried on `agilex-7-f-023` in a scratch copy
+  (2026-10-13): fp32 went from 27 to 20 M20K for memories, int8 from 18 to
+  11, and both stayed bit-exact under `--stall 0.3` at the same throughput.
+  The catch is that a device without quad-port RAM (the U250) rejects the
+  attribute (`QuadPortUnsupported`). The memory's type therefore has to come
+  from the device configuration, as `library/processor/risc_v.k` passes its
+  TCM type in as a template parameter. A quad-port memory may also have at
+  most two read and two write sites.
+* **Everywhere: no reorder buffer.** Every thread runs the same number of
+  iterations, so the loop's reorder buffer never holds a thread back, yet
+  it costs 7 M20K or 5–8 RAMB18. Written as a `do`/`while` under
+  `[[reorder_by_looping]]` (the attribute is rejected on a range `for`),
+  the loop keeps its order by predicated extra iterations instead, and the
+  reorder buffer's block RAM drops to zero. On int8, FIFO logic went from
+  139 to 207 ALMs on Agilex. Tried in a scratch copy (2026-10-13): bit-exact
+  on mock and Agilex in all four formats, and on the U250 in int8 and MXINT8
+  under `--stall 0.3`, at the same throughput. The counter must be a
+  `count_t<KcMax>`: an `index_t<KcMax>` wraps before it reaches the count,
+  and the loop never ends.
+* **Agilex 7: half the DSPs for fp32.** A DSP block's FP32 multiply-add
+  mode, chained, would do each multiply and add in one block (128 rather
+  than 256). The model would then add in the chain's order rather than a
+  tree's.
+* **Agilex 7: two int8 products per block.** The library exposes
+  `umul18x2`. bf16's 8 × 8 mantissa multiply could also go to LUTs
+  (`lutmul`) rather than a 27 × 27 DSP.
+* **Everywhere: double-buffer `A` and `B`**, so that loads overlap
+  `compute`; the `tiled` rows above pay for the reloads.
