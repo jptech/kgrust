@@ -216,6 +216,10 @@ platform and needs neither.
 
 ## Small designs on the iCE40
 
+The UPduino's page, [`boards/upduino-v3/README.md`](boards/upduino-v3/README.md),
+records each choice made for the part (its pins, thread limit, DSP use,
+synthesis options) with the reason and how to change it.
+
 The UP5K has 5,280 logic cells. What decides whether a design fits
 (measured in [`board-tooling.md`](../docs/plans/board-tooling.md) §5 and
 `platform-layer.md` §8.3):
@@ -258,7 +262,7 @@ constraints, reusing the UPduino's shell by path. A project names it with
 
 | Board | Device | Status |
 |---|---|---|
-| `upduino-v3` | `ice40-up5k` (`iCE40UP5K-SG48`) | every flow passes in simulation, gate level and synthesis; not yet run on a board |
+| [`upduino-v3`](boards/upduino-v3/README.md) | `ice40-up5k` (`iCE40UP5K-SG48`) | every flow passes in simulation, gate level and synthesis; not yet run on a board |
 | `virtual` | `ice40-up5k`, simulated | `sim`, `serve` with the front panel, and `test` |
 | `mimas-a7` | `artix7-xc7a50t` (`xc7a50tfgg484-1`) | `kg board sim` passes; not yet through Vivado or on hardware |
 

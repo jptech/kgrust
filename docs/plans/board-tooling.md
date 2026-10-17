@@ -430,7 +430,9 @@ hand-written ones within placement noise (2026-10-17, `kg board bitstream`;
 
 The UPduino's shell gained an SPI bus on header pins 44-47 and an I2C bus on
 2 and 3 (open drain through `SB_IO`, pull-ups on), for its `spi` and `i2c`
-resources.
+resources. Every choice made for the board and the part, with its reason and
+how to change it, is on the board's own page,
+[`platform/boards/upduino-v3/README.md`](../../platform/boards/upduino-v3/README.md).
 
 **The board's backend options for a small part.** The UPduino's and the
 virtual board's `[hw]` now add `max-threads-default = 4` (§5). It changes
