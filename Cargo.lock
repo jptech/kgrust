@@ -439,6 +439,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kg-board"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "kg-config",
+ "kg-syntax",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "kg-cli"
 version = "0.1.0"
 dependencies = [
@@ -447,6 +459,7 @@ dependencies = [
  "kg-alloc",
  "kg-backend-sys",
  "kg-base",
+ "kg-board",
  "kg-config",
  "kg-db",
  "kg-diag",

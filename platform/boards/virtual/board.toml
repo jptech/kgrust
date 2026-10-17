@@ -1,0 +1,94 @@
+# The virtual board: a board with no hardware, simulated, its front panel in
+# a browser (docs/plans/board-tooling.md §9). `kg board serve` runs a design
+# on it and prints the panel's address: LEDs, buttons, switches, a serial
+# console, and a 640x480 screen. Its serial port is also a pseudo-terminal
+# (BOARD_PTY), as the UPduino's is under `serve`, so host programs and
+# kgbridge tests run against it unchanged.
+#
+# It takes the UPduino's device, so a design for the one runs on the other,
+# and a tutorial can start here with no board at all. `bitstream`, `flash`,
+# `netsim` and `area` need hardware; `sim`, `serve` and `test` do not.
+
+[board]
+name = "virtual"
+vendor = "kgrust"
+# No shell: the core is the whole board, its resources the panel's.
+core-module = "virtual_core"
+bridge = [
+    "sim/vboard.sv",
+    "../../sim/vboard.cpp",
+    "../../sim/uart_pty.cpp",
+    "../../sim/models/spi_flash_model.sv",
+    "../../sim/models/i2c_target_model.sv",
+]
+
+[fpga]
+device = "ice40-up5k"
+part = "up5k"
+package = "sg48"
+hal = "ice40"
+tool = "virtual"
+
+[clock]
+# VGA's 640x480 pixel clock, near enough (25.175 MHz).
+mhz = 25
+
+[hw]
+# As the UPduino's: the same device, the same design, the same RTL.
+reset-cycles = 1
+semaphore-delay = 0
+additional-latency = 0
+register-ratio = 8
+no-reset-fanout = true
+# A call that waits on a callback keeps every waiting thread's live
+# variables, in a FIFO as deep as the thread limit; the default, 512, is
+# more than the part holds (board-tooling.md §5). Ask for more with
+# [[max_threads(N)]] where it pays.
+max-threads-default = 4
+
+[resources.led]
+kind = "led"
+doc = "an RGB LED: {red, green, blue}"
+width = 3
+pins = { out = "rgb" }
+
+[resources.leds]
+kind = "led"
+doc = "a row of eight LEDs, bit 0 rightmost"
+width = 8
+pins = { out = "leds" }
+
+[resources.buttons]
+kind = "button"
+doc = "four push buttons, bit 0 leftmost"
+width = 4
+pins = { in = "buttons" }
+
+[resources.switches]
+kind = "button"
+doc = "eight slide switches, bit 0 rightmost"
+width = 8
+pins = { in = "switches" }
+
+[resources.uart]
+kind = "uart"
+doc = "a serial port: the panel's console, and BOARD_PTY"
+baud = 115200
+pins = { rx = "uart_rxd", tx = "uart_txd" }
+
+[resources.spi]
+kind = "spi"
+doc = "a SPI bus with a W25Q32-like flash on it"
+hz = 1000000
+pins = { sclk = "spi_sclk", mosi = "spi_mosi", miso = "spi_miso", cs_n = "spi_cs_n" }
+
+[resources.i2c]
+kind = "i2c"
+doc = "an I2C bus with a register-file sensor at 0x48"
+hz = 100000
+pins = { scl_oe = "i2c_scl_oe", scl_in = "i2c_scl_in", sda_oe = "i2c_sda_oe", sda_in = "i2c_sda_in" }
+
+[resources.vga]
+kind = "vga"
+doc = "a 640x480 screen, 12-bit colour"
+pins = { hsync = "vga_hsync", vsync = "vga_vsync", rgb = "vga_rgb" }

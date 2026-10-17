@@ -1,0 +1,24 @@
+# A SPI flash read from Python (flash.k, test_flash.py). Runs on any board
+# with `spi` and a serial port; from this directory: `kg board test`,
+# `kg board serve -- python3 test_flash.py`.
+
+[package]
+name = "spi-flash"
+
+[project]
+sources = ["flash.k"]
+# The standard library, from this checkout's reference submodule; where
+# that is absent, an installed kg uses its own.
+import-dirs = ["../../../third_party/kanagawa/library"]
+
+[board]
+# The board, of the platform (`kg board list`); `kg board new <dir> --board
+# <name> --example <this>` makes a copy for another.
+name = "virtual"
+platform = "../.."
+
+[hw]
+# One thread a function: the library runs one bus transaction at a time,
+# so more buy nothing, and each costs its callback's saved state
+# (board-tooling.md §5).
+max-threads-default = 1

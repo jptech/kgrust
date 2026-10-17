@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Board</title>
+<!--
+  The virtual board's front panel, served by the simulation itself
+  (platform/sim/vboard.cpp). Self-contained: it loads nothing from anywhere
+  but the simulation, so it works offline.
+-->
+<style>
+  :root {
+    --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #d9d6d0;
+    --pcb: #1f5f3f; --led-off: #3a3a3a; --screen: #000; --accent: #2a6fdb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416; --panel: #1d1d20; --ink: #ececef; --muted: #9a9aa2; --line: #2f2f34;
+      --pcb: #17402b; --led-off: #2a2a2a; --accent: #6ea0ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141416; --panel: #1d1d20; --ink: #ececef; --muted: #9a9aa2; --line: #2f2f34;
+    --pcb: #17402b; --led-off: #2a2a2a; --accent: #6ea0ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .status { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  canvas { width: 100%; height: auto; aspect-ratio: 4 / 3; background: var(--screen); border-radius: 6px;
+           image-rendering: pixelated; display: block; }
+  .noscreen { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .pcb { background: var(--pcb); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .label { color: #cfe3d6; font-size: 11px; width: 64px; }
+  .led { width: 16px; height: 16px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 0 3px #000; }
+  .led.on { background: #ff4d3a; box-shadow: 0 0 10px #ff4d3a; }
+  .rgb { width: 22px; height: 22px; border-radius: 50%; background: var(--led-off); border: 2px solid #0b2a1a; }
+  button.key { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #0b2a1a; background: #d8d8d8;
+               font-weight: 600; color: #333; cursor: pointer; }
+  button.key.down { background: #8a8a8a; color: #fff; transform: translateY(1px); }
+  .switch { width: 18px; height: 34px; border-radius: 4px; background: #0b2a1a; position: relative; cursor: pointer; border: 0; padding: 0; }
+  .switch::after { content: ""; position: absolute; left: 2px; right: 2px; height: 14px; bottom: 2px;
+                   background: #e5e5e5; border-radius: 3px; transition: bottom .08s; }
+  .switch.on::after { bottom: 18px; background: #ffd34d; }
+  .console { height: 220px; overflow: auto; background: #0e0e10; color: #d6f5d6; border-radius: 6px; padding: 8px;
+             font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
+  .send { display: flex; gap: 6px; margin-top: 8px; }
+  .send input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line);
+                background: var(--bg); color: var(--ink); font: 12px ui-monospace, Menlo, monospace; }
+  .send button { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--accent);
+                 color: #fff; cursor: pointer; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .gone { color: #d9534f; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Virtual board</h1>
+    <div class="status" id="status">connecting…</div>
+  </header>
+  <div class="grid">
+    <section class="card">
+      <h2>Screen · 640×480</h2>
+      <canvas id="screen" width="640" height="480"></canvas>
+      <div class="noscreen" id="noscreen">No picture: the design drives nothing on the board's <code>vga</code> resource.</div>
+    </section>
+    <section class="card">
+      <h2>Board</h2>
+      <div class="pcb">
+        <div class="row"><span class="label">RGB LED</span><div class="rgb" id="rgb"></div></div>
+        <div class="row"><span class="label">LEDs</span><div class="row" id="leds"></div></div>
+        <div class="row"><span class="label">Switches</span><div class="row" id="switches"></div></div>
+        <div class="row"><span class="label">Buttons</span><div class="row" id="buttons"></div></div>
+      </div>
+      <div class="hint">Buttons: click, or keys W S ↑ ↓ (and 1–4). Switches: click.</div>
+    </section>
+    <section class="card" style="grid-column: 1 / -1">
+      <h2>Serial console · 115200 baud</h2>
+      <div class="console" id="console"></div>
+      <form class="send" id="send">
+        <input id="line" autocomplete="off" placeholder="Type a line for the design; Enter sends it with CR">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+  </div>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const ctx = $("screen").getContext("2d");
+const image = ctx.createImageData(640, 480);
+let buttons = 0, switches = 0, uartAt = 0, lastFrames = -1, alive = true;
+
+// The panel's controls: eight LEDs and switches (bit 0 rightmost), four
+// buttons (bit 0 leftmost).
+const ledEls = [], switchEls = [], buttonEls = [];
+for (let i = 7; i >= 0; i--) {
+  const led = document.createElement("div"); led.className = "led"; $("leds").append(led); ledEls[i] = led;
+  const sw = document.createElement("button"); sw.className = "switch"; sw.title = "switch " + i;
+  sw.onclick = () => { switches ^= 1 << i; sendInputs(); };
+  $("switches").append(sw); switchEls[i] = sw;
+}
+for (let i = 0; i < 4; i++) {
+  const b = document.createElement("button"); b.className = "key"; b.textContent = i + 1;
+  const press = (down) => { buttons = down ? buttons | (1 << i) : buttons & ~(1 << i); sendInputs(); };
+  b.onpointerdown = () => press(true); b.onpointerup = b.onpointerleave = () => press(false);
+  $("buttons").append(b); buttonEls[i] = b;
+}
+const KEYS = { w: 0, s: 1, ArrowUp: 2, ArrowDown: 3, "1": 0, "2": 1, "3": 2, "4": 3 };
+const onKey = (down) => (e) => {
+  if (document.activeElement === $("line")) return;
+  const i = KEYS[e.key];
+  if (i === undefined) return;
+  e.preventDefault();
+  const was = buttons;
+  buttons = down ? buttons | (1 << i) : buttons & ~(1 << i);
+  if (buttons !== was) sendInputs();
+};
+addEventListener("keydown", onKey(true));
+addEventListener("keyup", onKey(false));
+
+function sendInputs() {
+  buttonEls.forEach((b, i) => b.classList.toggle("down", !!(buttons >> i & 1)));
+  switchEls.forEach((s, i) => s.classList.toggle("on", !!(switches >> i & 1)));
+  fetch(`/input?buttons=${buttons}&switches=${switches}`, { method: "POST" }).catch(() => {});
+}
+
+$("send").onsubmit = (e) => {
+  e.preventDefault();
+  fetch("/uart", { method: "POST", body: $("line").value + "\r" }).catch(() => {});
+  $("line").value = "";
+};
+
+const decoder = new TextDecoder();
+function show(state) {
+  const c = state.rgb;
+  $("rgb").style.background = c ? `rgb(${c & 4 ? 255 : 30},${c & 2 ? 230 : 30},${c & 1 ? 255 : 30})` : "";
+  $("rgb").style.boxShadow = c ? "0 0 12px currentColor" : "";
+  ledEls.forEach((l, i) => l.classList.toggle("on", !!(state.leds >> i & 1)));
+  if (state.uart.length) {
+    const con = $("console");
+    const atBottom = con.scrollTop + con.clientHeight >= con.scrollHeight - 4;
+    con.textContent += decoder.decode(new Uint8Array(state.uart), { stream: true }).replace(/\r\n?/g, "\n");
+    if (con.textContent.length > 200000) con.textContent = con.textContent.slice(-100000);
+    if (atBottom) con.scrollTop = con.scrollHeight;
+  }
+  uartAt = state.uart_at;
+  $("noscreen").style.display = state.screen ? "none" : "";
+  $("status").textContent =
+    `simulating at ${state.mhz.toFixed(2)} MHz · ${state.frames} frames` + (state.screen ? ` · ${state.fps.toFixed(1)} fps` : "");
+}
+
+async function drawFrame() {
+  const data = new Uint16Array(await (await fetch("/frame")).arrayBuffer());
+  const px = image.data;
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i];
+    px[4 * i] = (v >> 8 & 15) * 17;
+    px[4 * i + 1] = (v >> 4 & 15) * 17;
+    px[4 * i + 2] = (v & 15) * 17;
+    px[4 * i + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+async function poll() {
+  try {
+    const state = await (await fetch(`/state?uart=${uartAt}`)).json();
+    show(state);
+    if (state.screen && state.frames !== lastFrames) {
+      lastFrames = state.frames;
+      await drawFrame();
+    }
+    alive = true;
+  } catch (e) {
+    if (alive) $("status").innerHTML = '<span class="gone">the simulation has stopped</span>';
+    alive = false;
+  }
+  setTimeout(poll, 50);
+}
+poll();
+</script>
+</body>
+</html>

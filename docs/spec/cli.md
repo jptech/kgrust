@@ -1335,13 +1335,19 @@ warning switches and 27 (28) of the 90 other flags are exercised; 7 warning swit
 
 ## 9. Proposed `kg` multi-tool CLI (clap-shaped)
 
-> **As built (2026-10-11).** `crates/kg-cli/src/modern/mod.rs` is the
-> authority; this section is the design it started from. The differences:
+> **As built (2026-10-11; `[hw]`, `-Z`, `--emit` and `board` 2026-10-17;
+> `board test` and `board interface` later the same day).**
+> `crates/kg-cli/src/modern/mod.rs` is the authority; this section is the
+> design it started from. The differences:
 >
 > * The commands are `check`, `build`, `fmt`, `lsp`, `doc` (alias `docs`),
 >   `dump` (`tokens|cst|ast|ir|instances` — the debugging window §9.3's
->   `--emit ast`/`typed-ast` rows proposed) and `explain` (takes `1`, `E27`,
->   `Warning 12` or a warning name; `--list`).
+>   `--emit ast`/`typed-ast` rows proposed), `explain` (takes `1`, `E27`,
+>   `Warning 12` or a warning name; `--list`) and `board` (a manifest's
+>   `[board]`: `list`, `info`, `new`, `bundle`, `sim`, `netsim`,
+>   `bitstream`, `flash`, `serve`, `area`, `test` (cocotb, `--python`),
+>   `interface` (`--json`);
+>   [`plans/board-tooling.md`](../plans/board-tooling.md)).
 > * There is **no `kg compat`** (§9.4). The compat surface is the separate
 >   `kanagawa` binary (`crates/kg-cli/src/legacy/`), all three modes and all
 >   128 flag spellings; `kg` installed or symlinked under a name starting
@@ -1355,9 +1361,14 @@ warning switches and 27 (28) of the 90 other flags are exercised; 7 warning swit
 >   (usage, or a program `build` cannot lower) and 3 (`build`: the backend
 >   crashed in its worker process).
 > * `kg build` takes `--backend sv|none` (and `trace`, the call sequence
->   `xtask ptdiff` grades), `-o`, `-O`, `--debug`; `--emit` and `-Z` are
->   parsed but read by nothing yet, and no other backend knob is reachable
->   from `kg` — the compat binary has them all.
+>   `xtask ptdiff` grades), `-o`, `-O`, `--debug`, `--emit
+>   resource-usage=<FILE>` and `dgml=<FILE>` (other kinds are refused), and
+>   `-Z hw.<key>=<value>`, over the manifest's `[hw]`: §9.3's backend
+>   options less the two `--emit` takes, plus the placement constants,
+>   `stall` and `force-mem-to-array`, keyed by their legacy long names with
+>   dashes or underscores, typed as the flag is
+>   (`crates/kg-cli/src/modern/hw.rs`). The record the backend gets is the
+>   compat binary's for the same options. Any other `-Z` key is refused.
 > * `kg fmt` overrides `[fmt]` with `--line-width`, `--indent`,
 >   `--use-tabs`, `--newline`, `--sort-imports`; `--check`, `--stdout`.
 
@@ -1535,7 +1546,8 @@ Every `compile`-mode flag is accounted for exactly once.
 > | `[warnings]` | `all` (`false`), `error` (`false`), and one key per kind — `conversion`, `deprecated`, `initializer-overrides`, `redundant-import`, `shadow`, `transaction-size` — as `"allow"`, `"warn"` or `"deny"` (`deny` enables the warning; only `error = true` makes warnings errors) |
 > | `[fmt]` | `line-width` (`100`), `indent` (`4`), `use-tabs` (`false`), `newline` (`"lf"`), `final-newline` (`true`), `group-imports` (`true`), `sort-imports` (`false`) — `ribbon`, `layout` and `tab-width` were not built |
 > | `[lsp]` | `diagnostics` (`"on-type"` or `"on-save"`), `max-file-size-kb` (`4096`), `index-import-dirs` (`true`) |
-> | `[hw]` | any key; accepted and stored, read by nothing yet |
+> | `[hw]` | the backend's options, read by `kg build` and `kg board` (§9 box); an unknown key is an error there |
+> | `[board]` | `name` or `path`, `platform`, `rtl`, `top-module`, `core-module`, `testbench`, `connect` (function to resource), `tests` (cocotb modules) — opt-in; sets the device and appends the platform's library (`kg_config::board`, [`plans/board-tooling.md`](../plans/board-tooling.md) §2.1, §6); a board's `board.toml` adds `[resources.*]` |
 > | `[profile.<name>]` | `project`, `warnings`, `fmt`, `hw` — deep-merged over the base tables when `--profile` or `KG_PROFILE` names it; an unknown profile is an error |
 >
 > Precedence is §10.3's, with `KG_PROFILE`, `KG_IMPORT_DIRS` (`:`-separated),

@@ -1,0 +1,19 @@
+# The Mimas A7 blinky: the LEDs count in binary (blinky.k, top.sv).
+# Run from this directory: `kg board sim`, `kg board bitstream`, … (platform/README.md).
+
+[package]
+name = "mimas-a7-blinky"
+
+[project]
+sources = ["blinky.k"]
+# The standard library, from this checkout's reference submodule; where
+# that is absent, an installed kg uses its own.
+import-dirs = ["../../../../../third_party/kanagawa/library"]
+
+[board]
+# The board this example belongs to; a project of your own names it
+# instead: `name = "<board>"` (`kg board new` writes that).
+path = "../.."
+rtl = ["top.sv"]
+top-module = "mimas_a7_top"
+testbench = "tb.sv"

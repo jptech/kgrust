@@ -8,6 +8,43 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Added
 
+- `kg board`, opt-in through a manifest's `[board]`: `list`, `info`, `new`
+  (a project from a board's example), `sim` (the project's testbench under
+  Verilator), `netsim` (on the synthesised netlist), `bitstream` (sv2v,
+  Yosys, nextpnr and icepack for iCE40; Vivado's batch flow for Artix-7),
+  `flash`, `serve` (the design in simulation with its serial port on a
+  pseudo-terminal), `area` and `bundle`. Two boards: the UPduino v3 (iCE40
+  UP5K) and the Numato Mimas A7 (Artix-7, not yet through Vivado). The
+  release archive ships the boards and upstream's runtime RTL.
+- `kg build` reads the manifest's `[hw]` and `-Z hw.<key>=<value>` (the
+  backend's options, as the legacy flags name them) and `--emit
+  resource-usage=<FILE>` / `dgml=<FILE>`; an unknown key is an error.
+- A design reaches a board with no glue RTL. A board declares its
+  resources (`[resources.*]` in `board.toml`: LEDs, buttons, a serial port,
+  SPI, I2C, VGA), and `kg board` generates the board-level core, binding the
+  exported functions by name or by the manifest's `[board] connect`, and
+  refusing a function whose shape fits no resource with the shapes that
+  would. Whatever binds to nothing is served over the serial port by a host
+  bridge. Every build writes the class's interface description
+  (`target/board/interface.json`; `kg board interface`) and a Python module
+  with one method per function (`target/board/py/`, over
+  `platform/python/kgbridge.py`).
+- `kg board test`: the project's cocotb tests against the generated module.
+  A test written with `@kgbridge.test` runs unchanged under cocotb, against
+  the simulated board over its serial port, and on the board.
+- A peripheral library: SPI and I2C engines, the UART (`platform/rtl/periph`),
+  Kanagawa classes over them (`periph.spi.flash`, `periph.i2c.bus`,
+  `periph.text`), and models of a SPI flash and an I2C sensor for
+  simulation, in SystemVerilog and in Python.
+- The virtual board: no hardware, every resource kind, and a front panel in
+  the browser served by the simulation itself (LEDs, buttons, switches, a
+  serial console, a 640x480 screen). `kg board new … --board virtual` starts
+  a project anyone can run.
+- Examples for any board: `accel` (called from Python, with a callback into
+  Python), `spi-flash` and `i2c-sensor` (the peripheral library on a board's
+  buses) and `pong` (VGA, buttons
+  and LEDs on the virtual board). `kg board new` and `list` offer them.
+
 - `AGENTS.md`, the working rules for people and coding agents alike, and
   `CONTRIBUTING.md`; `docs/gates.md`, every gate in one place.
 - CI on GitHub Actions, sized for the free runners: `scripts/ci.sh`, the
@@ -34,6 +71,22 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Changed
 
+- The UPduino's `blinky` and `monitor` examples use the generated core;
+  `spram` keeps its own, as the example of replacing it. The UPduino's
+  shell gains an SPI bus (header pins 44-47) and an I2C bus (2 and 3).
+- The UPduino and the virtual board set `max-threads-default = 4`: a call
+  waiting on a callback saves every waiting thread, and 512 does not fit a
+  UP5K.
+- `kg board` synthesises iCE40 designs without Yosys's `-dsp`, which crashes
+  Yosys 0.69 on the backend's pipelined products; the HAL instantiates the
+  DSP blocks itself.
+
+- `kg build` passes the backend's own warnings (transaction size,
+  deprecation, warnings as errors) as the project's warning settings have
+  them, as `kanagawa` does; it had the transaction-size warning on
+  regardless. `-O` no longer defaults to 2 on the command line, so `[hw]
+  optimize` applies; the default is still 2.
+
 - On macOS, the `dev` and `quick` profiles keep debug info in the binaries
   (`split-debuginfo = "off"`): the default, `unpacked`, left every object
   file beside the build output and never collected them, so `target/quick`
@@ -56,6 +109,12 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Fixed
 
+- The iCE40 HAL's block-RAM and dual-clock FIFOs dropped almost_full the
+  cycle reset fell, which the runtime asserts against; a design with a deep
+  FIFO stopped in simulation.
+- No UP5K design reached the DSP blocks: every product is the backend's
+  `KanagawaLutMul`, which the iCE40 HAL built in logic. It now instantiates
+  an `SB_MAC16` for products up to 16x16.
 - A `kanagawa.toml` whose `[fmt]` or `[lsp]` table set only some keys was
   refused ("missing field `indent`"); the rest now take their defaults.
 - `cargo xtask status-md` refuses a partial gate run; `docs/status.md` had

@@ -28,6 +28,7 @@ doctest = false
 [dependencies]
 kg-base.workspace = true
 kg-config.workspace = true
+kg-board.workspace = true
 kg-db.workspace = true
 kg-resolve.workspace = true
 kg-ptbridge.workspace = true

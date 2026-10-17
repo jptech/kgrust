@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/jptech/kgrust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jptech/kgrust/actions/workflows/ci.yml)
 
-[Install](#install) · [Quick start](#quick-start) · [Editor](#editor) · [Build from source](#build-from-source) · [Parity and speed](#parity-and-speed) · [Development](#development)
+[Install](#install) · [Quick start](#quick-start) · [Boards](#boards) · [Editor](#editor) · [Build from source](#build-from-source) · [Parity and speed](#parity-and-speed) · [Development](#development)
 
 </div>
 
@@ -27,6 +27,7 @@ the memory.
 | `kg fmt` | Format sources, every comment kept |
 | `kg doc` | A searchable documentation site from your doc comments |
 | `kg explain` | The reference for an error code or a warning |
+| `kg board` | A design on a board, or on a simulated one: generated wiring, a Python API, cocotb, bitstreams |
 | `kanagawa` | A drop-in replacement for the reference compiler's command line |
 
 ## Install
@@ -88,6 +89,32 @@ shadow = "deny"
 ```
 
 `kg check` with no arguments then checks the whole project; `kg --help` shows the rest.
+
+## Boards
+
+`kg board` takes a design onto a board, or onto a simulated one when you have none. It
+generates the board-level wiring from the board's resources, writes a Python class
+with a method per exported function, and runs the same tests under cocotb, against
+the simulation, and on the board:
+
+```sh
+kg board new hello --board virtual --example accel
+cd hello
+kg board test                               # cocotb, on the design's own ports
+kg board serve -- python3 test_accel.py     # the same tests over the simulated board's serial port
+kg board serve                              # its front panel in the browser: LEDs, buttons, a screen
+```
+
+```python
+from accel import Accel                     # generated from the design's interface
+api = Accel()
+api.add(2, 3)                               # 5, from the hardware
+api.on("_square", lambda x: x * x)          # the design calls back into Python
+```
+
+It is opt-in: a project without `[board]` in its `kanagawa.toml` is untouched. There is
+a virtual board, the UPduino v3 (iCE40 UP5K, through the open toolchain to a bitstream),
+and the Mimas A7 (Artix-7). The guide: [`platform/README.md`](platform/README.md).
 
 ## Editor
 

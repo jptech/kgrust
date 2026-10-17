@@ -1,0 +1,18 @@
+# The UPduino SPRAM test: every word written and read back (spram.k, core.sv).
+# Run from this directory: `kg board sim`, `kg board bitstream`, … (platform/README.md).
+
+[package]
+name = "upduino-spram"
+
+[project]
+sources = ["spram.k"]
+# The standard library, from this checkout's reference submodule; where
+# that is absent, an installed kg uses its own.
+import-dirs = ["../../../../../third_party/kanagawa/library"]
+
+[board]
+# The board this example belongs to; a project of your own names it
+# instead: `name = "<board>"` (`kg board new` writes that).
+path = "../.."
+rtl = ["core.sv"]
+testbench = "tb.sv"

@@ -567,6 +567,9 @@ struct ConfigStore {
     /// `KG_INFER_FULL`, `KG_PTBRIDGE_SEED`, as `kg` reads
     /// them — and set on every project's settings.
     verdicts: kg_config::Verdicts,
+    /// `KG_PLATFORM`, read once, as `kg` reads it: where a manifest's
+    /// `[board]` is looked for when it names no platform.
+    platform: Option<Utf8PathBuf>,
 }
 
 impl ConfigStore {
@@ -579,6 +582,7 @@ impl ConfigStore {
             fallback: None,
             said_unmanaged: false,
             verdicts: kg_config::Verdicts::read(|name| std::env::var_os(name)),
+            platform: std::env::var("KG_PLATFORM").ok().filter(|p| !p.is_empty()).map(Utf8PathBuf::from),
         }
     }
 
@@ -621,8 +625,22 @@ impl ConfigStore {
         }
         match kg_config::load(&manifest) {
             Ok(m) => {
-                let settings =
-                    Arc::new(Settings { verdicts: self.verdicts, ..Settings::from_manifest(&m, &manifest).or_bundled_library() });
+                let mut settings = Settings { verdicts: self.verdicts, ..Settings::from_manifest(&m, &manifest).or_bundled_library() };
+                // The board's device and the platform's library, as `kg`
+                // applies them; a board not found is said, and the rest of
+                // the manifest still holds.
+                if let Some(table) = &m.board {
+                    let root = manifest.parent().unwrap_or(Utf8Path::new("."));
+                    let applied = kg_config::board::resolve(table, root, self.platform.as_deref())
+                        .and_then(|board| kg_config::board::apply(&mut settings, &board));
+                    if let Err(err) = applied
+                        && !self.reported.contains(&manifest)
+                    {
+                        self.reported.push(manifest.clone());
+                        self.errors.push(format!("{manifest}: {err}"));
+                    }
+                }
+                let settings = Arc::new(settings);
                 self.by_manifest.insert(manifest, Arc::clone(&settings));
                 settings
             }
@@ -790,6 +808,52 @@ mod tests {
         // ...and the size cap it sets is enforced.
         state.did_change_full(&uri, "x".repeat(2048), 2);
         assert_eq!(state.snapshot(&uri).unwrap_err(), NoFile::TooLarge);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A manifest's `[board]` reaches the editor as it reaches `kg`: the
+    /// board's device, and the platform's library searched last, so a
+    /// device library (`import lattice.spram`) resolves. A board not found
+    /// is said once, and the rest of the manifest still holds.
+    #[test]
+    fn a_board_sets_the_device_and_the_platforms_library() {
+        let dir = std::env::temp_dir().join(format!("kg-lsp-board-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = Utf8PathBuf::from_path_buf(dir.clone()).unwrap();
+        std::fs::create_dir_all(root.join("platform/library")).unwrap();
+        std::fs::create_dir_all(root.join("platform/boards/demo")).unwrap();
+        std::fs::write(
+            root.join("platform/boards/demo/board.toml"),
+            "[fpga]\ndevice = \"ice40-up5k\"\npart = \"up5k\"\nhal = \"ice40\"\ntool = \"icestorm\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("good")).unwrap();
+        std::fs::write(
+            root.join("good/kanagawa.toml"),
+            "[project]\nimport-dirs = [\"lib\"]\n[board]\nname = \"demo\"\nplatform = \"../platform\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("bad")).unwrap();
+        std::fs::write(
+            root.join("bad/kanagawa.toml"),
+            "[project]\nimport-dirs = [\"lib\"]\n[board]\nname = \"nope\"\nplatform = \"../platform\"\n",
+        )
+        .unwrap();
+
+        let state = GlobalState::new();
+        state.set_roots(vec![root.clone()]);
+        let good = state.did_open(crate::uri::path_to_uri(&root.join("good/top.k")).unwrap(), "class A {}\n".to_owned(), 1);
+        let settings = state.settings_for(good);
+        assert_eq!(settings.target_device, "ice40-up5k");
+        assert_eq!(settings.import_dirs, [root.join("good/lib"), root.join("platform/library")]);
+        assert!(state.take_config_errors().is_empty());
+
+        let bad = state.did_open(crate::uri::path_to_uri(&root.join("bad/top.k")).unwrap(), "class A {}\n".to_owned(), 1);
+        let settings = state.settings_for(bad);
+        assert_eq!(settings.import_dirs, [root.join("bad/lib")]);
+        let errors = state.take_config_errors();
+        assert!(errors.len() == 1 && errors[0].contains("no board at"), "{errors:?}");
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

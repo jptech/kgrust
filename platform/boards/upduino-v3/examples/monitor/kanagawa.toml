@@ -1,0 +1,21 @@
+# The UPduino monitor: the SPRAM read and written over the serial port (monitor.k, host.py).
+# Run from this directory: `kg board sim`, `kg board bitstream`, … (platform/README.md).
+
+[package]
+name = "upduino-monitor"
+
+[project]
+sources = ["monitor.k"]
+# The standard library, from this checkout's reference submodule; where
+# that is absent, an installed kg uses its own.
+import-dirs = ["../../../../../third_party/kanagawa/library"]
+
+[board]
+# The board this example belongs to; a project of your own names it
+# instead: `name = "<board>"` (`kg board new` writes that).
+path = "../.."
+# No core.sv: kg board generates the core from the board's resources, the
+# serial port's receiver calling `rx` for each byte, its transmitter asking
+# `tx_next` whenever idle, and `leds` driving the LED.
+connect = { rx = "uart.rx", tx_next = "uart.tx", leds = "led" }
+testbench = "tb.sv"

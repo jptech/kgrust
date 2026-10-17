@@ -90,6 +90,8 @@ const RULES: &[Rule] = &[
             "crates/kg-lsp/",
             // Where the backend library is: locating, not deciding.
             "crates/kg-backend-sys/src/locate.rs",
+            // Where a board flow's tools are, on PATH: locating likewise.
+            "crates/kg-board/src/locate.rs",
             // The verified backend cache's switches: replay only.
             "crates/kg-ptbridge/src/cache.rs",
             // Build-time and recording tools, not the compiler.

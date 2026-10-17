@@ -11,3 +11,7 @@ node_modules/
 
 # Agent worktrees (EnterWorktree / Workflow isolation)
 .claude/worktrees/
+
+# A board example's own builds (`kg board`).
+platform/**/target/
+platform/**/__pycache__/

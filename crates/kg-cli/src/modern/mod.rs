@@ -1,9 +1,11 @@
 //! `kg` — the modern front door.
 //!
-//! Seven commands: `check`, `fmt`, `dump`, `explain`, `lsp`, `doc` (alias
-//! `docs`), and `build`, which runs the frontend and then walks the program
-//! into the reference's C++ backend (`kg-ptbridge`). A program the walk cannot
-//! lower yet is refused with exit 2, never compiled wrong.
+//! Eight commands: `check`, `fmt`, `dump`, `explain`, `lsp`, `doc` (alias
+//! `docs`), `build`, which runs the frontend and then walks the program
+//! into the reference's C++ backend (`kg-ptbridge`), and `board`, which
+//! builds for a manifest's `[board]` and runs the board's flows ([`board`]).
+//! A program the walk cannot lower yet is refused with exit 2, never
+//! compiled wrong.
 //!
 //! Exit codes:
 //!
@@ -14,7 +16,9 @@
 //! | 2 | a usage error, or a program `build` cannot lower yet |
 //! | 3 | `build`: the backend crashed — no verdict either way |
 
+pub mod board;
 pub mod dump;
+pub mod hw;
 pub mod render;
 pub mod settings;
 pub mod style;
@@ -136,6 +140,17 @@ A name in a signature links to the declaration it resolves to when that one
 is documented in the same site; pass the library's directory along with your
 own to link into it too.")]
     Doc(DocArgs),
+    /// Simulate, synthesise and program a design on a board (`[board]`).
+    #[command(long_about = "\
+Work with the board a manifest's `[board]` names: simulate the project's
+testbench, synthesise it, make a bitstream and program the board, or run it in
+simulation with its serial port on the host.
+
+Opt-in: a project without `[board]` is untouched by it. `kg board new <dir>
+--board <name>` starts a project from one of a board's examples; `kg board list`
+lists the boards. Each command that needs RTL builds it first, as `kg build`
+would, into `target/board/gen/`.")]
+    Board(board::BoardArgs),
 }
 
 /// The source-resolution flags shared by `check` and `build`, layered on top of
@@ -295,18 +310,17 @@ pub struct BuildArgs {
     /// Base name of the output file(s).
     #[arg(short = 'o', long, value_name = "PREFIX")]
     pub output: Option<String>,
-    /// Optimization level.
-    #[arg(short = 'O', value_name = "LEVEL", default_value_t = 2)]
-    pub optimize: u8,
-    /// Extra artifacts: `ir`, `mlir`, `dgml=<FILE>`, `resource-usage=<FILE>`,
-    /// `dep-list=<FILE>`.
+    /// Optimization level (default 2, or `[hw] optimize`).
+    #[arg(short = 'O', value_name = "LEVEL")]
+    pub optimize: Option<u8>,
+    /// Extra artifacts: `resource-usage=<FILE>`, `dgml=<FILE>`.
     #[arg(long, value_name = "KIND")]
     pub emit: Vec<String>,
     /// Debug mode.
     #[arg(long)]
     pub debug: bool,
-    /// Unstable knob, `-Z <key>=<value>`; `hw.<key>` reaches the backend table.
-    #[arg(short = 'Z', value_name = "KEY=VALUE")]
+    /// A backend option, `-Z hw.<key>=<value>`, over the manifest's `[hw]`.
+    #[arg(short = 'Z', value_name = "hw.KEY=VALUE")]
     pub unstable: Vec<String>,
     #[command(flatten)]
     pub source: SourceArgs,
@@ -350,6 +364,7 @@ pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         Command::Lsp(args) => lsp(args, err),
         Command::Build(args) => build(&cli.global, args, &styles, out, err),
         Command::Doc(args) => doc(&cli.global, args, out, err),
+        Command::Board(args) => board::run(&cli.global, args, &styles, out, err),
     }
 }
 
@@ -945,8 +960,54 @@ fn lsp(args: &LspArgs, err: &mut dyn Write) -> i32 {
 /// (`kg-pttrace`'s format, to `-o <file>` or stdout) — the frontend's
 /// output as an artefact, and what `cargo xtask ptdiff` grades.
 fn build(global: &GlobalArgs, args: &BuildArgs, styles: &Styles, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let Some(mut resolved) = resolve(global, &args.source, &args.paths, err) else { return 2 };
-    resolved.settings.backend.optimize = i64::from(args.optimize);
+    let Some(resolved) = resolve(global, &args.source, &args.paths, err) else { return 2 };
+    compile(global, args, resolved, styles, out, err)
+}
+
+/// `kg build` from its resolved settings; `kg board` builds through it too.
+fn compile(
+    global: &GlobalArgs,
+    args: &BuildArgs,
+    mut resolved: Resolved,
+    styles: &Styles,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    // The backend's options: the reference's defaults, the board's and the
+    // manifest's `[hw]`, `-Z`, then the first-class flags.
+    let mut opts = match hw::options(&resolved.hw, &args.unstable) {
+        Ok(opts) => opts,
+        Err(e) => {
+            let _ = writeln!(err, "kg: {e}");
+            return 2;
+        }
+    };
+    if let Some(level) = args.optimize {
+        opts.optimize = i64::from(level);
+    }
+    opts.debug |= args.debug;
+    let (mut resource_usage, mut dgml) = (String::new(), String::new());
+    for emit in &args.emit {
+        match emit.split_once('=') {
+            // The backend names a report per module, `<stem><Module>.<ext>`,
+            // and asserts that there is an extension (`compiler.cpp:2140`).
+            Some((kind @ ("resource-usage" | "dgml"), file)) if !has_extension(file) => {
+                let _ = writeln!(err, "kg: --emit {kind}={file}: name a file with an extension; the backend puts each module's name before it");
+                return 2;
+            }
+            Some(("resource-usage", file)) => resource_usage = file.to_owned(),
+            Some(("dgml", file)) => dgml = file.to_owned(),
+            _ => {
+                let _ = writeln!(err, "kg: --emit {emit}: not built; `resource-usage=<FILE>` and `dgml=<FILE>` are");
+                return 2;
+            }
+        }
+    }
+    // What a program reads as `options::…` (`Parser/IO.hs:57-65`).
+    resolved.settings.backend.optimize = opts.optimize;
+    resolved.settings.backend.stall = opts.stall;
+    resolved.settings.backend.max_threads_default = opts.max_threads_default;
+    resolved.settings.backend.max_threads_limit = opts.max_threads_limit;
     resolved.settings.backend.backend =
         if args.backend.eq_ignore_ascii_case("sv") { "Sv".to_owned() } else { "None".to_owned() };
     let files = match collect_inputs(&args.paths, &resolved, err) {
@@ -957,6 +1018,13 @@ fn build(global: &GlobalArgs, args: &BuildArgs, styles: &Styles, out: &mut dyn W
         Ok(files) => files,
         Err(code) => return code,
     };
+    // The checks the backend makes of its options (`config.cpp:162-207`),
+    // before the frontend's work rather than after it.
+    opts.files = files.iter().map(ToString::to_string).collect();
+    if let Err(e) = crate::legacy::validate::validate(&opts) {
+        let _ = writeln!(err, "kg: {e}");
+        return 2;
+    }
     let db = kg_db::Db::new(resolved.settings.clone());
     let mut roots = Vec::with_capacity(files.len());
     for path in &files {
@@ -974,18 +1042,17 @@ fn build(global: &GlobalArgs, args: &BuildArgs, styles: &Styles, out: &mut dyn W
         return check(global, &check_args, styles, out, err);
     }
 
-    let mut options = kg_backend_sys::options::OptionValues::harness_defaults();
-    options.target_device = resolved.settings.target_device.clone();
-    options.optimize = i64::from(args.optimize);
-    options.debug = args.debug;
-    options.place_iterations = 3000;
-    options.cmd_args = crate::legacy::cmd_args_string(&std::env::args().collect::<Vec<_>>());
+    let options = backend_options(
+        &opts,
+        &resolved.settings,
+        &crate::legacy::cmd_args_string(&std::env::args().collect::<Vec<_>>()),
+    );
     let file_names: Vec<String> = db.program(&roots).files.iter().map(|&m| kg_ptbridge::program::file_name(&db, m)).collect();
     let codegen = kg_ptbridge::program::CodegenArgs {
         target: resolved.settings.backend.backend.clone(),
         output: kg_ptbridge::program::output_base_name(args.output.as_deref().unwrap_or(""), &file_names),
-        resource_usage: String::new(),
-        dgml: String::new(),
+        resource_usage,
+        dgml,
         dgml_detailed: String::new(),
     };
 
@@ -1061,6 +1128,29 @@ fn build(global: &GlobalArgs, args: &BuildArgs, styles: &Styles, out: &mut dyn W
     }
 }
 
+/// The record the backend is given: `opts` as `kanagawa` would pass them
+/// (`option_values`), with the device and the backend's own warnings from
+/// the settings — the warnings `kanagawa`'s `--W…` switches and `kg`'s
+/// `-W` and `[warnings]` both fold into.
+fn backend_options(
+    opts: &crate::legacy::LegacyOptions,
+    settings: &kg_config::Settings,
+    cmd_args: &str,
+) -> kg_backend_sys::options::OptionValues {
+    let mut options = crate::legacy::options::option_values(opts, cmd_args);
+    options.target_device = settings.target_device.clone();
+    options.enable_transaction_size_warning = settings.warnings.is_enabled(kg_diag::WarningKind::TransactionSize);
+    options.enable_deprecation_warnings = settings.warnings.is_enabled(kg_diag::WarningKind::Deprecated);
+    options.warnings_as_errors = settings.warnings_as_errors;
+    options
+}
+
+/// Whether a file name has an extension, as the backend finds one: a dot
+/// anywhere (`CompiledModule::ModifyFileName`, `compiler.cpp:2130-2149`).
+fn has_extension(file: &str) -> bool {
+    file.contains('.')
+}
+
 /// `KG_PHASES=1`: the frontend's time by phase, each exclusive of those
 /// inside it (`kg_db::stats`), to stderr — trace only. `kg build` adds the
 /// walk and the backend's worker after it.
@@ -1113,9 +1203,31 @@ mod tests {
     fn every_documented_command_exists() {
         let names: Vec<String> =
             Cli::command().get_subcommands().map(|c| c.get_name().to_owned()).collect();
-        for expected in ["check", "fmt", "lsp", "dump", "explain", "build"] {
+        for expected in ["check", "fmt", "lsp", "dump", "explain", "build", "board"] {
             assert!(names.contains(&expected.to_owned()), "missing `kg {expected}`");
         }
+    }
+
+    /// `kg board`'s commands, as docs/plans/board-tooling.md lists them.
+    #[test]
+    fn every_board_command_parses() {
+        for args in [
+            &["kg", "board", "list"][..],
+            &["kg", "board", "info"],
+            &["kg", "board", "new", "x", "--board", "virtual", "--example", "accel"],
+            &["kg", "board", "sim", "-Z", "hw.reset-cycles=2"],
+            &["kg", "board", "test", "--python", ".venv/bin/python"],
+            &["kg", "board", "interface", "--json"],
+            &["kg", "board", "serve", "--", "python3", "test_accel.py"],
+            &["kg", "board", "area", "--top", "spi_master"],
+        ] {
+            Cli::try_parse_from(argv(args)).unwrap_or_else(|e| panic!("{}: {e}", args.join(" ")));
+        }
+        let cli = Cli::try_parse_from(argv(&["kg", "board", "test"])).unwrap();
+        let Command::Board(board::BoardArgs { command: board::BoardCommand::Test(test) }) = cli.command else {
+            panic!("not `kg board test`")
+        };
+        assert_eq!(test.python, "python3");
     }
 
     #[test]
@@ -1243,11 +1355,59 @@ mod tests {
         ]))
         .unwrap();
         let Command::Build(args) = cli.command else { panic!("expected build") };
-        assert_eq!(args.optimize, 1);
+        assert_eq!(args.optimize, Some(1));
         assert_eq!(args.output.as_deref(), Some("out/"));
         assert_eq!(args.emit, ["mlir"]);
         assert_eq!(args.source.import_dir, ["library"]);
         assert_eq!(args.source.warn, ["all"]);
+    }
+
+    /// `kg build`'s record is `kanagawa`'s for the same options: the
+    /// reference's defaults (`--place-iterations` 3000 among them), `[hw]`
+    /// written over them, and the backend's warnings as the frontend's
+    /// settings have them — the transaction-size warning off unless asked
+    /// for, as `CmdArgs.hs:111-117` has it, where `kg build` once passed it
+    /// on regardless.
+    #[test]
+    fn the_backend_record_is_kanagawas_for_the_same_options() {
+        let mut settings = kg_config::Settings::fallback("/proj");
+        settings.target_device = "ice40-up5k".to_owned();
+        let hw: std::collections::BTreeMap<String, toml::Value> = toml::from_str("reset-cycles = 1\n").unwrap();
+        let opts = hw::options(&[hw], &[]).unwrap();
+        let options = backend_options(&opts, &settings, "kg build");
+        let mut legacy = crate::legacy::LegacyOptions { reset_cycles: 1, ..Default::default() };
+        legacy.target_device = "ice40-up5k".to_owned();
+        let expected = crate::legacy::options::option_values(&legacy, "kg build");
+        assert_eq!(format!("{options:?}"), format!("{expected:?}"));
+        assert_eq!((options.place_iterations, options.reset_cycles), (3000, 1));
+        assert!(!options.enable_transaction_size_warning && options.enable_deprecation_warnings);
+
+        settings.warnings.enable(kg_diag::WarningKind::TransactionSize);
+        settings.warnings.disable(kg_diag::WarningKind::Deprecated);
+        settings.warnings_as_errors = true;
+        let options = backend_options(&opts, &settings, "kg build");
+        assert!(options.enable_transaction_size_warning && !options.enable_deprecation_warnings && options.warnings_as_errors);
+    }
+
+    /// The backend asserts on a report name with no dot; `kg build` says so
+    /// first.
+    #[test]
+    fn an_emitted_report_needs_an_extension() {
+        let (code, _, err) = run_args(&["kg", "--no-manifest", "build", "--emit", "resource-usage=out/report", "a.k"]);
+        assert_eq!(code, 2);
+        assert!(err.contains("with an extension"), "{err}");
+        let (code, _, err) = run_args(&["kg", "--no-manifest", "build", "--emit", "ir", "a.k"]);
+        assert_eq!(code, 2);
+        assert!(err.contains("--emit ir: not built"), "{err}");
+    }
+
+    /// A `[hw]` key the backend does not have is a usage error, before any
+    /// file is read.
+    #[test]
+    fn build_refuses_an_unknown_backend_option() {
+        let (code, _, err) = run_args(&["kg", "--no-manifest", "build", "-Z", "hw.reset-cycle=1", "a.k"]);
+        assert_eq!(code, 2);
+        assert!(err.contains("reset-cycle: not a backend option"), "{err}");
     }
 
     #[test]
