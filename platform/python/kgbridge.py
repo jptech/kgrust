@@ -691,7 +691,8 @@ class Panel:
     script: read its LEDs, press its buttons, set its switches, read and type
     into its console, and take its screen's frames. The address is
     BOARD_PANEL under `kg board serve`. Each widget is named for the board's
-    resource (`kg board info` lists them).
+    resource (`kg board info` lists them); the panel has one for each
+    resource the design uses, and a bus's value is its transactions so far.
 
         panel = kgbridge.Panel()
         panel.press("buttons", 0)           # hold button 0
@@ -732,8 +733,7 @@ class Panel:
         for w in self.layout()["widgets"]:
             if w["name"] == name:
                 return w
-        names = ", ".join(w["name"] for w in self.layout()["widgets"])
-        raise KeyError(f"the {self.layout()['board']} board has no resource {name!r}; it has {names}")
+        raise KeyError(self._missing(f"resource {name!r}", lambda u: u["name"] == name))
 
     def find(self, kind, style=None):
         """The first resource of `kind` (`led`, `button`, `uart`, `vga`…),
@@ -741,7 +741,17 @@ class Panel:
         for w in self.layout()["widgets"]:
             if w["kind"] == kind and (style is None or w["style"] == style) and not (style is None and kind == "button" and w["style"] == "switch"):
                 return w["name"]
-        raise KeyError(f"the {self.layout()['board']} board has no {kind} resource")
+        raise KeyError(self._missing(f"{kind} resource", lambda u: u["kind"] == kind))
+
+    def _missing(self, what, matches):
+        """Why the panel has no such widget: the design leaves it unused, or
+        the board has none."""
+        layout = self.layout()
+        names = ", ".join(w["name"] for w in layout["widgets"]) or "none"
+        unused = [u["name"] for u in (layout.get("design") or {}).get("unused", []) if matches(u)]
+        if unused:
+            return f"the design uses no {what} of the {layout['board']} board ({unused[0]} is unused); the panel has {names}"
+        return f"the {layout['board']} board has no {what}; the panel has {names}"
 
     def state(self):
         """Every widget's value by name, the screen's frame count and rate,
@@ -752,7 +762,7 @@ class Panel:
         self._console += bytes(raw["uart"])
         names = [w["name"] for w in self.layout()["widgets"]]
         return {"values": dict(zip(names, raw["values"])), "frames": raw["frames"], "fps": raw["fps"],
-                "mhz": raw["mhz"], "screen": raw["screen"]}
+                "mhz": raw["mhz"], "screen": raw["screen"], "cycles": raw["cycles"], "paused": raw["paused"]}
 
     def value(self, name):
         """An LED resource's bits, or an input's as last set."""
@@ -778,6 +788,29 @@ class Panel:
         """Bytes for the design's serial port, as typed in the console."""
         self._post("uart", text.encode() if isinstance(text, str) else bytes(text))
 
+    def transcript(self):
+        """The serial line both ways since the simulation started, in the
+        order the bytes crossed it: a list of ("sent" or "received", bytes)
+        runs, as the page's console shows them."""
+        import json
+
+        runs = []
+        for v in json.loads(self._get("state?line=0"))["line"]:
+            way, byte = ("sent", v - 256) if v >= 256 else ("received", v)
+            if runs and runs[-1][0] == way:
+                runs[-1][1].append(byte)
+            else:
+                runs.append((way, bytearray([byte])))
+        return [(way, bytes(b)) for way, b in runs]
+
+    def pause(self):
+        """Holds the simulation's clock, as the page's Pause does: nothing
+        in the design moves until `resume`."""
+        self._post("control?pause=1")
+
+    def resume(self):
+        self._post("control?pause=0")
+
     def frame(self, after=None):
         """The next whole frame after frame number `after` (default: the
         one being drawn now), waiting for it."""
@@ -788,7 +821,7 @@ class Panel:
             if state["frames"] > start:
                 break
             if time.monotonic() > deadline:
-                raise BridgeError(f"no new frame within {self.timeout:g} s (is the screen on? `--no-screen` turns it off)")
+                raise BridgeError(f"no new frame within {self.timeout:g} s (does the design draw on the screen? is the panel paused?)")
             time.sleep(0.02)
         data = self._get("frame")
         pixels = list(struct.unpack(f"<{len(data) // 2}H", data))

@@ -87,10 +87,13 @@ fn verdict_line(line: &str) -> bool {
 pub fn serve(design: &Design, command: &[String], log: &mut dyn Write) -> Result<i32> {
     let board = design.board;
     let own: Vec<Utf8PathBuf> = board.spec.board.bridge.iter().map(|p| board.file(p)).collect();
+    let mut description = None;
+    let mut has_uart = !own.is_empty();
     let (bridge, defines, clock) = if own.is_empty() {
-        let mut files = vec![crate::bench::write(board, &design.out)?];
-        files.extend(crate::bench::support(board));
-        (files, Vec::new(), Clock::Port)
+        let bench = crate::bench::write(design)?;
+        description = Some(bench.description);
+        has_uart = bench.pty;
+        (bench.files, Vec::new(), Clock::Port)
     } else {
         // A board's own bridge takes its UART's rate as a parameter.
         let spec = &board.spec;
@@ -108,27 +111,42 @@ pub fn serve(design: &Design, command: &[String], log: &mut dyn Write) -> Result
     let panel_file = dir.join("panel");
     let page = board.platform.join("sim/vboard.html");
     let run_log = dir.join("run.log");
-    let output = if command.is_empty() {
-        Stdio::inherit()
-    } else {
-        Stdio::from(std::fs::File::create(&run_log).map_err(|e| Failure::Failed(format!("{run_log}: {e}")))?)
-    };
-    let mut sim = Command::new(&tb)
-        .arg(format!("+pty_path_file={pty_file}"))
-        .arg(format!("+vboard_page={page}"))
-        .arg(format!("+vboard_port_file={panel_file}"))
-        .stdout(output)
-        .spawn()
-        .map_err(|e| Failure::Failed(format!("cannot run {tb}: {e}")))?;
-    let has_uart = board.spec.resources.values().any(|r| r.kind == "uart") || !board.spec.board.bridge.is_empty();
     let has_panel = bridge.iter().any(|p| p.file_name() == Some("vboard.cpp"));
-    let pty = if has_uart { wait_for(&pty_file, Duration::from_secs(30)) } else { None };
-    let panel = if has_panel { wait_for(&panel_file, Duration::from_secs(30)).map(|port| format!("http://127.0.0.1:{port}/")) } else { None };
-    if (has_uart && pty.is_none()) || (has_panel && panel.is_none()) {
-        let _ = sim.kill();
-        let _ = sim.wait();
-        return Err(Failure::Failed(format!("the simulation opened neither its pseudo-terminal nor its front panel ({run_log})")));
-    }
+    let interactive = command.is_empty();
+    // Starts the simulation, and waits for its pseudo-terminal and panel;
+    // `port` keeps the panel's address across a restart.
+    let start = |port: Option<&str>| -> Result<(std::process::Child, Option<String>, Option<String>)> {
+        let _ = std::fs::remove_file(&pty_file);
+        let _ = std::fs::remove_file(&panel_file);
+        let output = if interactive {
+            Stdio::inherit()
+        } else {
+            Stdio::from(std::fs::File::create(&run_log).map_err(|e| Failure::Failed(format!("{run_log}: {e}")))?)
+        };
+        let mut sim = Command::new(&tb);
+        sim.arg(format!("+pty_path_file={pty_file}")).arg(format!("+vboard_page={page}")).arg(format!("+vboard_port_file={panel_file}"));
+        if let Some(description) = &description {
+            sim.arg(format!("+vboard_description={description}"));
+        }
+        if let Some(port) = port {
+            sim.arg(format!("+vboard_port={port}"));
+        }
+        // Only `serve` alone restarts: a command's BOARD_PTY would go stale.
+        if interactive {
+            sim.arg("+vboard_restart");
+        }
+        let mut sim = sim.stdout(output).spawn().map_err(|e| Failure::Failed(format!("cannot run {tb}: {e}")))?;
+        let pty = if has_uart { wait_for(&pty_file, Duration::from_secs(30)) } else { None };
+        let port = if has_panel { wait_for(&panel_file, Duration::from_secs(30)) } else { None };
+        if (has_uart && pty.is_none()) || (has_panel && port.is_none()) {
+            let _ = sim.kill();
+            let _ = sim.wait();
+            return Err(Failure::Failed(format!("the simulation opened neither its pseudo-terminal nor its front panel ({run_log})")));
+        }
+        Ok((sim, pty, port))
+    };
+    let (mut sim, mut pty, port) = start(None)?;
+    let panel = port.as_ref().map(|port| format!("http://127.0.0.1:{port}/"));
     if let Some(url) = &panel {
         let _ = writeln!(log, "front panel: {url}");
     }
@@ -142,8 +160,21 @@ pub fn serve(design: &Design, command: &[String], log: &mut dyn Write) -> Result
             }
         }
         let _ = log.flush();
-        let status = sim.wait().map_err(|e| Failure::Failed(format!("{tb}: {e}")))?;
-        return Ok(status.code().unwrap_or(1));
+        loop {
+            let status = sim.wait().map_err(|e| Failure::Failed(format!("{tb}: {e}")))?;
+            // The page asked to start again from power-on.
+            if status.code() == Some(RESTART)
+                && let Some(port) = &port
+            {
+                let was = pty.clone();
+                (sim, pty, _) = start(Some(port))?;
+                let moved = pty.as_ref().filter(|p| was.as_ref() != Some(*p)).map(|p| format!("; the serial port is now {p}")).unwrap_or_default();
+                let _ = writeln!(log, "restarted from power-on{moved}");
+                let _ = log.flush();
+                continue;
+            }
+            return Ok(status.code().unwrap_or(1));
+        }
     };
     let _ = writeln!(log, "serving on {}: {}", pty.as_deref().unwrap_or("no serial port"), command.join(" "));
     let _ = log.flush();
@@ -161,6 +192,10 @@ pub fn serve(design: &Design, command: &[String], log: &mut dyn Write) -> Result
     let status = status.map_err(|e| Failure::Usage(format!("cannot run {program}: {e}")))?;
     Ok(status.code().unwrap_or(1))
 }
+
+/// The simulation's status when the front panel asks to restart from
+/// power-on (`platform/sim/vboard.cpp`).
+const RESTART: i32 = 75;
 
 /// The first line of `file`, once something has written it.
 fn wait_for(file: &Utf8Path, limit: Duration) -> Option<String> {

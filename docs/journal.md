@@ -18224,3 +18224,43 @@ undo a one-line experiment in a file that also held a rewrite; the rewrite
 went with it and had to be applied again from the session's own record. To
 undo an experiment, edit it back out. Restore a file from git only when
 everything uncommitted in it is meant to go.
+
+## The front panel shows the design, not the board — 2026-10-17
+
+**What the panel shows comes from the generated core.** It showed every
+resource the board declares, so pong on the virtual board offered switches,
+an RGB LED, a console and two buses that pong never touches. The generated
+core already knows what the design binds, so the `serve` testbench now
+declares widgets for those alone and ties the rest at rest
+([`plans/board-tooling.md`](plans/board-tooling.md) §9). Each widget names
+the function serving it, with its `//|` documentation, and under the host
+bridge the page decodes the SLIP frames into a live count of calls for each
+function. A project with a core of its own still gets every resource,
+since nothing says which it uses.
+
+**Reset is not restart.** The board's reset line restarted nothing in pong:
+Kanagawa's member variables are registers with no reset (`Pong_reg_4_w1
+_left_score` takes no `rst`), and the score survived it, as it would
+survive the reset button on the FPGA. So the panel has both. Reset holds
+the reset line, worded for what it does. Restart exits the simulation with
+status 75, and `kg board serve` starts it again on the same port.
+
+**A restart can be faster than the page notices.** The first Restart came
+back between two of the page's polls, 40 ms apart. The page carried on with
+its offsets into the old run's serial output, and would have missed the new
+run's first bytes. `/layout` and `/state` now carry the run, the process id,
+and the page reloads when it changes; a dropped connection was never the
+signal to rely on.
+
+**Two streams have no order.** The console took what the design sent and
+what it was sent as two streams. A page loaded after a session showed every
+command before any reply, because nothing recorded which byte came first.
+The simulation now keeps one transcript of the line, and the monitor's
+panel check asserts each command comes before its reply.
+
+**Found by looking, not by the gates.** In an HTML `<option value="\r">`,
+`\r` is two characters, not a carriage return, so Enter sent no line
+ending and the monitor never replied. Separately, a well's `keys` class
+also styled the footer's "Keys" line. Neither failed a check; both showed
+the first time the page was driven in a browser (Playwright and headless
+Chrome, from a scratch `uv` environment). A page is checked by using it.

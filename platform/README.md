@@ -48,7 +48,8 @@ The first run compiles the simulation, a minute or so. Then pong plays on a
 second. W and S move the left paddle, ↑ and ↓ the right one (or click the
 panel's buttons); a paddle left alone follows the ball, slowly enough to
 miss. The score is on the row of LEDs, the left player's in the upper four.
-Ctrl-C stops it.
+P pauses, Restart starts a new game from power-on, and Ctrl-C in the
+terminal stops it.
 
 ## Start with no hardware
 
@@ -78,8 +79,9 @@ api.sum_of_squares(4)                   # 30: the design called Python four time
 ```
 
 `kg board serve` with no command keeps the simulation running and prints
-the address of the board's front panel: LEDs, buttons, switches, a serial
-console, and a live screen. Try the `pong` example there.
+the address of the board's front panel. For `accel` it shows the RGB LED
+and the bridge: each function, and its calls as `test_accel.py` makes them.
+Try the `pong` example there for a live screen.
 
 ## How a design meets a board
 
@@ -206,13 +208,35 @@ example), or callbacks the other way round.
 
 ## The front panel, and the virtual board
 
-`kg board serve` puts a simulated board's resources in your browser: it
-prints the address of a front panel the simulation serves itself, laid out
-from the board's resources. LEDs light, buttons and switches click (the first
-buttons also answer W S ↑ ↓), the serial console types into the design, and
-a board with a VGA output shows its screen live, about 27 frames a second
-for pong, half of real time. The serial port is also a pseudo-terminal, so
-everything that runs against a board runs against `serve` too.
+`kg board serve` puts your design, on a simulated board, in your browser:
+it prints the address of a front panel the simulation serves itself. The
+panel shows what the design uses and nothing else: a widget for each
+resource its generated core binds, each naming the function that serves it,
+with that function's `//|` documentation. The board's other resources are
+listed underneath as unused. A project that brings its own core gets every
+resource, since nothing says which it uses.
+
+- **LEDs** light, with their value in hex beside them. **Buttons** and
+  **switches** click; the first buttons also answer W S ↑ ↓ and 1–9.
+- **A serial port** is a console: what you type and what the design sends,
+  in order, what you sent in blue. Enter's line ending is yours to choose,
+  and ↑ recalls earlier lines. The same port is a pseudo-terminal, named
+  in the console's header and given to a command as `BOARD_PTY`, so
+  everything that runs against a board runs against `serve` too.
+- **Under the host bridge**, the port carries frames rather than text, so
+  the console gives way to the bridge's functions. Each is listed with its
+  signature and documentation, and a live count of calls as a host program
+  makes them. The Python to start from is printed below them.
+- **A bus** shows the device simulated on it (a SPI flash, an I2C sensor)
+  and counts its transactions.
+- **A screen** shows live, about 27 frames a second for pong, half of real
+  time. The camera saves a frame as a PNG, and F fills the screen.
+- **Pause** (P) holds the clock. **Reset** holds the design's reset for 16
+  cycles, as a board's reset button would: a register the design never
+  resets keeps its value, as on the FPGA. **Restart** starts again from
+  power-on, every register at its initial value, at the same address; the
+  page reconnects by itself. Restart is there when `serve` runs alone, since
+  a command's `BOARD_PTY` would go stale.
 
 `boards/virtual` is a board with no hardware: the UPduino's iCE40 UP5K at
 25 MHz, with an RGB LED, eight LEDs, four buttons, eight switches, a serial

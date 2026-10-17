@@ -2,14 +2,17 @@
 """Plays pong through the front panel, as a person at the browser would:
 `kg board serve -- python3 check_panel.py`.
 
-Holds the left player's buttons and watches the left paddle move on the
-screen, checks the picture's ball, net and background, and saves the last
-frame to the project's target/board/pong.png. The widgets are found by kind, so it runs on any
-board with a screen, buttons and LEDs, whatever it names them.
+Checks the panel shows what pong uses and nothing else, holds the left
+player's buttons and watches the left paddle move on the screen, checks the
+picture's ball, net and background, pauses and resumes the clock, and saves
+the last frame to the project's target/board/pong.png. The widgets are found
+by kind, so it runs on any board with a screen, buttons and LEDs, whatever
+it names them.
 """
 
 import os
 import sys
+import time
 
 # The project `kg board serve` runs in: its build has kgbridge.py.
 project = os.getcwd()
@@ -53,6 +56,12 @@ def main():
     leds = max((w for w in panel.layout()["widgets"] if w["kind"] == "led"), key=lambda w: w["width"])["name"]
     failures = []
 
+    # Only what pong uses: its screen, its buttons and its LEDs, whatever
+    # else the board has.
+    kinds = sorted(w["kind"] for w in panel.layout()["widgets"])
+    if kinds != ["button", "led", "vga"]:
+        failures.append(f"the panel shows {kinds}, want pong's button, led and vga alone")
+
     frame = panel.frame()
     if frame.pixel(319, 0) != NET or frame.pixel(100, 100) != BACKGROUND:
         failures.append(f"the picture: net {frame.pixel(319, 0):03x}, background {frame.pixel(100, 100):03x}")
@@ -68,6 +77,17 @@ def main():
         failures.append("no paddle in the left column")
     elif not (down >= 100 and up <= down - 100):
         failures.append(f"the paddle did not follow the buttons: top at {down} after down, {up} after up")
+
+    # Paused, nothing moves (the clock stops within 1,024 cycles); resumed,
+    # the frames come again.
+    panel.pause()
+    time.sleep(0.2)
+    held = panel.state()
+    time.sleep(0.5)
+    still = panel.state()
+    panel.resume()
+    if not still["paused"] or (still["frames"], still["cycles"]) != (held["frames"], held["cycles"]):
+        failures.append(f"paused, the clock ran on: frame {held['frames']} to {still['frames']}, {still['cycles'] - held['cycles']} cycles")
 
     last = panel.frame()
     last.save_png(os.path.join(project, "target", "board", "pong.png"))

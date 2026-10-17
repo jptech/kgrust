@@ -1,5 +1,5 @@
-// A pseudo-terminal for a simulated core's serial pins (a board's bridge
-// testbench: upduino-v3/sim/uart_pty.sv, virtual/sim/vboard.sv):
+// A pseudo-terminal for a simulated core's serial pins (the `serve`
+// testbench, crates/kg-board/src/bench.rs, or a board's own bridge):
 // programs on the host open its slave, /dev/ttys* or /dev/pts/*, as they
 // would the board's FT232H port, and the testbench moves bytes between the
 // master and the core. Called through Verilator's DPI-C.
@@ -14,6 +14,11 @@
 namespace {
 int master = -1;
 }
+
+// The front panel's, when vboard.cpp is linked beside this (the generated
+// `serve` testbench), so the page can name the port; weak, so a board's own
+// bridge testbench links without it.
+extern "C" void vb_set_pty(const char* path) __attribute__((weak));
 
 // Open the pseudo-terminal, write its slave's path to `path_file` (for the
 // script that waits on it) and to stdout. Returns 0, or -1 on failure.
@@ -43,6 +48,7 @@ extern "C" int uart_pty_open(const char* path_file) {
         fprintf(f, "%s\n", slave);
         fclose(f);
     }
+    if (vb_set_pty) vb_set_pty(slave);
     printf("uart_pty: %s\n", slave);
     fflush(stdout);
     return 0;

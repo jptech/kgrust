@@ -40,8 +40,13 @@ Notable changes to kgrust, newest first. The format follows
   the board's resources and opens a page served by the simulation itself,
   with live LEDs, buttons and switches, a serial console, and, for a board
   with a `vga` resource, a live screen (about 27 frames a second for pong,
-  half real time, with the clock driven from C++). `kgbridge.Panel` drives it
-  from a script: LEDs, buttons, console, frames, PNGs.
+  half real time, with the clock driven from C++). The panel shows what the
+  design uses and nothing else, each widget naming the function that serves
+  it with its documentation, and lists the rest of the board as unused.
+  Under the host bridge it shows each function's calls live. The console
+  keeps the line both ways in order. Pause, Reset (the design's reset line)
+  and Restart (from power-on, at the same address). `kgbridge.Panel` drives
+  it from a script: LEDs, buttons, console, transcript, pause, frames, PNGs.
 - The virtual board: no hardware, every resource kind. `kg board new …
   --board virtual` starts a project anyone can run.
 - Examples for any board: `accel` (called from Python, with a callback into

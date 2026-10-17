@@ -3,246 +3,1015 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Front Panel</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='7' y='7' width='18' height='18' rx='3' fill='%2316241d'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23ff5a3c'/%3E%3Cg stroke='%2316241d' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M11 2v4M16 2v4M21 2v4M11 26v4M16 26v4M21 26v4M2 11h4M2 16h4M2 21h4M26 11h4M26 16h4M26 21h4'/%3E%3C/g%3E%3C/svg%3E">
 <!--
   A simulated board's front panel, served by the simulation itself
-  (platform/sim/vboard.cpp) for any board `kg board serve` runs. Self-contained: it loads nothing from anywhere
-  but the simulation, so it works offline.
+  (platform/sim/vboard.cpp) for any board `kg board serve` runs. It shows
+  what the design uses and nothing else: the testbench declares a widget
+  for each resource the generated core binds (crates/kg-board/src/bench.rs),
+  and /layout's `design` says which function serves each. Self-contained:
+  it loads nothing from anywhere but the simulation, so it works offline.
 -->
 <style>
   :root {
-    --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #d9d6d0;
-    --pcb: #1f5f3f; --led-off: #3a3a3a; --screen: #000; --accent: #2a6fdb;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --bg: #f6f6f3; --surface: #ffffff; --sunken: #f1f0ec; --ink: #17171a; --ink-2: #45454d; --muted: #74747c;
+    --line: #e4e2dc; --line-strong: #d3d0c8;
+    --accent: #2f6fde; --accent-ink: #ffffff; --accent-soft: #e7eefc;
+    --ok: #1f9d55; --warn: #b7700b; --bad: #d64545;
+    --well: #16241d; --well-line: #26392e; --silk: #c3d9cb; --silk-dim: #7d9a89;
+    --led-off: #2a332e; --led-red: #ff4d3a;
+    --cap: #e9e9e6; --cap-edge: #b9b9b4; --cap-ink: #2a2a2e;
+    --bezel: #0b0c0e; --console-bg: #0f1114; --console-ink: #d9e3db; --console-sent: #8db4ff; --console-dim: #6c7380;
+    --shadow: 0 1px 2px rgba(20, 20, 30, .05), 0 1px 1px rgba(20, 20, 30, .03);
+    --radius: 12px;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #141416; --panel: #1d1d20; --ink: #ececef; --muted: #9a9aa2; --line: #2f2f34;
-      --pcb: #17402b; --led-off: #2a2a2a; --accent: #6ea0ff;
+      --bg: #111214; --surface: #18191c; --sunken: #1f2124; --ink: #ececef; --ink-2: #c3c3ca; --muted: #8e8e97;
+      --line: #27292d; --line-strong: #35373c;
+      --accent: #6d9dff; --accent-ink: #0b1020; --accent-soft: #1b2741;
+      --ok: #3ccf7a; --warn: #e2a43b; --bad: #ff6b6b;
+      --well: #122019; --well-line: #20332a; --cap: #d8d8d4; --cap-edge: #9d9d98;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3);
     }
   }
   :root[data-theme="dark"] {
-    --bg: #141416; --panel: #1d1d20; --ink: #ececef; --muted: #9a9aa2; --line: #2f2f34;
-    --pcb: #17402b; --led-off: #2a2a2a; --accent: #6ea0ff;
+    --bg: #111214; --surface: #18191c; --sunken: #1f2124; --ink: #ececef; --ink-2: #c3c3ca; --muted: #8e8e97;
+    --line: #27292d; --line-strong: #35373c;
+    --accent: #6d9dff; --accent-ink: #0b1020; --accent-soft: #1b2741;
+    --ok: #3ccf7a; --warn: #e2a43b; --bad: #ff6b6b;
+    --well: #122019; --well-line: #20332a; --cap: #d8d8d4; --cap-edge: #9d9d98;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
   }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 1040px; margin: 0 auto; padding: 16px; }
-  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  h1 { font-size: 18px; margin: 0 0 12px; }
-  .status { color: var(--muted); font-variant-numeric: tabular-nums; }
-  .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
-  @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
-  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
-  canvas { width: 100%; height: auto; aspect-ratio: 4 / 3; background: var(--screen); border-radius: 6px;
-           image-rendering: pixelated; display: block; }
-  .noscreen { color: var(--muted); font-size: 13px; margin-top: 8px; }
-  .pcb { background: var(--pcb); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 14px; }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .label { color: #cfe3d6; font-size: 11px; width: 72px; overflow: hidden; text-overflow: ellipsis; }
-  .led { width: 16px; height: 16px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 0 3px #000; }
-  .led.on { background: #ff4d3a; box-shadow: 0 0 10px #ff4d3a; }
-  .rgb { width: 22px; height: 22px; border-radius: 50%; background: var(--led-off); border: 2px solid #0b2a1a; }
-  button.key { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #0b2a1a; background: #d8d8d8;
-               font-weight: 600; color: #333; cursor: pointer; }
-  button.key.down { background: #8a8a8a; color: #fff; transform: translateY(1px); }
-  .switch { width: 18px; height: 34px; border-radius: 4px; background: #0b2a1a; position: relative; cursor: pointer; border: 0; padding: 0; }
-  .switch::after { content: ""; position: absolute; left: 2px; right: 2px; height: 14px; bottom: 2px;
-                   background: #e5e5e5; border-radius: 3px; transition: bottom .08s; }
-  .switch.on::after { bottom: 18px; background: #ffd34d; }
-  .console { height: 220px; overflow: auto; background: #0e0e10; color: #d6f5d6; border-radius: 6px; padding: 8px;
-             font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
-  .send { display: flex; gap: 6px; margin-top: 8px; }
-  .send input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line);
-                background: var(--bg); color: var(--ink); font: 12px ui-monospace, Menlo, monospace; }
-  .send button { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--accent);
-                 color: #fff; cursor: pointer; }
-  .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
-  .wide { grid-column: 1 / -1; }
-  .grid.single { grid-template-columns: minmax(0, 1fr); }
-  .gone { color: #d9534f; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
+  [hidden] { display: none !important; }
+  code, kbd, .mono { font-family: var(--mono); font-size: .92em; }
+  code { background: var(--sunken); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; }
+  kbd { display: inline-block; min-width: 1.6em; padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px;
+        border-radius: 5px; background: var(--surface); text-align: center; line-height: 1.5; color: var(--ink-2); }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8;
+          stroke-linecap: round; stroke-linejoin: round; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+
+  /* The bar: what runs, on what, and how fast. */
+  .top { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent);
+         backdrop-filter: saturate(1.4) blur(10px); -webkit-backdrop-filter: saturate(1.4) blur(10px);
+         border-bottom: 1px solid var(--line); }
+  .top .wrap { display: flex; align-items: center; gap: 16px; min-height: 64px; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+  .ident { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 260px; }
+  .logo { width: 34px; height: 34px; flex: none; }
+  h1 { font-size: 17px; line-height: 1.2; margin: 0; font-weight: 650; letter-spacing: -.01em; white-space: nowrap;
+       overflow: hidden; text-overflow: ellipsis; }
+  h1 .on { color: var(--muted); font-weight: 450; }
+  .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .run { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .actions { display: flex; gap: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 999px;
+          background: var(--surface); border: 1px solid var(--line); font-size: 12.5px; font-weight: 550; white-space: nowrap; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill.running .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+                       animation: pulse 2s ease-in-out infinite; }
+  .pill.paused .dot { background: var(--warn); }
+  .pill.stopped .dot { background: var(--bad); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--ok) 8%, transparent); } }
+  .speed { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 12.5px; white-space: nowrap; }
+  .speed b { color: var(--ink); font-weight: 600; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 8px;
+         border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 520;
+         white-space: nowrap; transition: background .12s, border-color .12s; }
+  .btn:hover:not(:disabled) { background: var(--sunken); }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, #000); }
+  .btn.icon { width: 30px; padding: 0; justify-content: center; }
+  .btn.ghost { border-color: transparent; background: transparent; }
+  .btn.ghost:hover:not(:disabled) { background: var(--sunken); }
+
+  .banner { margin: 16px 0 0; padding: 12px 14px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+            background: color-mix(in srgb, var(--bad) 8%, var(--surface)); color: var(--ink); display: flex; gap: 10px; align-items: flex-start; }
+  .banner svg { color: var(--bad); margin-top: 2px; }
+
+  /* The cards. With a screen it leads and the controls stand beside it. */
+  .layout { display: grid; gap: 16px; padding: 16px 0 8px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .layout.with-side { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); }
+  .layout.with-side > .lead { grid-column: 1; grid-row: 1; }
+  .layout.with-side > .controls { grid-column: 2; grid-row: 1; }
+  @media (max-width: 880px) {
+    .layout.with-side { grid-template-columns: minmax(0, 1fr); }
+    .layout.with-side > .lead, .layout.with-side > .controls { grid-column: 1; grid-row: auto; }
+    .layout.with-side > .lead { order: -1; }
+  }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); min-height: 52px; flex-wrap: wrap; }
+  .card-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
+  .card-title h2 { font-size: 13.5px; margin: 0; font-weight: 640; }
+  .card-title .meta { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .card-body { padding: 14px; }
+  .layout > .card:not(.lead):not(.controls) { grid-column: 1 / -1; }
+
+  .served { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .served .who { color: var(--ink-2); }
+  .served code { font-size: 11.5px; }
+  .served .doc { display: block; margin-top: 2px; }
+
+  /* The screen, in its bezel. */
+  .bezel { position: relative; background: var(--bezel); border-radius: 10px; padding: 10px; }
+  .bezel canvas { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; background: #000; border-radius: 3px;
+                  image-rendering: pixelated; image-rendering: crisp-edges; }
+  .bezel:fullscreen { display: flex; align-items: center; justify-content: center; border-radius: 0; padding: 0; }
+  .bezel:fullscreen canvas { width: auto; height: 100%; max-width: 100%; object-fit: contain; border-radius: 0; }
+  .overlay { position: absolute; inset: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+             gap: 6px; color: #cfd3da; font-size: 13px; text-align: center; pointer-events: none; padding: 16px; }
+  .overlay.dim { background: rgba(0, 0, 0, .45); border-radius: 3px; }
+  .overlay b { color: #fff; font-size: 15px; font-weight: 600; }
+  .stat { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+
+  /* The controls: a tile a resource, its widget on a strip of board. */
+  .tiles { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+  .with-side .tile { border: 0; border-radius: 0; padding: 0; }
+  .with-side .tile + .tile { border-top: 1px solid var(--line); padding-top: 14px; }
+  .layout:not(.with-side) .tiles { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--surface); min-width: 0; }
+  .tile-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+  .tile-head .name { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .tile-head .kind { color: var(--muted); font-size: 12px; }
+  .tile-head .readout { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums;
+                        background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; white-space: nowrap; }
+  .tile .about { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+  .well { background: var(--well); border-radius: 8px; padding: 12px 12px 8px; box-shadow: inset 0 0 0 1px var(--well-line);
+          display: flex; flex-wrap: wrap; gap: 10px 6px; align-items: flex-end; }
+  .bit { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .bit .ix { font: 10px/1 var(--mono); color: var(--silk-dim); }
+  .nibble { width: 6px; }
+
+  .led { width: 16px; height: 16px; border-radius: 50%; background: var(--led-off);
+         box-shadow: inset 0 -2px 3px rgba(0, 0, 0, .5), inset 0 1px 1px rgba(255, 255, 255, .06); transition: background .05s, box-shadow .05s; }
+  .led.on { background: radial-gradient(circle at 40% 35%, #ffd2c8 0 18%, var(--led-red) 55%);
+            box-shadow: 0 0 10px 2px color-mix(in srgb, var(--led-red) 70%, transparent), 0 0 2px var(--led-red); }
+  .rgb { width: 34px; height: 34px; border-radius: 50%; background: var(--led-off); border: 3px solid #0c1611;
+         box-shadow: inset 0 -3px 5px rgba(0, 0, 0, .5); transition: background .05s, box-shadow .05s; }
+  .rgb-wrap { display: flex; align-items: center; gap: 12px; padding-bottom: 4px; }
+  .rgb-name { font: 12px var(--mono); color: var(--silk); }
+
+  .key { width: 46px; height: 46px; border-radius: 50%; border: 0; cursor: pointer; padding: 0; touch-action: none; user-select: none;
+         -webkit-user-select: none; background: radial-gradient(circle at 50% 38%, #fff 0, var(--cap) 62%);
+         box-shadow: 0 0 0 3px #0c1611, 0 3px 0 3px #0c1611, inset 0 -3px 0 var(--cap-edge);
+         color: var(--cap-ink); font: 600 14px var(--mono); transition: transform .04s, box-shadow .04s; }
+  .key.down { transform: translateY(3px); box-shadow: 0 0 0 3px #0c1611, 0 0 0 3px #0c1611, inset 0 2px 3px rgba(0, 0, 0, .25);
+              background: radial-gradient(circle at 50% 50%, #d4d4cf 0, #bdbdb7 70%); }
+  .well.caps { gap: 14px 12px; padding: 14px 12px 8px; }
+
+  .switch { width: 20px; height: 38px; border-radius: 5px; background: #0a120e; position: relative; cursor: pointer; border: 0; padding: 0;
+            box-shadow: inset 0 0 0 1px #2b4136; }
+  .switch::after { content: ""; position: absolute; left: 3px; right: 3px; height: 15px; bottom: 3px; background: #dcdcd8; border-radius: 3px;
+                   box-shadow: inset 0 -2px 0 #a9a9a4; transition: bottom .1s ease, background .1s; }
+  .switch.on::after { bottom: 20px; background: #ffd34d; box-shadow: inset 0 -2px 0 #c9a12f; }
+
+  .bus { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; width: 100%; padding-bottom: 4px; color: var(--silk); }
+  .bus svg { width: 22px; height: 22px; stroke: var(--silk); }
+  .bus .what { font-size: 12.5px; }
+  .bus .count { font: 12px var(--mono); color: var(--silk); font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .act { width: 7px; height: 7px; border-radius: 50%; background: var(--led-off); }
+  .act.on { background: #4dff8a; box-shadow: 0 0 6px #4dff8a; }
+
+  .empty { color: var(--muted); font-size: 13px; padding: 4px 2px; }
+
+  /* The serial console. */
+  .term { height: 300px; overflow: auto; background: var(--console-bg); color: var(--console-ink); border-radius: 8px; padding: 10px 12px;
+          font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all; resize: vertical; min-height: 120px; }
+  .term .sent { color: var(--console-sent); }
+  .term.hide-sent .sent { display: none; }
+  .term .ctl { color: var(--console-dim); }
+  .term .mark { display: block; color: var(--console-dim); text-align: center; margin: 4px 0; }
+  .term:empty::before { content: attr(data-empty); color: var(--console-dim); }
+  .send { display: flex; gap: 8px; margin-top: 10px; }
+  .prompt { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line-strong); border-radius: 8px;
+            background: var(--surface); padding: 0 10px; height: 34px; }
+  .prompt:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .prompt span { color: var(--muted); font-family: var(--mono); }
+  .prompt input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font: 13px var(--mono); height: 100%; }
+  .send .btn { height: 34px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 9px; border: 1px solid var(--line); border-radius: 7px;
+          background: var(--sunken); font: 12px var(--mono); color: var(--ink-2); max-width: 100%; }
+  .chip .btn { height: 20px; width: 22px; border-radius: 5px; }
+  .chip .btn svg { width: 13px; height: 13px; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; user-select: none; }
+  .toggle input { accent-color: var(--accent); margin: 0; }
+  select { font: 12.5px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 7px;
+           height: 28px; padding: 0 6px; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 10px 0 0; }
+
+  /* The host bridge. */
+  .bridge-status { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; font-size: 13px; color: var(--ink-2); }
+  .bridge-status .state { display: inline-flex; align-items: center; gap: 7px; font-weight: 550; color: var(--ink); }
+  .bridge-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .bridge-status .dot.live { background: var(--ok); }
+  .bridge-status .bad { color: var(--bad); }
+  .fns { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .fns th { text-align: left; font-weight: 550; color: var(--muted); font-size: 12px; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
+  .fns td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .fns tr:last-child td { border-bottom: 0; }
+  .fns .sig { font-family: var(--mono); font-size: 12.5px; word-break: break-word; }
+  .fns .doc { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .fns .n { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; padding-right: 0; }
+  .fns tr.flash td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+           background: var(--accent-soft); color: var(--accent); }
+  .badge.cb { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+  pre.snippet { margin: 12px 0 0; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+                font: 12.5px/1.55 var(--mono); overflow-x: auto; color: var(--ink-2); }
+  pre.snippet .c { color: var(--muted); }
+
+  /* What else there is to know. */
+  footer { color: var(--muted); font-size: 12.5px; padding: 8px 0 28px; display: grid; gap: 8px; }
+  footer p { margin: 0; }
+  footer .keys { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+
+  body.stopped .layout { opacity: .6; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  @media (max-width: 560px) {
+    .top .wrap { gap: 10px; }
+    .run { width: 100%; flex-wrap: nowrap; }
+    .run .speed { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .speed .long { display: none; }
+    .actions { gap: 6px; }
+    .btn .label { display: none; }
+    .btn:has(.label) { width: 30px; padding: 0; justify-content: center; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1 id="title">Board</h1>
-    <div class="status" id="status">connecting…</div>
-  </header>
-  <div class="grid" id="grid">
-    <section class="card" id="screen-card" hidden>
-      <h2 id="screen-title">Screen · 640×480</h2>
-      <canvas id="screen" width="640" height="480"></canvas>
-      <div class="noscreen" id="noscreen">No picture yet: the design has drawn nothing on the screen.</div>
-    </section>
-    <section class="card" id="board-card">
-      <h2>Board</h2>
-      <div class="pcb" id="pcb"></div>
-      <div class="hint" id="hint"></div>
-    </section>
-    <section class="card wide" id="console-card" hidden>
-      <h2 id="console-title">Serial console</h2>
-      <div class="console" id="console"></div>
-      <form class="send" id="send">
-        <input id="line" autocomplete="off" placeholder="Type a line for the design; Enter sends it with CR">
-        <button type="submit">Send</button>
-      </form>
-    </section>
+<header class="top">
+  <div class="wrap">
+    <div class="ident">
+      <svg class="logo" viewBox="0 0 34 34" aria-hidden="true">
+        <rect x="7" y="7" width="20" height="20" rx="4" fill="var(--well)"/>
+        <circle cx="17" cy="17" r="4.2" fill="var(--led-red)"/>
+        <g stroke="var(--line-strong)" stroke-width="2" stroke-linecap="round">
+          <path d="M12 2v3M17 2v3M22 2v3M12 29v3M17 29v3M22 29v3M2 12h3M2 17h3M2 22h3M29 12h3M29 17h3M29 22h3"/>
+        </g>
+      </svg>
+      <div style="min-width:0">
+        <h1 id="title">Front panel</h1>
+        <div class="sub" id="sub">Connecting to the simulation…</div>
+      </div>
+    </div>
+    <div class="run">
+      <span class="pill" id="pill" role="status"><span class="dot"></span><span id="pill-text">Connecting</span></span>
+      <span class="speed" id="speed"></span>
+      <div class="actions">
+      <button class="btn" id="pause" type="button" disabled title="Hold the clock (P)">
+        <svg class="i" viewBox="0 0 24 24" id="pause-icon"><path d="M9 5v14M15 5v14"/></svg><span class="label" id="pause-label">Pause</span>
+      </button>
+      <button class="btn" id="reset" type="button" disabled
+              title="Hold the design's reset for 16 cycles, as the board's reset button would. Registers the design never resets keep their values.">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 4v8"/><path d="M7.5 6.5a7 7 0 1 0 9 0"/></svg><span class="label">Reset</span>
+      </button>
+      <button class="btn" id="restart" type="button" hidden title="Start the simulation again from power-on: every register at its initial value">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/></svg><span class="label">Restart</span>
+      </button>
+      </div>
+    </div>
   </div>
-</main>
+</header>
+
+<div class="wrap">
+  <div class="banner" id="banner" role="alert" hidden>
+    <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>
+    <div id="banner-text"></div>
+  </div>
+
+  <main class="layout" id="layout">
+    <section class="card screen-card" id="screen-card" hidden aria-labelledby="screen-name">
+      <div class="card-head">
+        <div class="card-title"><h2 id="screen-name" class="mono">vga</h2><span class="meta" id="screen-meta">640×480 · 60 Hz · 12-bit colour</span></div>
+        <div class="card-tools">
+          <span class="stat" id="screen-stat"></span>
+          <button class="btn icon ghost" id="snap" type="button" title="Save this frame as a PNG" aria-label="Save this frame as a PNG">
+            <svg class="i" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          </button>
+          <button class="btn icon ghost" id="full" type="button" title="Full screen (F)" aria-label="Full screen">
+            <svg class="i" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="bezel" id="bezel">
+          <canvas id="screen" width="640" height="480" aria-label="The board's screen"></canvas>
+          <div class="overlay" id="overlay"><b>Waiting for a picture</b><span>The design has not drawn a whole frame yet.</span></div>
+        </div>
+        <p class="served" id="screen-served" hidden></p>
+      </div>
+    </section>
+
+    <section class="card controls" id="controls" hidden aria-labelledby="controls-title">
+      <div class="card-head"><div class="card-title"><h2 id="controls-title">Board</h2><span class="meta" id="controls-meta"></span></div></div>
+      <div class="card-body"><div class="tiles" id="tiles"></div></div>
+    </section>
+
+    <section class="card console-card" id="console-card" hidden aria-labelledby="console-name">
+      <div class="card-head">
+        <div class="card-title"><h2 id="console-name" class="mono">uart</h2><span class="meta" id="console-meta">serial console</span></div>
+        <div class="card-tools">
+          <span class="chip" id="pty-chip" hidden title="The same port, for programs on this machine: BOARD_PTY under `kg board serve -- …`">
+            <span id="pty-path"></span>
+            <button class="btn icon ghost" id="pty-copy" type="button" aria-label="Copy the port's path">
+              <svg class="i" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>
+            </button>
+          </span>
+          <label class="toggle" title="Show what is sent to the design, in blue"><input type="checkbox" id="echo" checked> Show sent</label>
+          <select id="eol" aria-label="Line ending sent with Enter">
+            <option value="cr">Enter sends CR</option>
+            <option value="lf">Enter sends LF</option>
+            <option value="crlf">Enter sends CR LF</option>
+            <option value="none">Enter sends nothing more</option>
+          </select>
+          <button class="btn icon ghost" id="clear" type="button" title="Clear the console" aria-label="Clear the console">
+            <svg class="i" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="term" id="term" tabindex="0" role="log" aria-live="polite" data-empty="Nothing yet. What the design sends appears here."></div>
+        <form class="send" id="send" autocomplete="off">
+          <label class="prompt"><span aria-hidden="true">›</span><input id="line" spellcheck="false" placeholder="Type for the design; Enter sends the line, ↑ recalls" aria-label="A line for the design"></label>
+          <button class="btn primary" type="submit">Send</button>
+        </form>
+        <p class="served" id="console-served" hidden></p>
+      </div>
+    </section>
+
+    <section class="card bridge-card" id="bridge-card" hidden aria-labelledby="bridge-title">
+      <div class="card-head">
+        <div class="card-title"><h2 id="bridge-title">Host bridge</h2><span class="meta" id="bridge-meta"></span></div>
+        <div class="card-tools">
+          <span class="chip" id="bridge-pty-chip" hidden title="BOARD_PTY under `kg board serve -- …`">
+            <span id="bridge-pty-path"></span>
+            <button class="btn icon ghost" id="bridge-pty-copy" type="button" aria-label="Copy the port's path">
+              <svg class="i" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>
+            </button>
+          </span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="bridge-status">
+          <span class="state"><span class="dot" id="host-dot"></span><span id="host-state">Waiting for a host program</span></span>
+          <span id="host-traffic"></span>
+          <span id="host-refused" class="bad" hidden></span>
+        </div>
+        <table class="fns">
+          <thead><tr><th>Function</th><th></th><th class="n">Calls</th></tr></thead>
+          <tbody id="fns"></tbody>
+        </table>
+        <pre class="snippet" id="snippet"></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer id="footer">
+    <p class="keys" id="keys" hidden></p>
+    <p id="unused" hidden></p>
+    <p id="where"></p>
+  </footer>
+</div>
+
 <script>
 "use strict";
-// Laid out from the board's resources (GET /layout): a widget per resource,
-// as the generated `serve` testbench declared them (crates/kg-board/src/bench.rs).
-const $ = (id) => document.getElementById(id);
-const ctx = $("screen").getContext("2d");
-const image = ctx.createImageData(640, 480);
-let uartAt = 0, lastFrames = -1, alive = true, widgets = [], values = [], hasScreen = false;
-const outputs = {};   // id -> update(value)
-const inputs = {};    // id -> {value, refresh()}
+// Laid out from GET /layout: a widget per resource the design uses, as the
+// generated `serve` testbench declared them, and `design`, which says
+// which of the design's functions serves each (crates/kg-board/src/bench.rs).
+// GET /state is polled for values, rates and the serial line; /frame for
+// the screen whenever a new frame is whole.
 
-function row(label) {
-  const r = document.createElement("div"); r.className = "row";
-  const l = document.createElement("span"); l.className = "label"; l.textContent = label;
-  const cells = document.createElement("div"); cells.className = "row";
-  r.append(l, cells); $("pcb").append(r);
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+};
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("kg-panel:" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("kg-panel:" + k, JSON.stringify(v)); } catch { /* private window */ } },
+};
+const hex = (v, width) => "0x" + v.toString(16).toUpperCase().padStart(Math.ceil(width / 4), "0");
+const plural = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many || one + "s"}`;
+
+let layout = null, design = {}, alive = false, paused = false;
+const outputs = {};     // widget id -> update(value)
+const inputs = {};      // widget id -> { value, render() }
+let values = [];
+let keyed = null;       // the button resource the keyboard presses
+let console_ = null, bridge = null, screen = null;
+let lineAt = 0;
+const rate = { samples: [] };   // [time, cycles, frames]
+
+// ---- Layout ---------------------------------------------------------------
+
+const KIND_ORDER = { led: 0, button: 1, spi: 3, i2c: 4 };
+// The device model the testbench puts on each bus (platform/sim/models).
+const DEVICES = {
+  spi: { what: "W25Q32-like flash", icon: '<svg class="i" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 3v3M12 3v3M15 3v3M9 18v3M12 18v3M15 18v3"/></svg>' },
+  i2c: { what: "Register-file sensor at 0x48", icon: '<svg class="i" viewBox="0 0 24 24"><path d="M10 14.5V5a2 2 0 0 1 4 0v9.5a3.5 3.5 0 1 1-4 0z"/><path d="M12 9v7"/></svg>' },
+};
+
+function served(resource, verb) {
+  const r = (design.resources || {})[resource];
+  if (!r || !r.serves || !r.serves.length) return null;
+  const p = el("p", "served");
+  const who = el("span", "who");
+  who.append(verb + " ");
+  r.serves.forEach((s, i) => {
+    if (i) who.append(i === r.serves.length - 1 ? " and " : ", ");
+    const c = el("code", "", s.function);
+    if (s.signature) c.title = s.signature;
+    who.append(c);
+    if (s.role) who.append(` (${s.role})`);
+  });
+  p.append(who);
+  const docs = r.serves.map((s) => s.doc).filter(Boolean);
+  if (docs.length === 1) p.append(el("span", "doc", docs[0].split("\n\n")[0].replace(/\s+/g, " ").trim()));
+  return p;
+}
+
+function tile(w, kind) {
+  const t = el("div", "tile");
+  const head = el("div", "tile-head");
+  head.append(el("span", "name", w.name), el("span", "kind", kind));
+  const readout = el("span", "readout");
+  readout.hidden = true;
+  head.append(readout);
+  t.append(head);
+  if (w.doc) t.append(el("p", "about", w.doc.charAt(0).toUpperCase() + w.doc.slice(1)));
+  const well = el("div", "well");
+  t.append(well);
+  return { t, well, readout };
+}
+
+// A bit's cell, with its index under it and a gap every four bits.
+function bits(well, width, msbFirst, make) {
+  const cells = [];
+  const order = [...Array(width).keys()];
+  if (msbFirst) order.reverse();
+  order.forEach((i, at) => {
+    if (at && width > 4 && (msbFirst ? (i + 1) % 4 === 0 : i % 4 === 0)) well.append(el("span", "nibble"));
+    const cell = el("div", "bit");
+    const thing = make(i);
+    cell.append(thing, el("span", "ix", String(i)));
+    well.append(cell);
+    cells[i] = thing;
+  });
   return cells;
 }
 
-function sendInput(id) {
-  inputs[id].refresh();
-  fetch(`/input?id=${id}&value=${inputs[id].value}`, { method: "POST" }).catch(() => {});
-}
+const RGB_NAMES = ["off", "blue", "green", "cyan", "red", "magenta", "yellow", "white"];
+const KEY_LABELS = ["W", "S", "↑", "↓"];
 
-// The first push-button resource answers to the keyboard: W S ↑ ↓, and 1-4.
-let keyed = null;
-const KEYS = { w: 0, s: 1, ArrowUp: 2, ArrowDown: 3, "1": 0, "2": 1, "3": 2, "4": 3 };
+function build() {
+  const board = layout.board, name = design.design || "Design";
+  $("title").innerHTML = "";
+  $("title").append(name, el("span", "on", " on "), board);
+  document.title = `${name} · ${board}`;
+  $("sub").textContent = `Simulated with Verilator · ${layout.mhz} MHz board clock`;
 
-function build(layout) {
-  $("title").textContent = layout.board + (layout.board === "virtual" ? " board" : "");
-  document.title = layout.board + " · front panel";
-  const buses = [];
-  for (const w of layout.widgets) {
+  const widgets = [...layout.widgets].sort((a, b) =>
+    ((KIND_ORDER[a.kind] ?? 9) + (a.style === "switch" ? 1 : 0)) - ((KIND_ORDER[b.kind] ?? 9) + (b.style === "switch" ? 1 : 0)) ||
+    a.name.localeCompare(b.name));
+  const tiles = $("tiles");
+  for (const w of widgets) {
+    if (w.kind === "vga") { buildScreen(w); continue; }
+    if (w.kind === "uart") { if (w.style === "bridge") buildBridge(w); else buildConsole(w); continue; }
+    let parts;
     if (w.kind === "led" && w.style === "rgb") {
-      const led = document.createElement("div"); led.className = "rgb"; led.title = w.doc;
-      row(w.name).append(led);
+      parts = tile(w, "RGB LED");
+      const wrap = el("div", "rgb-wrap"), led = el("div", "rgb"), label = el("span", "rgb-name", "off");
+      led.setAttribute("role", "img");
+      wrap.append(led, label);
+      parts.well.append(wrap);
       outputs[w.id] = (v) => {
-        led.style.background = v ? `rgb(${v & 4 ? 255 : 30},${v & 2 ? 230 : 30},${v & 1 ? 255 : 30})` : "";
-        led.style.boxShadow = v ? "0 0 12px currentColor" : "";
+        const on = (b) => (v >> b & 1 ? 255 : 0);
+        const c = `rgb(${on(2) || 40},${on(1) ? 225 : 40},${on(0) || 40})`;
+        led.style.background = v ? `radial-gradient(circle at 40% 35%, #fff 0 12%, ${c} 60%)` : "";
+        led.style.boxShadow = v ? `0 0 18px 4px ${c}` : "";
+        label.textContent = RGB_NAMES[v & 7];
+        led.setAttribute("aria-label", `${w.name}: ${RGB_NAMES[v & 7]}`);
       };
+      parts.t.append(served(w.name, "Driven by") || "");
     } else if (w.kind === "led") {
-      const cells = row(w.name), els = [];
-      for (let i = w.width - 1; i >= 0; i--) {
-        const led = document.createElement("div"); led.className = "led"; led.title = `${w.name}[${i}]`;
-        cells.append(led); els[i] = led;
-      }
-      outputs[w.id] = (v) => els.forEach((l, i) => l.classList.toggle("on", !!(v >> i & 1)));
+      parts = tile(w, plural(w.width, "LED"));
+      const leds = bits(parts.well, w.width, true, () => el("div", "led"));
+      parts.readout.hidden = false;
+      outputs[w.id] = (v) => {
+        leds.forEach((l, i) => l.classList.toggle("on", !!(v >> i & 1)));
+        parts.readout.textContent = hex(v, w.width);
+      };
+      parts.t.append(served(w.name, "Driven by") || "");
     } else if (w.kind === "button" && w.style === "switch") {
-      const cells = row(w.name), els = [];
-      const input = { value: 0, refresh: () => els.forEach((s, i) => s.classList.toggle("on", !!(input.value >> i & 1))) };
+      parts = tile(w, plural(w.width, "switch", "switches"));
+      parts.readout.hidden = false;
+      const input = { value: 0 };
+      const sws = bits(parts.well, w.width, true, (i) => {
+        const sw = el("button", "switch");
+        sw.type = "button";
+        sw.setAttribute("aria-label", `${w.name}[${i}]`);
+        sw.onclick = () => { input.value ^= 1 << i; send(w.id); };
+        return sw;
+      });
+      input.render = () => {
+        sws.forEach((s, i) => { const on = !!(input.value >> i & 1); s.classList.toggle("on", on); s.setAttribute("aria-pressed", on); });
+        parts.readout.textContent = hex(input.value, w.width);
+      };
       inputs[w.id] = input;
-      for (let i = w.width - 1; i >= 0; i--) {
-        const sw = document.createElement("button"); sw.className = "switch"; sw.title = `${w.name}[${i}]`;
-        sw.onclick = () => { input.value ^= 1 << i; sendInput(w.id); };
-        cells.append(sw); els[i] = sw;
-      }
+      parts.t.append(served(w.name, "Read by") || "");
     } else if (w.kind === "button") {
-      const cells = row(w.name), els = [];
-      const input = { value: 0, refresh: () => els.forEach((b, i) => b.classList.toggle("down", !!(input.value >> i & 1))) };
+      const first = keyed === null;
+      if (first) keyed = w.id;
+      parts = tile(w, plural(w.width, "push button"));
+      parts.well.classList.add("caps");
+      parts.readout.hidden = false;
+      const input = { value: 0, keys: 0 };
+      const caps = bits(parts.well, w.width, false, (i) => {
+        const b = el("button", "key", first ? (KEY_LABELS[i] || (i < 9 ? String(i + 1) : "")) : String(i));
+        b.type = "button";
+        b.setAttribute("aria-label", `${w.name}[${i}]` + (first ? `, key ${KEY_LABELS[i] || i + 1}` : ""));
+        const press = (down) => { input.value = down ? input.value | 1 << i : input.value & ~(1 << i); send(w.id); };
+        b.addEventListener("pointerdown", (e) => { e.preventDefault(); b.setPointerCapture(e.pointerId); press(true); });
+        for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, () => { if (input.value >> i & 1) press(false); });
+        b.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); e.stopPropagation(); press(true); } });
+        b.addEventListener("keyup", (e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); e.stopPropagation(); press(false); } });
+        return b;
+      });
+      input.render = () => {
+        caps.forEach((c, i) => { const on = !!(input.value >> i & 1); c.classList.toggle("down", on); c.setAttribute("aria-pressed", on); });
+        parts.readout.textContent = hex(input.value, w.width);
+      };
       inputs[w.id] = input;
-      for (let i = 0; i < w.width; i++) {
-        const b = document.createElement("button"); b.className = "key"; b.textContent = i + 1; b.title = `${w.name}[${i}]`;
-        const press = (down) => { input.value = down ? input.value | (1 << i) : input.value & ~(1 << i); sendInput(w.id); };
-        b.onpointerdown = () => press(true); b.onpointerup = b.onpointerleave = () => press(false);
-        cells.append(b); els[i] = b;
-      }
-      if (keyed === null) keyed = w.id;
-    } else if (w.kind === "uart") {
-      $("console-card").hidden = false;
-      $("console-title").textContent = `Serial console · ${w.name}`;
-    } else if (w.kind === "vga") {
-      $("screen-card").hidden = false;
-      $("screen-title").textContent = `Screen · ${w.name} · 640×480`;
-      hasScreen = true;
+      parts.t.append(served(w.name, "Read by") || "");
+    } else if (w.kind === "spi" || w.kind === "i2c") {
+      parts = tile(w, w.kind === "spi" ? "SPI bus" : "I²C bus");
+      const r = (design.resources || {})[w.name] || {};
+      if (r.hz) parts.t.querySelector(".kind").textContent += ` · ${r.hz >= 1e6 ? r.hz / 1e6 + " MHz" : r.hz / 1e3 + " kHz"}`;
+      const bus = el("div", "bus");
+      bus.innerHTML = DEVICES[w.kind].icon;
+      const what = el("span", "what", DEVICES[w.kind].what);
+      what.title = "Simulated on the bus by `kg board serve`";
+      const count = el("span", "count"), dot = el("span", "act"), n = el("span", "", "idle");
+      count.append(dot, n);
+      bus.append(what, count);
+      parts.well.append(bus);
+      let timer = 0;
+      outputs[w.id] = (v) => {
+        n.textContent = v ? plural(v, "transaction") : "idle";
+        dot.classList.add("on");
+        clearTimeout(timer);
+        timer = setTimeout(() => dot.classList.remove("on"), 180);
+      };
+      parts.t.append(served(w.name, "Used by") || "");
     } else {
-      buses.push(`${w.name}: ${w.doc || w.kind}`);
+      continue;
     }
+    tiles.append(parts.t);
   }
-  const hints = [];
-  if (keyed !== null) hints.push("Buttons: click, or keys W S ↑ ↓ (and 1–4).");
-  if (Object.values(inputs).length > (keyed !== null ? 1 : 0)) hints.push("Switches: click.");
-  if (buses.length) hints.push("On the buses: " + buses.join("; ") + ".");
-  $("hint").textContent = hints.join(" ");
-  if (!hasScreen) $("grid").classList.add("single");
+  const count = tiles.children.length;
+  $("controls").hidden = count === 0 && !!(screen || console_ || bridge);
+  if (count === 0) tiles.append(el("p", "empty", "This design uses none of the board's resources."));
+  $("controls-meta").textContent = count ? plural(count, "resource") + " in use" : "";
+  // The screen leads, else the console or the bridge, the controls beside it.
+  const lead = [$("screen-card"), $("console-card"), $("bridge-card")].find((c) => !c.hidden);
+  if (lead && !$("controls").hidden) {
+    lead.classList.add("lead");
+    $("layout").classList.add("with-side");
+  }
+  Object.values(inputs).forEach((i) => i.render());
+
+  // What else there is to know: the keys, the rest of the board, the address.
+  const keys = $("keys");
+  const keyHelp = [];
+  if (keyed !== null) {
+    const w = layout.widgets[keyed];
+    keyHelp.push([["W", "S", "↑", "↓"].slice(0, Math.min(4, w.width)), `hold ${w.name} 0–${Math.min(4, w.width) - 1}`]);
+    if (w.width > 1) keyHelp.push([["1", "…", String(Math.min(9, w.width))], `the same, by number`]);
+  }
+  keyHelp.push([["P"], "pause or resume"]);
+  if (screen) keyHelp.push([["F"], "full screen"]);
+  keys.hidden = false;
+  keys.append(el("span", "", "Keys:"));
+  for (const [ks, what] of keyHelp) {
+    const s = el("span");
+    ks.forEach((k) => s.append(k === "…" ? "–" : el("kbd", "", k), " "));
+    s.append(what);
+    keys.append(s);
+  }
+  const unused = design.unused || [];
+  if (design.core === "own") {
+    $("unused").hidden = false;
+    $("unused").textContent = "This project brings its own core, so the panel shows every resource the board has.";
+  } else if (unused.length) {
+    $("unused").hidden = false;
+    $("unused").append("Also on the board, unused by this design: ");
+    unused.forEach((u, i) => {
+      if (i) $("unused").append(", ");
+      const c = el("code", "", u.name);
+      c.title = u.doc || u.kind;
+      $("unused").append(c);
+    });
+    $("unused").append(". Bind a function to one in kanagawa.toml's ", el("code", "", "[board] connect"), ", or name it after the resource.");
+  }
+  $("where").innerHTML = "";
+  $("where").append("Served by the simulation at ", el("code", "", location.host), " · ", el("code", "", "kg board serve"),
+    " · scripts read the same panel through ", el("code", "", "kgbridge.Panel"), ".");
 }
 
-const onKey = (down) => (e) => {
-  if (keyed === null || document.activeElement === $("line")) return;
-  const i = KEYS[e.key];
-  if (i === undefined) return;
-  e.preventDefault();
-  const input = inputs[keyed], was = input.value;
-  input.value = down ? input.value | (1 << i) : input.value & ~(1 << i);
-  if (input.value !== was) sendInput(keyed);
-};
-addEventListener("keydown", onKey(true));
-addEventListener("keyup", onKey(false));
+function buildScreen(w) {
+  screen = { ctx: $("screen").getContext("2d"), image: null, frames: -1, loading: false, shown: 0 };
+  screen.image = screen.ctx.createImageData(640, 480);
+  $("screen-card").hidden = false;
+  $("screen-name").textContent = w.name;
+  const p = served(w.name, "Drawn by");
+  if (p) { $("screen-served").replaceWith(p); p.id = "screen-served"; }
+}
 
-$("send").onsubmit = (e) => {
+function buildConsole(w) {
+  const r = (design.resources || {})[w.name] || {};
+  console_ = { received: stream(), sent: stream(), history: store.get("history", []), at: -1, nodes: 0 };
+  $("console-card").hidden = false;
+  $("console-name").textContent = w.name;
+  $("console-meta").textContent = `serial console · ${(r.baud || 115200).toLocaleString()} baud`;
+  pty($("pty-chip"), $("pty-path"), $("pty-copy"));
+  const p = served(w.name, "Served by");
+  if (p) { $("console-served").replaceWith(p); p.id = "console-served"; }
+  $("echo").checked = store.get("echo", true);
+  $("eol").value = store.get("eol", "cr");
+  if (!$("eol").value) $("eol").value = "cr";
+  $("echo").onchange = () => { store.set("echo", $("echo").checked); $("term").classList.toggle("hide-sent", !$("echo").checked); };
+  $("echo").onchange();
+  $("eol").onchange = () => store.set("eol", $("eol").value);
+  $("clear").onclick = () => { $("term").textContent = ""; console_.nodes = 0; };
+  $("send").onsubmit = (e) => {
+    e.preventDefault();
+    const line = $("line").value;
+    post("/uart", line + EOL[$("eol").value]);
+    if (line && console_.history[console_.history.length - 1] !== line) {
+      console_.history.push(line);
+      console_.history = console_.history.slice(-50);
+      store.set("history", console_.history);
+    }
+    console_.at = -1;
+    $("line").value = "";
+  };
+  $("line").addEventListener("keydown", (e) => {
+    const h = console_.history;
+    if (!h.length || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    if (e.key === "ArrowUp") console_.at = console_.at < 0 ? h.length - 1 : Math.max(0, console_.at - 1);
+    else console_.at = console_.at < 0 ? -1 : console_.at + 1 >= h.length ? -1 : console_.at + 1;
+    $("line").value = console_.at < 0 ? "" : h[console_.at];
+  });
+}
+
+const EOL = { cr: "\r", lf: "\n", crlf: "\r\n", none: "" };
+
+function pty(chip, path, copy) {
+  if (!layout.pty) return;
+  chip.hidden = false;
+  path.textContent = layout.pty;
+  copy.onclick = () => navigator.clipboard?.writeText(layout.pty).then(() => {
+    copy.title = "Copied";
+    setTimeout(() => (copy.title = ""), 1200);
+  });
+}
+
+function buildBridge(w) {
+  const b = design.bridge;
+  if (!b) return;
+  bridge = { rows: { m: {}, c: {} }, fromBoard: slip(onBoardFrame), toBoard: slip(onHostFrame), frames: 0, hello: 0, refused: 0 };
+  $("bridge-card").hidden = false;
+  $("bridge-meta").textContent = `on ${b.resource} · ${b.baud.toLocaleString()} baud · interface ${b.hash}`;
+  pty($("bridge-pty-chip"), $("bridge-pty-path"), $("bridge-pty-copy"));
+  const body = $("fns");
+  for (const f of b.functions) {
+    const tr = el("tr");
+    const name = el("td");
+    name.append(el("div", "sig", f.signature));
+    if (f.doc) name.append(el("div", "doc", f.doc.split("\n\n")[0].replace(/\s+/g, " ").trim()));
+    const kind = el("td");
+    kind.append(el("span", f.callback ? "badge cb" : "badge", f.callback ? "callback" : "method"));
+    kind.title = f.callback ? "The design calls the host" : "The host calls the design";
+    const n = el("td", "n", "0");
+    tr.append(name, kind, n);
+    body.append(tr);
+    bridge.rows[f.callback ? "c" : "m"][f.index] = { tr, n, count: 0, timer: 0 };
+  }
+  const method = b.functions.find((f) => !f.callback);
+  const callback = b.functions.find((f) => f.callback);
+  const s = $("snippet");
+  const c = (t) => { const e = el("span", "c", t); s.append(e); };
+  c("# host.py, beside kanagawa.toml: kg board serve -- python3 host.py\n");
+  s.append(`import sys; sys.path.insert(0, "target/board/py")\nfrom ${b.python} import ${b.class}\n\napi = ${b.class}()`);
+  c("              # the port is BOARD_PTY; on a board, port=...\n");
+  if (callback) s.append(`api.on("${callback.name}", lambda *args: ...)\n`);
+  if (method) s.append(`print(api.${method.name}(${method.signature.slice(method.signature.indexOf("(") + 1, method.signature.indexOf(")")).split(", ").filter(Boolean).map(() => "…").join(", ")}))`);
+}
+
+// SLIP frames out of a byte stream (wrapper.rs's bridge module).
+function slip(onFrame) {
+  let buf = [], esc = false;
+  return (bytes) => {
+    for (const b of bytes) {
+      if (b === 0xC0) { if (buf.length) onFrame(buf); buf = []; esc = false; }
+      else if (b === 0xDB) esc = true;
+      else { buf.push(esc ? (b === 0xDC ? 0xC0 : b === 0xDD ? 0xDB : b) : b); esc = false; }
+    }
+  };
+}
+function bump(row) {
+  if (!row) return;
+  row.count++;
+  row.n.textContent = row.count.toLocaleString();
+  row.tr.classList.add("flash");
+  clearTimeout(row.timer);
+  row.timer = setTimeout(() => row.tr.classList.remove("flash"), 250);
+}
+function onHostFrame(f) {
+  bridge.frames++;
+  const op = f[0];
+  if (op === 0xFF) { bridge.hello++; return; }
+  if (!(op & 0x80)) bump(bridge.rows.m[op]);
+}
+const REFUSALS = { 1: "an unknown function", 2: "a frame of the wrong length", 3: "a lost frame" };
+function onBoardFrame(f) {
+  bridge.frames++;
+  const op = f[0];
+  if (op === 0xFF) { bridge.hello++; return; }
+  if (op === 0xFE) {
+    bridge.refused++;
+    $("host-refused").hidden = false;
+    $("host-refused").textContent = `${plural(bridge.refused, "frame")} refused, the last for ${REFUSALS[f[1]] || "code " + f[1]}`;
+    return;
+  }
+  if (op & 0x80) bump(bridge.rows.c[op & 0x7F]);
+}
+
+// ---- Talking to the simulation ---------------------------------------------
+
+function post(path, body) {
+  return fetch(path, { method: "POST", body }).catch(() => {});
+}
+function send(id) {
+  inputs[id].render();
+  post(`/input?id=${id}&value=${inputs[id].value | inputs[id].keys}`);
+}
+
+// The first push-button resource answers to the keyboard.
+const KEYS = { w: 0, W: 0, s: 1, S: 1, ArrowUp: 2, ArrowDown: 3 };
+for (let i = 0; i < 9; i++) KEYS[String(i + 1)] = i;
+function typing(e) {
+  const t = e.target;
+  return t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement || t.isContentEditable;
+}
+addEventListener("keydown", (e) => {
+  if (!alive || typing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+  if ((e.key === "p" || e.key === "P") && !e.repeat) { e.preventDefault(); togglePause(); return; }
+  if ((e.key === "f" || e.key === "F") && screen && !e.repeat) { e.preventDefault(); fullscreen(); return; }
+  if (keyed === null) return;
+  const i = KEYS[e.key], input = inputs[keyed];
+  if (i === undefined || i >= layout.widgets[keyed].width) return;
   e.preventDefault();
-  fetch("/uart", { method: "POST", body: $("line").value + "\r" }).catch(() => {});
-  $("line").value = "";
+  if (e.repeat) return;
+  input.value |= 1 << i;
+  send(keyed);
+});
+addEventListener("keyup", (e) => {
+  if (keyed === null) return;
+  const i = KEYS[e.key], input = inputs[keyed];
+  if (i === undefined || !(input.value >> i & 1)) return;
+  input.value &= ~(1 << i);
+  send(keyed);
+});
+// A key let go while the page is elsewhere must not stay held.
+addEventListener("blur", () => {
+  if (keyed !== null && inputs[keyed].value) { inputs[keyed].value = 0; send(keyed); }
+});
+
+function togglePause() {
+  if (!alive) return;
+  paused = !paused;
+  renderRun();
+  post(`/control?pause=${paused ? 1 : 0}`);
+}
+$("pause").onclick = togglePause;
+let restarting = false;
+$("restart").onclick = () => {
+  if (!alive) return;
+  restarting = true;
+  post("/control?restart=1");
+};
+$("reset").onclick = () => {
+  if (!alive) return;
+  post("/control?reset=1");
+  if (console_) mark("reset");
+  if (bridge) { $("host-state").textContent = "Reset: waiting for the host to say hello"; $("host-dot").classList.remove("live"); bridge.hello = 0; }
 };
 
-const decoder = new TextDecoder();
+function fullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else $("bezel").requestFullscreen?.();
+}
+$("full").onclick = fullscreen;
+$("snap").onclick = () => {
+  $("screen").toBlob((blob) => {
+    const a = el("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(design.design || layout.board).toLowerCase()}-frame-${screen.frames}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+};
+
+function renderRun() {
+  const pill = $("pill");
+  const state = !alive ? "stopped" : paused ? "paused" : "running";
+  pill.className = "pill " + state;
+  $("pill-text").textContent = { stopped: "Stopped", paused: "Paused", running: "Running" }[state];
+  $("pause-label").textContent = paused ? "Resume" : "Pause";
+  $("pause-icon").innerHTML = paused ? '<path d="M8 5l11 7-11 7z"/>' : '<path d="M9 5v14M15 5v14"/>';
+  $("pause").title = paused ? "Let the clock run (P)" : "Hold the clock (P)";
+  $("pause").disabled = $("reset").disabled = $("restart").disabled = !alive;
+  if (screen) {
+    const o = $("overlay");
+    if (paused && screen.shown) { o.hidden = false; o.className = "overlay dim"; o.innerHTML = "<b>Paused</b><span>Press P, or Resume, to run on.</span>"; }
+    else if (screen.shown) o.hidden = true;
+  }
+}
+
+// ---- The serial console --------------------------------------------------------
+
+const term = () => $("term");
+function mark(text) {
+  const t = term();
+  t.append(el("span", "mark", `── ${text} ──`));
+  t.scrollTop = t.scrollHeight;
+}
+// A direction of the line: its own decoder, so a character split across
+// polls comes out whole, and whether it last ended on a CR.
+const stream = () => ({ decoder: new TextDecoder(), cr: false });
+// Bytes as text: CR LF and lone CRs end lines; other control bytes are shown
+// by their code, dimmed, so a binary stream is legible rather than garbled.
+function append(bytes, from, cls) {
+  if (!bytes.length) return;
+  const t = term();
+  const atBottom = t.scrollTop + t.clientHeight >= t.scrollHeight - 8;
+  let text = from.decoder.decode(new Uint8Array(bytes), { stream: true });
+  if (from.cr && text.startsWith("\n")) text = text.slice(1);
+  from.cr = text.endsWith("\r");
+  text = text.replace(/\r\n?/g, "\n");
+  const frag = document.createDocumentFragment();
+  let run = "";
+  const flush = () => { if (run) { const s = el("span", cls, run); frag.append(s); run = ""; } };
+  for (const ch of text) {
+    const c = ch.codePointAt(0);
+    if (c < 0x20 && ch !== "\n" && ch !== "\t" || c === 0x7F) {
+      flush();
+      frag.append(el("span", "ctl", `⟨${c.toString(16).padStart(2, "0")}⟩`));
+    } else run += ch;
+  }
+  flush();
+  console_.nodes += frag.childNodes.length;
+  t.append(frag);
+  while (console_.nodes > 4000 && t.firstChild) { t.firstChild.remove(); console_.nodes--; }
+  if (atBottom) t.scrollTop = t.scrollHeight;
+}
+
+// ---- Polling ---------------------------------------------------------------------
+
+function rates(state) {
+  const now = performance.now();
+  rate.samples.push([now, state.cycles, state.frames]);
+  while (rate.samples.length > 2 && now - rate.samples[0][0] > 1500) rate.samples.shift();
+  const [t0, c0, f0] = rate.samples[0];
+  const dt = (now - t0) / 1000;
+  return dt > 0.25 ? { mhz: (state.cycles - c0) / dt / 1e6, fps: (state.frames - f0) / dt } : { mhz: state.mhz, fps: state.fps };
+}
+
+function simulated(cycles) {
+  const s = cycles / (layout.mhz * 1e6);
+  if (s < 60) return `${s.toFixed(s < 10 ? 2 : 1)} s`;
+  return `${Math.floor(s / 60)} min ${Math.floor(s % 60)} s`;
+}
+
 function show(state) {
   state.values.forEach((v, id) => { if (outputs[id] && v !== values[id]) outputs[id](v); });
   values = state.values;
-  if (state.uart.length) {
-    const con = $("console");
-    const atBottom = con.scrollTop + con.clientHeight >= con.scrollHeight - 4;
-    con.textContent += decoder.decode(new Uint8Array(state.uart), { stream: true }).replace(/\r\n?/g, "\n");
-    if (con.textContent.length > 200000) con.textContent = con.textContent.slice(-100000);
-    if (atBottom) con.scrollTop = con.scrollHeight;
+  if (state.paused !== paused) { paused = state.paused; renderRun(); }
+  const r = rates(state);
+  const pct = r.mhz / layout.mhz * 100;
+  const speed = $("speed");
+  speed.innerHTML = "";
+  if (paused) speed.append(`held at ${simulated(state.cycles)} simulated`);
+  else speed.append(el("b", "", r.mhz.toFixed(r.mhz < 10 ? 2 : 1)), el("span", "long", ` of ${layout.mhz}`), " MHz · ",
+    `${pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}%`, el("span", "long", " of real time"));
+  speed.title = `${state.cycles.toLocaleString()} cycles, ${simulated(state.cycles)} of the board's time`;
+
+  // The line both ways, in order: runs of one direction at a time.
+  const runs = [];
+  for (const v of state.line) {
+    const sent = v >= 256, b = v & 255, last = runs[runs.length - 1];
+    if (last && last.sent === sent) last.bytes.push(b);
+    else runs.push({ sent, bytes: [b] });
   }
-  uartAt = state.uart_at;
-  $("noscreen").style.display = state.screen ? "none" : "";
-  $("status").textContent =
-    `simulating at ${state.mhz.toFixed(2)} MHz` + (hasScreen ? ` · ${state.frames} frames` : "") + (state.screen ? ` · ${state.fps.toFixed(1)} fps` : "");
+  for (const r of runs) {
+    if (console_) append(r.bytes, r.sent ? console_.sent : console_.received, r.sent ? "sent" : "");
+    if (bridge) (r.sent ? bridge.toBoard : bridge.fromBoard)(r.bytes);
+  }
+  if (bridge) {
+    if (bridge.hello) { $("host-dot").classList.add("live"); $("host-state").textContent = "A host program is connected"; }
+    $("host-traffic").textContent = bridge.frames ? plural(bridge.frames, "frame") + " both ways" : "";
+  }
+  lineAt = state.line_at;
+  if (screen) {
+    $("screen-stat").textContent = state.frames ? `${paused ? 0 : r.fps.toFixed(1)} fps · frame ${state.frames.toLocaleString()}` : "";
+  }
 }
 
-async function drawFrame() {
-  const data = new Uint16Array(await (await fetch("/frame")).arrayBuffer());
-  const px = image.data;
-  for (let i = 0; i < data.length; i++) {
-    const v = data[i];
-    px[4 * i] = (v >> 8 & 15) * 17;
-    px[4 * i + 1] = (v >> 4 & 15) * 17;
-    px[4 * i + 2] = (v & 15) * 17;
-    px[4 * i + 3] = 255;
+async function drawFrame(number) {
+  screen.loading = true;
+  try {
+    const data = new Uint16Array(await (await fetch("/frame")).arrayBuffer());
+    const px = screen.image.data;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      px[4 * i] = (v >> 8 & 15) * 17;
+      px[4 * i + 1] = (v >> 4 & 15) * 17;
+      px[4 * i + 2] = (v & 15) * 17;
+      px[4 * i + 3] = 255;
+    }
+    screen.ctx.putImageData(screen.image, 0, 0);
+    screen.frames = number;
+    if (!screen.shown++) renderRun();
+  } finally {
+    screen.loading = false;
   }
-  ctx.putImageData(image, 0, 0);
 }
 
 async function poll() {
   try {
-    const state = await (await fetch(`/state?uart=${uartAt}`)).json();
+    const state = await (await fetch(`/state?line=${lineAt}`)).json();
+    // Restarted under us (a power cycle): everything starts again.
+    if (state.run !== layout.run) { location.reload(); return; }
+    if (!alive) { alive = true; renderRun(); }
     show(state);
-    if (state.screen && state.frames !== lastFrames) {
-      lastFrames = state.frames;
-      await drawFrame();
-    }
-    alive = true;
-  } catch (e) {
-    if (alive) $("status").innerHTML = '<span class="gone">the simulation has stopped</span>';
-    alive = false;
+    if (screen && state.frames !== screen.frames && state.frames > 0 && !screen.loading && !document.hidden) await drawFrame(state.frames);
+  } catch {
+    if (alive || layout) stopped();
+    return;
   }
-  setTimeout(poll, 50);
+  setTimeout(poll, document.hidden ? 500 : 40);
 }
 
-fetch("/layout").then((r) => r.json()).then((layout) => { build(layout); poll(); })
-  .catch(() => { $("status").innerHTML = '<span class="gone">the simulation is not running</span>'; });
+function stopped() {
+  alive = false;
+  renderRun();
+  $("speed").textContent = "";
+  if (screen && screen.frames > 0) $("screen-stat").textContent = `frame ${screen.frames.toLocaleString()}`;
+  if (restarting) {
+    $("pill").className = "pill paused";
+    $("pill-text").textContent = "Restarting";
+  } else {
+    document.body.classList.add("stopped");
+    $("banner").hidden = false;
+    $("banner-text").innerHTML = "<b>The simulation has stopped.</b> Run <code>kg board serve</code> again; this page reconnects if it comes back on the same address.";
+  }
+  document.querySelectorAll("main button, main input, main select").forEach((e) => (e.disabled = true));
+  // A restart comes back on the same address, and so may a script's run.
+  const retry = () => fetch("/layout").then((r) => r.ok && location.reload()).catch(() => setTimeout(retry, restarting ? 250 : 2000));
+  setTimeout(retry, restarting ? 250 : 2000);
+}
+
+fetch("/layout").then((r) => r.json()).then((l) => {
+  layout = l;
+  design = l.design || {};
+  $("restart").hidden = !l.restart;
+  build();
+  poll();
+}).catch(() => {
+  $("pill").className = "pill stopped";
+  $("pill-text").textContent = "Not running";
+  $("sub").textContent = "No simulation answered";
+  $("banner").hidden = false;
+  $("banner-text").innerHTML = "<b>The simulation is not running.</b> Start it with <code>kg board serve</code> in your project, and open the address it prints.";
+});
 </script>
 </body>
 </html>

@@ -516,20 +516,57 @@ both transports, and the bytes SLIP escapes each way.
 
 ## 9. The front panel, and the virtual board
 
-**`kg board serve` puts any board's resources on the host**, from the
+**`kg board serve` puts the design's resources on the host**, from the
 testbench it generates from `[resources.*]` (`crates/kg-board/src/bench.rs`);
 a board naming its own `bridge` in `board.toml` gets that instead, as the
-Mimas A7 would. Each resource is a widget on a front panel the simulation
-serves itself (`platform/sim/vboard.cpp`, `vboard.html`), laid out from the
-board's resources (`GET /layout`):
+Mimas A7 would. Each resource the design uses is a widget on a front panel
+the simulation serves itself (`platform/sim/vboard.cpp`, `vboard.html`):
 
 | Kind | On the host |
 |---|---|
-| `led` | live on the panel (`style = "rgb"`: one RGB LED), and printed as it changes |
-| `button` | clicked on the panel (`style = "switch"`: slide switches); the first set also answers W S ↑ ↓ and 1–4 |
-| `uart` | a pseudo-terminal (`BOARD_PTY`) and the panel's console, both typing into the design |
-| `spi`, `i2c` | a SPI flash and an I2C sensor at 0x48 (`platform/sim/models`) |
+| `led` | live on the panel with its value (`style = "rgb"`: one RGB LED, its colour named), and printed as it changes |
+| `button` | clicked on the panel (`style = "switch"`: slide switches); the first set also answers W S ↑ ↓ and 1–9 |
+| `uart` | a pseudo-terminal (`BOARD_PTY`) and the panel's console, both typing into the design; under the host bridge, the bridge's functions and their calls instead |
+| `spi`, `i2c` | a SPI flash and an I2C sensor at 0x48 (`platform/sim/models`), their transactions counted |
 | `vga` | the screen, read off the pins by `platform/sim/vga_capture.sv`, as a monitor would |
+
+**The panel shows the design, not the board.** The generated core says what
+the design uses (`wrapper::Core::bindings`, and the bridge's port), so the
+testbench declares a widget for those resources alone; the rest idle at
+rest, inputs tied (a button low, a serial or SPI input high, an I2C line
+pulled up), and no device model is built for an unused bus. Pong on the
+virtual board shows its screen, its buttons and its eight LEDs, not the RGB
+LED, the switches, the console or the buses it never touches. Beside the
+widgets, `bench::describe` writes `target/board/bench/panel.json`, which the
+page reads as `/layout`'s `design`:
+- each used resource's serving functions, roles, signatures and `//|` docs,
+  so a widget says what drives it ("Read by `_buttons`: bit 0 left paddle
+  up…");
+- the bridge's functions, which the page uses to decode the SLIP traffic
+  both ways into a live count of calls for each;
+- the unused resources, listed under the panel with how to bind one.
+
+A project with its own core gets every resource, since nothing says which it
+uses. The page lays itself out from what is there: the screen leads, else
+the console or the bridge, with the controls beside it; one column on a
+phone.
+
+**The line both ways, in order.** The simulation keeps one transcript of the
+serial line (`/state`'s `line`: a byte from the design, or 256 plus a byte
+to it), so the console shows each command before its reply even when it
+loads late; two separate streams have no order between them, and a page
+loaded after a session showed every command before any reply.
+
+**Pause, Reset, Restart.** Pause holds the clock in `vb_tick`, which the
+testbench calls every 1,024 cycles, so the page and scripts stay live while
+the design stops. Reset asserts `rst` for 16 cycles, which is what a board's
+reset button does, and on the FPGA as here a register the design never
+resets keeps its value. Kanagawa's members have no reset (`Pong_reg_4_w1
+_left_score` takes no `rst`), so Reset does not restart pong. Restart does:
+the simulation exits with status 75, `kg board serve` starts it again on the
+same port (`+vboard_port`), and the page sees a new `run` (the process id)
+and reloads. Only `serve` alone restarts; a command's `BOARD_PTY` would go
+stale.
 
 So a board with a VGA output gets a live screen by declaring `[resources.vga]`:
 the generated core drives it from the design's `vga_pixel`, and the
@@ -616,13 +653,13 @@ under the generated testbench and its C++ clock (§9).
 | Project | Board | What passed |
 |---|---|---|
 | upduino-v3 `blinky` | upduino-v3 | sim, netsim; 55 cells, 73.2 MHz; 41 LUT4 / 38 FF |
-| upduino-v3 `monitor` | upduino-v3 | sim, netsim (261 reply bytes); 375 cells, 45.0 MHz; 215 / 198, 2 SPRAM; `host.py test --count 200 --stream` under `serve` (0.55 s); `check_panel.py`: commands typed into the panel's console, replies and the LED read back |
+| upduino-v3 `monitor` | upduino-v3 | sim, netsim (261 reply bytes); 375 cells, 45.0 MHz; 215 / 198, 2 SPRAM; `host.py test --count 200 --stream` under `serve` (0.55 s); `check_panel.py`: commands typed into the panel's console, replies and the LED read back, the line both ways in order |
 | upduino-v3 `spram` | upduino-v3 | sim, netsim; 159 cells, 60.1 MHz; 100 / 96, 2 SPRAM |
 | mimas-a7 `blinky` | mimas-a7 | sim |
 | `accel` | virtual; upduino-v3 copy | cocotb 4/4, bridge 4/4 on both; 3,214 cells (60.9%), 32.3 MHz; 1,669 / 2,067, 4 EBR, 1 DSP |
 | `spi-flash` | virtual; upduino-v3 copy | cocotb 1/1, bridge 1/1 on both; 3,985 cells (75.5%), 30.3 MHz |
 | `i2c-sensor` | virtual; upduino-v3 copy | cocotb 1/1, bridge 1/1 on both; 3,479 cells (65.9%), 34.1 MHz |
-| `pong` | virtual | cocotb 1/1 (the game, calling `vga_pixel` and `vga_frame`); `check_panel.py`: the paddle follows held buttons on the screen, the ball, net, background and score, 27.0 frames a second at 11.26 MHz |
+| `pong` | virtual | cocotb 1/1 (the game, calling `vga_pixel` and `vga_frame`); `check_panel.py`: only its screen, buttons and LEDs on the panel, the paddle follows held buttons on the screen, the ball, net, background and score, pause holds the clock; 28.1 frames a second at 12.71 MHz |
 | `test/vga-board` | a second board with a screen, no serial port | pong's `check_panel.py`: 27.2 frames a second |
 | `test/probe` | upduino-v3 | cocotb 5/5, bridge 5/5; 2,304 cells, 29.7 MHz |
 | `rtl/periph/test` | — | 6 PASS lines (SPI, and I2C at five speeds and stretches) |
@@ -636,10 +673,14 @@ Also checked:
     examples;
   - `kg-config`: resources, `connect`, `tests`;
   - `kg-cli`: every board command parses.
-- **The front panel in a browser's place**: the page served, its script
-  parsed (`node --check`), `/state`, `/frame` (614,400 bytes, 640×480×2) and
-  `/input` exercised over HTTP. A frame rendered to an image shows the
-  paddles, ball and net.
+- **The front panel in a browser** (2026-10-17, Playwright 1.64 driving
+  Chrome 155 headless, in a scratch `uv` environment): pong, `accel` with a
+  host program calling it, the monitor with commands typed into its
+  console, `spi-flash` and `i2c-sensor` with their tests run, and `spram`
+  (a core of its own), each in light and dark, 1,280 and 390 pixels wide
+  (no horizontal scroll at 390). Held keys, pause, reset, restart (the same
+  address, the page reloading itself) and the stopped state, each looked at
+  in a screenshot. The script parses (`node --check`).
 - **The release archive** (`cargo xtask dist`, 13.5 MiB): unpacked outside
   the checkout and run with `env -i` (only `HOME`, and a `PATH` of the
   archive's `bin` and Homebrew's tools). `kg board list` shows the three
@@ -677,6 +718,15 @@ testbench's I2C pull-up and its VGA capture source (its unit tests), the
 capture's horizontal timing and the panel's input handling (pong's
 `check_panel.py`), pong's clamped motion (its cocotb test), and kgbridge's
 `only="cocotb"` filter (pong's test run over the bridge).
+
+Six more for the panel showing the design (2026-10-17), all caught: in
+`bench.rs`, `Usage::uses` answering yes for every resource (its unit test,
+and pong's `check_panel.py`, which saw `button, button, i2c, led, led, spi,
+uart, vga`), every resource declared, and an unused SPI bus's MISO left
+undriven (the unit test; this one survived until the test named a SPI
+bus); in `vboard.cpp`, pause not holding the clock (pong's `check_panel.py`:
+frame 55 to 70 while paused) and the bytes sent to the design missing from
+the transcript (the monitor's `check_panel.py`).
 
 One survived first: the cocotb driver read a fixed-latency result a cycle
 late and the probe still passed, because the driver left a call's arguments
@@ -716,3 +766,6 @@ drives idle arguments to zero, and the mutant is caught.
 - 2026-10-17: the front panel generated for any board, with a live screen
   for any board with a `vga` resource (§9); `kgbridge.Panel`; a second VGA
   board as the test.
+- 2026-10-17: the front panel shows what the design uses, each widget with
+  the function that serves it; the bridge's calls live; the serial line in
+  order; pause, reset and restart (§9, §11, §12).

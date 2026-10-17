@@ -126,7 +126,7 @@ fn docstring(text: &str) -> String {
 }
 
 /// `SpramTest` as `spram_test`.
-fn snake(name: &str) -> String {
+pub(crate) fn snake(name: &str) -> String {
     let mut out = String::new();
     let chars: Vec<char> = name.chars().collect();
     for (i, c) in chars.iter().enumerate() {

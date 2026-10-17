@@ -180,6 +180,15 @@ impl Interface {
     }
 }
 
+impl Function {
+    /// `name(uint10 x, uint10 y) -> uint12`, as the front panel shows it.
+    pub fn signature(&self) -> String {
+        let args: Vec<String> = self.args.iter().map(|a| format!("{} {}", a.ty, a.name)).collect();
+        let result = self.result.as_ref().map_or("void".to_owned(), |r| r.ty.clone());
+        format!("{}({}) -> {result}", self.name, args.join(", "))
+    }
+}
+
 impl Value {
     /// A struct's field by name.
     pub fn field(&self, name: &str) -> Option<&Value> {
