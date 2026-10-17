@@ -112,6 +112,10 @@ api.add(2, 3)                               # 5, from the hardware
 api.on("_square", lambda x: x * x)          # the design calls back into Python
 ```
 
+To see a design on a screen, `kg board new pong --board virtual --example pong`, then
+`kg board serve` in it and open the address it prints: pong, drawn from the simulated
+VGA pins, played with W S ↑ ↓ ([the demo](platform/README.md#demo-pong-in-the-browser)).
+
 It is opt-in: a project without `[board]` in its `kanagawa.toml` is untouched. There is
 a virtual board, the UPduino v3 (iCE40 UP5K, through the open toolchain to a bitstream),
 and the Mimas A7 (Artix-7). The guide: [`platform/README.md`](platform/README.md).

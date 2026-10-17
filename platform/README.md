@@ -5,6 +5,7 @@ or onto a simulated board when you have none, with `kg board`. It is all
 opt-in: a project without a `[board]` table in its `kanagawa.toml` is
 untouched by any of it.
 
+- [Demo: pong in the browser](#demo-pong-in-the-browser)
 - [Start with no hardware](#start-with-no-hardware)
 - [How a design meets a board](#how-a-design-meets-a-board)
 - [Talking to a design from Python](#talking-to-a-design-from-python)
@@ -20,6 +21,34 @@ The design behind it, what was measured and what is still open:
 [`docs/plans/board-tooling.md`](../docs/plans/board-tooling.md) (the
 `kg board` tooling) and [`docs/plans/platform-layer.md`](../docs/plans/platform-layer.md)
 (devices, HALs, boards).
+
+## Demo: pong in the browser
+
+The shortest way to see a design on a screen. With an installed `kg` and
+Verilator 5:
+
+```sh
+kg board new pong --board virtual --example pong
+cd pong
+kg board serve                     # prints `front panel: http://127.0.0.1:…/`; open it
+```
+
+From this checkout instead, with the backend built (the top-level README's
+"Build from source"):
+
+```sh
+cargo build --profile quick --bin kg
+export KG_BACKEND_DIR=$PWD/target/backend/dist/bin
+cd platform/examples/pong
+../../../target/quick/kg board serve
+```
+
+The first run compiles the simulation, a minute or so. Then pong plays on a
+640x480 screen drawn from the design's simulated VGA pins, about 27 frames a
+second. W and S move the left paddle, ↑ and ↓ the right one (or click the
+panel's buttons); a paddle left alone follows the ball, slowly enough to
+miss. The score is on the row of LEDs, the left player's in the upper four.
+Ctrl-C stops it.
 
 ## Start with no hardware
 
