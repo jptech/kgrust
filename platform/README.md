@@ -10,7 +10,7 @@ untouched by any of it.
 - [Talking to a design from Python](#talking-to-a-design-from-python)
 - [Testing with cocotb](#testing-with-cocotb)
 - [SPI, I2C and the serial port](#spi-i2c-and-the-serial-port)
-- [The virtual board](#the-virtual-board)
+- [The front panel, and the virtual board](#the-front-panel-and-the-virtual-board)
 - [On a real board](#on-a-real-board)
 - [Small designs on the iCE40](#small-designs-on-the-ice40)
 - [Your own board](#your-own-board)
@@ -50,7 +50,7 @@ api.sum_of_squares(4)                   # 30: the design called Python four time
 
 `kg board serve` with no command keeps the simulation running and prints
 the address of the board's front panel: LEDs, buttons, switches, a serial
-console, and a screen. Try the `pong` example there.
+console, and a live screen. Try the `pong` example there.
 
 ## How a design meets a board
 
@@ -175,18 +175,50 @@ A serial port binds like any resource: a method taking each received byte,
 and a method the transmitter asks for the next byte (the UPduino's `monitor`
 example), or callbacks the other way round.
 
-## The virtual board
+## The front panel, and the virtual board
+
+`kg board serve` puts a simulated board's resources in your browser: it
+prints the address of a front panel the simulation serves itself, laid out
+from the board's resources. LEDs light, buttons and switches click (the first
+buttons also answer W S ↑ ↓), the serial console types into the design, and
+a board with a VGA output shows its screen live, about 27 frames a second
+for pong, half of real time. The serial port is also a pseudo-terminal, so
+everything that runs against a board runs against `serve` too.
 
 `boards/virtual` is a board with no hardware: the UPduino's iCE40 UP5K at
 25 MHz, with an RGB LED, eight LEDs, four buttons, eight switches, a serial
-port, SPI and I2C with devices on them, and a 640x480 VGA screen. `kg board
-serve` opens its front panel in your browser: the screen drawn from the
-design's VGA pins, live LEDs, clickable buttons and switches (or W S ↑ ↓),
-and a serial console. Its serial port is also a pseudo-terminal, so
-everything that runs against a board runs against it too.
+port, SPI and I2C with devices on them, and a 640x480 screen. Try the `pong`
+example there.
 
-The `pong` example draws at about 10 frames a second, the simulation running
-at some 15% of real time.
+**Any board can have a screen.** Declare a `vga` resource on the core's
+ports, and route them to the connector in the board's shell and
+constraints:
+
+```toml
+[resources.vga]
+kind = "vga"
+pins = { hsync = "vga_hsync", vsync = "vga_vsync", rgb = "vga_rgb" }   # 12-bit {r, g, b}
+```
+
+The generated core drives it from the design's `vga_pixel` method, and
+`serve` reads it back off the pins for the panel. `test/vga-board` is such a
+board, with no serial port at all.
+
+**From a script**, `kgbridge.Panel` does what a person at the browser would:
+
+```python
+import kgbridge
+panel = kgbridge.Panel()                    # BOARD_PANEL under `kg board serve`
+panel.set(panel.find("button"), 0b10)       # hold the second button
+print(panel.value("led"))                   # an LED resource's bits
+panel.type("r 0010\r")                      # into the serial console
+frame = panel.frame()                       # the next whole frame of the screen
+frame.save_png("screen.png")
+```
+
+A project's `check_panel.py` runs that way: `kg board serve -- python3
+check_panel.py`. Pong's plays the game through the panel and checks the
+paddle follows the buttons; the monitor's types commands into the console.
 
 ## On a real board
 
@@ -254,16 +286,16 @@ constraints, reusing the UPduino's shell by path. A project names it with
 | `library/` | a Kanagawa import root in upstream's layout: devices, vendor defaults, `periph` |
 | `rtl/hal/<hal>/` | a HAL for a family upstream's does not serve (`ice40`), with its check |
 | `rtl/periph/` | the UART, SPI and I2C engines, the host bridge's link, VGA timing; their tests |
-| `sim/` | the `serve` runtime (pseudo-terminal, front panel) and models of SPI and I2C devices |
+| `sim/` | the `serve` runtime: the front panel, the pseudo-terminal, the VGA capture, the clock, and models of SPI and I2C devices |
 | `python/kgbridge.py` | the host side: the bridge, the cocotb driver, device models, the test runner |
-| `test/` | the tooling's own tests: every protocol (`probe`), the front panel (`screen`) |
+| `test/` | the tooling's own tests: every protocol (`probe`), a second board with a screen (`vga-board`), a screen checker (`screen`) |
 | `vendor/vivado/` | the Vivado flow's Tcl; the iCE40 flow is `kg board`'s own |
 | `check.zsh` | every example through every flow, on every board it fits |
 
 | Board | Device | Status |
 |---|---|---|
 | [`upduino-v3`](boards/upduino-v3/README.md) | `ice40-up5k` (`iCE40UP5K-SG48`) | every flow passes in simulation, gate level and synthesis; not yet run on a board |
-| `virtual` | `ice40-up5k`, simulated | `sim`, `serve` with the front panel, and `test` |
+| `virtual` | `ice40-up5k`, simulated | `sim`, `serve` with the front panel and a live screen, and `test` |
 | `mimas-a7` | `artix7-xc7a50t` (`xc7a50tfgg484-1`) | `kg board sim` passes; not yet through Vivado or on hardware |
 
 | Device | Part | Status |

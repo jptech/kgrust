@@ -12,6 +12,9 @@ three transports, with the same API:
   pseudo-terminal (`Serial`, which finds it in BOARD_PTY);
 - the generated module under cocotb, its ports driven directly (`Cocotb`).
 
+`Panel` reads and drives the front panel `kg board serve` opens for a
+simulated board: its LEDs, buttons, switches, console and screen.
+
 A test written once runs in all three:
 
     from accel import Accel
@@ -645,17 +648,167 @@ class I2cTarget:
         return 0
 
 
+# --- The front panel: a simulated board's LEDs, buttons, console, screen ---
+
+
+class Frame:
+    """One whole frame of a simulated board's screen: `width` x `height`
+    pixels of 12 bits, `{r, g, b}` 4 bits each, row by row."""
+
+    def __init__(self, width, height, pixels, number):
+        self.width, self.height, self.pixels, self.number = width, height, pixels, number
+
+    def pixel(self, x, y):
+        return self.pixels[y * self.width + x]
+
+    def column(self, x):
+        return self.pixels[x::self.width]
+
+    def rows(self, x, colour):
+        """The rows where column `x` is `colour`, top first."""
+        return [y for y, v in enumerate(self.column(x)) if v == colour]
+
+    def save_png(self, path):
+        """Writes the frame as a PNG (standard library only)."""
+        import zlib
+
+        raw = bytearray()
+        for y in range(self.height):
+            raw.append(0)
+            for v in self.pixels[y * self.width:(y + 1) * self.width]:
+                raw += bytes(((v >> 8 & 15) * 17, (v >> 4 & 15) * 17, (v & 15) * 17))
+
+        def chunk(kind, data):
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+        header = struct.pack(">IIBBBBB", self.width, self.height, 8, 2, 0, 0, 0)
+        with open(path, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(bytes(raw))) + chunk(b"IEND", b""))
+
+
+class Panel:
+    """The front panel `kg board serve` opens for a simulated board, from a
+    script: read its LEDs, press its buttons, set its switches, read and type
+    into its console, and take its screen's frames. The address is
+    BOARD_PANEL under `kg board serve`. Each widget is named for the board's
+    resource (`kg board info` lists them).
+
+        panel = kgbridge.Panel()
+        panel.press("buttons", 0)           # hold button 0
+        frame = panel.frame()               # the next whole frame
+        frame.save_png("pong.png")
+    """
+
+    WIDTH, HEIGHT = 640, 480
+
+    def __init__(self, url=None, timeout=60.0):
+        self.url = (url or os.environ.get("BOARD_PANEL") or "").rstrip("/") + "/"
+        if self.url == "/":
+            raise BridgeError("no front panel: pass url=..., or run under `kg board serve`, which sets BOARD_PANEL")
+        self.timeout = timeout
+        self._layout = None
+        self._console = bytearray()
+
+    def _get(self, path):
+        import urllib.request
+
+        with urllib.request.urlopen(self.url + path, timeout=self.timeout) as r:
+            return r.read()
+
+    def _post(self, path, body=b""):
+        import urllib.request
+
+        urllib.request.urlopen(urllib.request.Request(self.url + path, data=body, method="POST"), timeout=self.timeout).read()
+
+    def layout(self):
+        """The board's name, clock and widgets, as the panel declares them."""
+        import json
+
+        if self._layout is None:
+            self._layout = json.loads(self._get("layout"))
+        return self._layout
+
+    def widget(self, name):
+        for w in self.layout()["widgets"]:
+            if w["name"] == name:
+                return w
+        names = ", ".join(w["name"] for w in self.layout()["widgets"])
+        raise KeyError(f"the {self.layout()['board']} board has no resource {name!r}; it has {names}")
+
+    def find(self, kind, style=None):
+        """The first resource of `kind` (`led`, `button`, `uart`, `vga`…),
+        and of `style` if given: its name, whatever the board calls it."""
+        for w in self.layout()["widgets"]:
+            if w["kind"] == kind and (style is None or w["style"] == style) and not (style is None and kind == "button" and w["style"] == "switch"):
+                return w["name"]
+        raise KeyError(f"the {self.layout()['board']} board has no {kind} resource")
+
+    def state(self):
+        """Every widget's value by name, the screen's frame count and rate,
+        and the simulation's clock rate in MHz."""
+        import json
+
+        raw = json.loads(self._get(f"state?uart={len(self._console)}"))
+        self._console += bytes(raw["uart"])
+        names = [w["name"] for w in self.layout()["widgets"]]
+        return {"values": dict(zip(names, raw["values"])), "frames": raw["frames"], "fps": raw["fps"],
+                "mhz": raw["mhz"], "screen": raw["screen"]}
+
+    def value(self, name):
+        """An LED resource's bits, or an input's as last set."""
+        self.widget(name)
+        return self.state()["values"][name]
+
+    def set(self, name, value):
+        """An input resource's bits: buttons held, switches set."""
+        self._post(f"input?id={self.widget(name)['id']}&value={int(value)}")
+
+    def press(self, name, bit):
+        self.set(name, self.value(name) | 1 << bit)
+
+    def release(self, name, bit):
+        self.set(name, self.value(name) & ~(1 << bit))
+
+    def console(self):
+        """Everything the design has sent on its serial port so far."""
+        self.state()
+        return bytes(self._console)
+
+    def type(self, text):
+        """Bytes for the design's serial port, as typed in the console."""
+        self._post("uart", text.encode() if isinstance(text, str) else bytes(text))
+
+    def frame(self, after=None):
+        """The next whole frame after frame number `after` (default: the
+        one being drawn now), waiting for it."""
+        deadline = time.monotonic() + self.timeout
+        start = self.state()["frames"] if after is None else after
+        while True:
+            state = self.state()
+            if state["frames"] > start:
+                break
+            if time.monotonic() > deadline:
+                raise BridgeError(f"no new frame within {self.timeout:g} s (is the screen on? `--no-screen` turns it off)")
+            time.sleep(0.02)
+        data = self._get("frame")
+        pixels = list(struct.unpack(f"<{len(data) // 2}H", data))
+        return Frame(self.WIDTH, self.HEIGHT, pixels, state["frames"])
+
+
 # --- Tests that run everywhere ----------------------------------------------
 
 _TESTS = []
 
 
-def test(device_class, timeout_ms=10):
+def test(device_class, timeout_ms=10, only=None):
     """Declares `async def name(api)` a test of `device_class`: a cocotb test
     under `kg board test`, and one `main()` runs over the serial bridge.
 
-    Under cocotb a test fails after `timeout_ms` of simulated time (a
-    million cycles by default), so a design that never answers says so."""
+    `only="cocotb"` keeps a test to cocotb, for functions wired to a board's
+    resources rather than the bridge (a screen's `vga_pixel`); `only="bridge"`
+    keeps it to the bridge. Under cocotb a test fails after `timeout_ms` of
+    simulated time (a million cycles by default), so a design that never
+    answers says so."""
 
     def wrap(fn):
         try:
@@ -665,7 +818,9 @@ def test(device_class, timeout_ms=10):
         except ImportError:
             simulating = False
         if not simulating:
-            _TESTS.append((fn, device_class))
+            _TESTS.append((fn, device_class, only))
+            return fn
+        if only == "bridge":
             return fn
 
         async def under_cocotb(dut):
@@ -696,7 +851,10 @@ def main(argv=None):
     parser.add_argument("-k", dest="match", help="only the tests whose names contain this")
     args = parser.parse_args(argv)
     failed = 0
-    tests = [(fn, cls) for fn, cls in _TESTS if not args.match or args.match in fn.__name__]
+    tests = [(fn, cls) for fn, cls, only in _TESTS if (not args.match or args.match in fn.__name__) and only != "cocotb"]
+    for fn, cls, only in _TESTS:
+        if only == "cocotb":
+            print(f"SKIP {fn.__name__} (cocotb only: `kg board test`)")
     for fn, cls in tests:
         serial = Serial(args.port, baud=args.baud or getattr(cls, "BAUD", 115200), timeout=args.timeout, asynchronous=True)
         api = cls(serial)

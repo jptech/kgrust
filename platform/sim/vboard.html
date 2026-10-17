@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Virtual Board</title>
+<title>Front Panel</title>
 <!--
-  The virtual board's front panel, served by the simulation itself
-  (platform/sim/vboard.cpp). Self-contained: it loads nothing from anywhere
+  A simulated board's front panel, served by the simulation itself
+  (platform/sim/vboard.cpp) for any board `kg board serve` runs. Self-contained: it loads nothing from anywhere
   but the simulation, so it works offline.
 -->
 <style>
@@ -40,7 +40,7 @@
   .noscreen { color: var(--muted); font-size: 13px; margin-top: 8px; }
   .pcb { background: var(--pcb); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 14px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .label { color: #cfe3d6; font-size: 11px; width: 64px; }
+  .label { color: #cfe3d6; font-size: 11px; width: 72px; overflow: hidden; text-overflow: ellipsis; }
   .led { width: 16px; height: 16px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 0 3px #000; }
   .led.on { background: #ff4d3a; box-shadow: 0 0 10px #ff4d3a; }
   .rgb { width: 22px; height: 22px; border-radius: 50%; background: var(--led-off); border: 2px solid #0b2a1a; }
@@ -59,33 +59,30 @@
   .send button { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--accent);
                  color: #fff; cursor: pointer; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .wide { grid-column: 1 / -1; }
+  .grid.single { grid-template-columns: minmax(0, 1fr); }
   .gone { color: #d9534f; }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Virtual board</h1>
+    <h1 id="title">Board</h1>
     <div class="status" id="status">connecting…</div>
   </header>
-  <div class="grid">
-    <section class="card">
-      <h2>Screen · 640×480</h2>
+  <div class="grid" id="grid">
+    <section class="card" id="screen-card" hidden>
+      <h2 id="screen-title">Screen · 640×480</h2>
       <canvas id="screen" width="640" height="480"></canvas>
-      <div class="noscreen" id="noscreen">No picture: the design drives nothing on the board's <code>vga</code> resource.</div>
+      <div class="noscreen" id="noscreen">No picture yet: the design has drawn nothing on the screen.</div>
     </section>
-    <section class="card">
+    <section class="card" id="board-card">
       <h2>Board</h2>
-      <div class="pcb">
-        <div class="row"><span class="label">RGB LED</span><div class="rgb" id="rgb"></div></div>
-        <div class="row"><span class="label">LEDs</span><div class="row" id="leds"></div></div>
-        <div class="row"><span class="label">Switches</span><div class="row" id="switches"></div></div>
-        <div class="row"><span class="label">Buttons</span><div class="row" id="buttons"></div></div>
-      </div>
-      <div class="hint">Buttons: click, or keys W S ↑ ↓ (and 1–4). Switches: click.</div>
+      <div class="pcb" id="pcb"></div>
+      <div class="hint" id="hint"></div>
     </section>
-    <section class="card" style="grid-column: 1 / -1">
-      <h2>Serial console · 115200 baud</h2>
+    <section class="card wide" id="console-card" hidden>
+      <h2 id="console-title">Serial console</h2>
       <div class="console" id="console"></div>
       <form class="send" id="send">
         <input id="line" autocomplete="off" placeholder="Type a line for the design; Enter sends it with CR">
@@ -96,44 +93,101 @@
 </main>
 <script>
 "use strict";
+// Laid out from the board's resources (GET /layout): a widget per resource,
+// as the generated `serve` testbench declared them (crates/kg-board/src/bench.rs).
 const $ = (id) => document.getElementById(id);
 const ctx = $("screen").getContext("2d");
 const image = ctx.createImageData(640, 480);
-let buttons = 0, switches = 0, uartAt = 0, lastFrames = -1, alive = true;
+let uartAt = 0, lastFrames = -1, alive = true, widgets = [], values = [], hasScreen = false;
+const outputs = {};   // id -> update(value)
+const inputs = {};    // id -> {value, refresh()}
 
-// The panel's controls: eight LEDs and switches (bit 0 rightmost), four
-// buttons (bit 0 leftmost).
-const ledEls = [], switchEls = [], buttonEls = [];
-for (let i = 7; i >= 0; i--) {
-  const led = document.createElement("div"); led.className = "led"; $("leds").append(led); ledEls[i] = led;
-  const sw = document.createElement("button"); sw.className = "switch"; sw.title = "switch " + i;
-  sw.onclick = () => { switches ^= 1 << i; sendInputs(); };
-  $("switches").append(sw); switchEls[i] = sw;
+function row(label) {
+  const r = document.createElement("div"); r.className = "row";
+  const l = document.createElement("span"); l.className = "label"; l.textContent = label;
+  const cells = document.createElement("div"); cells.className = "row";
+  r.append(l, cells); $("pcb").append(r);
+  return cells;
 }
-for (let i = 0; i < 4; i++) {
-  const b = document.createElement("button"); b.className = "key"; b.textContent = i + 1;
-  const press = (down) => { buttons = down ? buttons | (1 << i) : buttons & ~(1 << i); sendInputs(); };
-  b.onpointerdown = () => press(true); b.onpointerup = b.onpointerleave = () => press(false);
-  $("buttons").append(b); buttonEls[i] = b;
+
+function sendInput(id) {
+  inputs[id].refresh();
+  fetch(`/input?id=${id}&value=${inputs[id].value}`, { method: "POST" }).catch(() => {});
 }
+
+// The first push-button resource answers to the keyboard: W S ↑ ↓, and 1-4.
+let keyed = null;
 const KEYS = { w: 0, s: 1, ArrowUp: 2, ArrowDown: 3, "1": 0, "2": 1, "3": 2, "4": 3 };
+
+function build(layout) {
+  $("title").textContent = layout.board + (layout.board === "virtual" ? " board" : "");
+  document.title = layout.board + " · front panel";
+  const buses = [];
+  for (const w of layout.widgets) {
+    if (w.kind === "led" && w.style === "rgb") {
+      const led = document.createElement("div"); led.className = "rgb"; led.title = w.doc;
+      row(w.name).append(led);
+      outputs[w.id] = (v) => {
+        led.style.background = v ? `rgb(${v & 4 ? 255 : 30},${v & 2 ? 230 : 30},${v & 1 ? 255 : 30})` : "";
+        led.style.boxShadow = v ? "0 0 12px currentColor" : "";
+      };
+    } else if (w.kind === "led") {
+      const cells = row(w.name), els = [];
+      for (let i = w.width - 1; i >= 0; i--) {
+        const led = document.createElement("div"); led.className = "led"; led.title = `${w.name}[${i}]`;
+        cells.append(led); els[i] = led;
+      }
+      outputs[w.id] = (v) => els.forEach((l, i) => l.classList.toggle("on", !!(v >> i & 1)));
+    } else if (w.kind === "button" && w.style === "switch") {
+      const cells = row(w.name), els = [];
+      const input = { value: 0, refresh: () => els.forEach((s, i) => s.classList.toggle("on", !!(input.value >> i & 1))) };
+      inputs[w.id] = input;
+      for (let i = w.width - 1; i >= 0; i--) {
+        const sw = document.createElement("button"); sw.className = "switch"; sw.title = `${w.name}[${i}]`;
+        sw.onclick = () => { input.value ^= 1 << i; sendInput(w.id); };
+        cells.append(sw); els[i] = sw;
+      }
+    } else if (w.kind === "button") {
+      const cells = row(w.name), els = [];
+      const input = { value: 0, refresh: () => els.forEach((b, i) => b.classList.toggle("down", !!(input.value >> i & 1))) };
+      inputs[w.id] = input;
+      for (let i = 0; i < w.width; i++) {
+        const b = document.createElement("button"); b.className = "key"; b.textContent = i + 1; b.title = `${w.name}[${i}]`;
+        const press = (down) => { input.value = down ? input.value | (1 << i) : input.value & ~(1 << i); sendInput(w.id); };
+        b.onpointerdown = () => press(true); b.onpointerup = b.onpointerleave = () => press(false);
+        cells.append(b); els[i] = b;
+      }
+      if (keyed === null) keyed = w.id;
+    } else if (w.kind === "uart") {
+      $("console-card").hidden = false;
+      $("console-title").textContent = `Serial console · ${w.name}`;
+    } else if (w.kind === "vga") {
+      $("screen-card").hidden = false;
+      $("screen-title").textContent = `Screen · ${w.name} · 640×480`;
+      hasScreen = true;
+    } else {
+      buses.push(`${w.name}: ${w.doc || w.kind}`);
+    }
+  }
+  const hints = [];
+  if (keyed !== null) hints.push("Buttons: click, or keys W S ↑ ↓ (and 1–4).");
+  if (Object.values(inputs).length > (keyed !== null ? 1 : 0)) hints.push("Switches: click.");
+  if (buses.length) hints.push("On the buses: " + buses.join("; ") + ".");
+  $("hint").textContent = hints.join(" ");
+  if (!hasScreen) $("grid").classList.add("single");
+}
+
 const onKey = (down) => (e) => {
-  if (document.activeElement === $("line")) return;
+  if (keyed === null || document.activeElement === $("line")) return;
   const i = KEYS[e.key];
   if (i === undefined) return;
   e.preventDefault();
-  const was = buttons;
-  buttons = down ? buttons | (1 << i) : buttons & ~(1 << i);
-  if (buttons !== was) sendInputs();
+  const input = inputs[keyed], was = input.value;
+  input.value = down ? input.value | (1 << i) : input.value & ~(1 << i);
+  if (input.value !== was) sendInput(keyed);
 };
 addEventListener("keydown", onKey(true));
 addEventListener("keyup", onKey(false));
-
-function sendInputs() {
-  buttonEls.forEach((b, i) => b.classList.toggle("down", !!(buttons >> i & 1)));
-  switchEls.forEach((s, i) => s.classList.toggle("on", !!(switches >> i & 1)));
-  fetch(`/input?buttons=${buttons}&switches=${switches}`, { method: "POST" }).catch(() => {});
-}
 
 $("send").onsubmit = (e) => {
   e.preventDefault();
@@ -143,10 +197,8 @@ $("send").onsubmit = (e) => {
 
 const decoder = new TextDecoder();
 function show(state) {
-  const c = state.rgb;
-  $("rgb").style.background = c ? `rgb(${c & 4 ? 255 : 30},${c & 2 ? 230 : 30},${c & 1 ? 255 : 30})` : "";
-  $("rgb").style.boxShadow = c ? "0 0 12px currentColor" : "";
-  ledEls.forEach((l, i) => l.classList.toggle("on", !!(state.leds >> i & 1)));
+  state.values.forEach((v, id) => { if (outputs[id] && v !== values[id]) outputs[id](v); });
+  values = state.values;
   if (state.uart.length) {
     const con = $("console");
     const atBottom = con.scrollTop + con.clientHeight >= con.scrollHeight - 4;
@@ -157,7 +209,7 @@ function show(state) {
   uartAt = state.uart_at;
   $("noscreen").style.display = state.screen ? "none" : "";
   $("status").textContent =
-    `simulating at ${state.mhz.toFixed(2)} MHz · ${state.frames} frames` + (state.screen ? ` · ${state.fps.toFixed(1)} fps` : "");
+    `simulating at ${state.mhz.toFixed(2)} MHz` + (hasScreen ? ` · ${state.frames} frames` : "") + (state.screen ? ` · ${state.fps.toFixed(1)} fps` : "");
 }
 
 async function drawFrame() {
@@ -188,7 +240,9 @@ async function poll() {
   }
   setTimeout(poll, 50);
 }
-poll();
+
+fetch("/layout").then((r) => r.json()).then((layout) => { build(layout); poll(); })
+  .catch(() => { $("status").innerHTML = '<span class="gone">the simulation is not running</span>'; });
 </script>
 </body>
 </html>

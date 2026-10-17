@@ -36,10 +36,14 @@ Notable changes to kgrust, newest first. The format follows
   Kanagawa classes over them (`periph.spi.flash`, `periph.i2c.bus`,
   `periph.text`), and models of a SPI flash and an I2C sensor for
   simulation, in SystemVerilog and in Python.
-- The virtual board: no hardware, every resource kind, and a front panel in
-  the browser served by the simulation itself (LEDs, buttons, switches, a
-  serial console, a 640x480 screen). `kg board new … --board virtual` starts
-  a project anyone can run.
+- A front panel for any board: `kg board serve` generates its testbench from
+  the board's resources and opens a page served by the simulation itself,
+  with live LEDs, buttons and switches, a serial console, and, for a board
+  with a `vga` resource, a live screen (about 27 frames a second for pong,
+  half real time, with the clock driven from C++). `kgbridge.Panel` drives it
+  from a script: LEDs, buttons, console, frames, PNGs.
+- The virtual board: no hardware, every resource kind. `kg board new …
+  --board virtual` starts a project anyone can run.
 - Examples for any board: `accel` (called from Python, with a callback into
   Python), `spi-flash` and `i2c-sensor` (the peripheral library on a board's
   buses) and `pong` (VGA, buttons

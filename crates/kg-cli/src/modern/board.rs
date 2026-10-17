@@ -40,10 +40,11 @@ pub enum BoardCommand {
     Bitstream(FlowArgs),
     /// Program the board with the last bitstream.
     Flash,
-    /// Build, then run the core in simulation with its I/O on the host (a
-    /// serial port on a pseudo-terminal, exported as BOARD_PTY). With a
-    /// command after `--`, run it against the simulation and exit with its
-    /// status.
+    /// Build, then run the core in simulation with its I/O on the host: a
+    /// front panel in the browser (LEDs, buttons, console, screen; its
+    /// address exported as BOARD_PANEL) and the serial port on a
+    /// pseudo-terminal (BOARD_PTY). With a command after `--`, run it
+    /// against the simulation and exit with its status.
     Serve(ServeArgs),
     /// Build, synthesise, and count the cells of the core (or `--top`).
     Area(AreaArgs),

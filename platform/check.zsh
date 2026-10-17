@@ -13,7 +13,8 @@
 #   python3) has cocotb 2;
 # - each test_*.py over the bridge under `kg board serve`, and a host.py's
 #   own test;
-# - the screen, through the front panel, on a board with one.
+# - a check_panel.py through the front panel: buttons, LEDs, console,
+#   screen.
 # Then the platform's examples on every other board (`kg board new`), the
 # peripheral engines' tests and the iCE40 HAL's check. Prints a line per
 # step and exits non-zero if any failed. Logs land in each project's
@@ -69,9 +70,7 @@ run() {   # the flows of the project in $1
     step $dir serve-$t:r $kg board serve -- python3 -I $t
   done
   [[ -f $dir/host.py ]] && step $dir serve-host $kg board serve -- python3 -I host.py test --count 200 --stream
-  if [[ -f $dir/screen.args ]]; then
-    step $dir screen $kg board serve -- python3 -I $PWD/platform/test/screen/check_screen.py ${(z)$(<$dir/screen.args)}
-  fi
+  [[ -f $dir/check_panel.py ]] && step $dir panel $kg board serve -- python3 -I check_panel.py
 }
 
 for dir in $examples; do

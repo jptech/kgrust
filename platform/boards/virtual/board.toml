@@ -12,15 +12,10 @@
 [board]
 name = "virtual"
 vendor = "kgrust"
-# No shell: the core is the whole board, its resources the panel's.
+# No shell: the core is the whole board. `kg board serve` generates its
+# testbench from the resources below, each a widget on the front panel
+# (crates/kg-board/src/bench.rs), as it does for any board.
 core-module = "virtual_core"
-bridge = [
-    "sim/vboard.sv",
-    "../../sim/vboard.cpp",
-    "../../sim/uart_pty.cpp",
-    "../../sim/models/spi_flash_model.sv",
-    "../../sim/models/i2c_target_model.sv",
-]
 
 [fpga]
 device = "ice40-up5k"
@@ -50,6 +45,7 @@ max-threads-default = 4
 kind = "led"
 doc = "an RGB LED: {red, green, blue}"
 width = 3
+style = "rgb"
 pins = { out = "rgb" }
 
 [resources.leds]
@@ -68,6 +64,7 @@ pins = { in = "buttons" }
 kind = "button"
 doc = "eight slide switches, bit 0 rightmost"
 width = 8
+style = "switch"
 pins = { in = "switches" }
 
 [resources.uart]

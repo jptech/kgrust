@@ -75,10 +75,11 @@ names one.
    over the bridge to the board, over the bridge to `kg board serve`'s
    simulation, and over the module's own ports under cocotb. A test written
    with `@kgbridge.test` runs in all three unchanged.
-10. **The virtual board is a board** (§9): a `board.toml` with resources
-    and a bridge testbench, whose C++ serves its own front panel. `kg`
-    gains no network or GUI dependency; the page is one self-contained
-    file.
+10. **The front panel is generated for any board** (§9): `serve`'s
+    testbench comes from the board's resources, and its C++ serves the
+    panel, so a board with a VGA output gets a live screen by declaring
+    one. The virtual board is just a board with every kind. `kg` gains no
+    network or GUI dependency; the page is one self-contained file.
 
 ## 2. Step 1 as built: `kg board` (2026-10-17)
 
@@ -513,32 +514,74 @@ every test over the serial bridge, to `kg board serve`'s pseudo-terminal or
 to `--port`. `platform/test/probe` exercises every protocol of §4 through
 both transports, and the bytes SLIP escapes each way.
 
-## 9. The virtual board
+## 9. The front panel, and the virtual board
 
-`platform/boards/virtual` is a board with no hardware: the UPduino's
-device, a 25 MHz clock, and every resource kind: an RGB LED, eight LEDs,
-four buttons, eight switches, a serial port, SPI with a flash, I2C with a
-sensor, and a 640x480 screen. `sim`, `serve` and `test` run; `bitstream`,
-`flash`, `netsim` and `area` say it is simulated only.
+**`kg board serve` puts any board's resources on the host**, from the
+testbench it generates from `[resources.*]` (`crates/kg-board/src/bench.rs`);
+a board naming its own `bridge` in `board.toml` gets that instead, as the
+Mimas A7 would. Each resource is a widget on a front panel the simulation
+serves itself (`platform/sim/vboard.cpp`, `vboard.html`), laid out from the
+board's resources (`GET /layout`):
 
-Its bridge testbench (`sim/vboard.sv`) puts the serial port on a
-pseudo-terminal, as the UPduino's does, so kgbridge and host programs run
-against it unchanged. It reads the screen off the VGA pins as a monitor
-would. `platform/sim/vboard.cpp` serves a front panel on 127.0.0.1 from
-inside the simulation; `kg board serve` prints its address and passes it to
-a command as `BOARD_PANEL`. The page (`platform/sim/vboard.html`, one
-self-contained file) draws the screen, the LEDs, buttons (click, or W S ↑ ↓)
-and switches, and a serial console that also types into the design.
+| Kind | On the host |
+|---|---|
+| `led` | live on the panel (`style = "rgb"`: one RGB LED), and printed as it changes |
+| `button` | clicked on the panel (`style = "switch"`: slide switches); the first set also answers W S ↑ ↓ and 1–4 |
+| `uart` | a pseudo-terminal (`BOARD_PTY`) and the panel's console, both typing into the design |
+| `spi`, `i2c` | a SPI flash and an I2C sensor at 0x48 (`platform/sim/models`) |
+| `vga` | the screen, read off the pins by `platform/sim/vga_capture.sv`, as a monitor would |
 
-**Speed.** The plan judged VGA at about 7 frames a second from blinky's
-simulation speed. Pong (`platform/examples/pong`: no RTL, no frame buffer;
-the picture a function of a few registers that `vga_frame` updates) runs at
-9.2 to 10.4 frames a second, the simulation at 3.8 to 3.9 MHz, some 15% of
-real time (2026-10-17, `kg board serve -- python3
-platform/test/screen/check_screen.py`, Apple M-series, Verilator 5.052).
+So a board with a VGA output gets a live screen by declaring `[resources.vga]`:
+the generated core drives it from the design's `vga_pixel`, and the
+generated testbench reads it back. `platform/test/vga-board` is a second such
+board, its resources named unlike the virtual board's and with no serial port
+at all, and pong runs on it through the same checks. The UPduino's `serve`
+gained the panel too (its LED and console); its and the virtual board's
+hand-written bridges are gone.
 
-`platform/test/screen/check_screen.py` checks a panel from outside: whole
-frames, pixels, the rates. Pong's paddles, net and background pass it.
+**Live: the clock is C++'s.** The generated testbench takes `clk` as a port
+and `platform/sim/main.cpp` toggles it as fast as Verilator evaluates, so it
+builds without `--timing`. Pong on the virtual board (2026-10-17, Verilator
+5.052, `kg board serve -- python3 platform/test/screen/check_screen.py`):
+
+| | Simulated | Frames a second | Real time |
+|---|---|---|---|
+| clocked by `#` delays under `--timing` | 3.9 MHz | 9.2 | 15% |
+| clocked from C++ | 11.9 MHz | 27.4 | 48% |
+
+The monitor's streamed 200-word test over `serve` went from 1.98 s to 0.55 s.
+Nothing else measured helped: `-O3` with fast X handling, +1%; `--noassert`,
++9%, but it turns off the runtime's assertions, which found the HAL's FIFO
+bug (§10); `--threads 2` and `4`, six and twelve times slower. Reading the
+screen costs nothing measurable (3.89 MHz with it, 3.85 without), so there is
+no switch to turn it off. The design's own simulation is the cost.
+
+**From a script: `kgbridge.Panel`.** A test reads the LEDs, holds buttons,
+sets switches, reads and types into the console, and takes whole frames
+(`Frame.pixel`, `rows`, `save_png`), each widget by its resource's name or
+found by kind:
+
+```python
+panel = kgbridge.Panel()                 # BOARD_PANEL under `kg board serve`
+panel.set(panel.find("button"), 0b10)    # hold the second button
+frame = panel.frame()                    # the next whole frame
+frame.save_png("pong.png")
+```
+
+A project's `check_panel.py` runs under `serve` in `platform/check.zsh`.
+Pong's holds the left player's buttons and watches the paddle move on the
+screen, and checks the ball, the net, the background and the score; the
+monitor's types commands into the console and reads the replies and the LED.
+`platform/test/screen/check_screen.py` checks frames and pixels from the
+command line. Pong's game is also tested under cocotb, calling `vga_pixel`
+and `vga_frame` directly (`kgbridge.test(..., only="cocotb")`: they are
+wired to the screen, not the bridge).
+
+**The virtual board** (`platform/boards/virtual`) is a board with no
+hardware: the UPduino's device, a 25 MHz clock, and every resource kind (an
+RGB LED, eight LEDs, four buttons, eight switches, a serial port, SPI and I2C
+with devices on them, a 640x480 screen). `sim`, `serve` and `test` run;
+`bitstream`, `flash`, `netsim` and `area` say it is simulated only.
 
 ## 10. Found on the way
 
@@ -566,19 +609,21 @@ frames, pixels, the rates. Pong's paddles, net and background pass it.
 
 `platform/check.zsh` (2026-10-17, with `KG_COCOTB_PYTHON` naming a
 virtual environment with cocotb 2.1.0; Verilator 5.052, Yosys 0.69,
-nextpnr-ice40): 39 steps pass, and one is skipped by design, pong copied to
-the UPduino, which has no screen ("no resource `vga`").
+nextpnr-ice40): 43 steps pass, and one is skipped by design, pong copied to
+the UPduino, which has no screen ("no resource `vga`"). The `serve` steps run
+under the generated testbench and its C++ clock (§9).
 
 | Project | Board | What passed |
 |---|---|---|
 | upduino-v3 `blinky` | upduino-v3 | sim, netsim; 55 cells, 73.2 MHz; 41 LUT4 / 38 FF |
-| upduino-v3 `monitor` | upduino-v3 | sim, netsim (261 reply bytes); 375 cells, 45.0 MHz; 215 / 198, 2 SPRAM; `host.py test --count 200 --stream` under `serve` |
+| upduino-v3 `monitor` | upduino-v3 | sim, netsim (261 reply bytes); 375 cells, 45.0 MHz; 215 / 198, 2 SPRAM; `host.py test --count 200 --stream` under `serve` (0.55 s); `check_panel.py`: commands typed into the panel's console, replies and the LED read back |
 | upduino-v3 `spram` | upduino-v3 | sim, netsim; 159 cells, 60.1 MHz; 100 / 96, 2 SPRAM |
 | mimas-a7 `blinky` | mimas-a7 | sim |
 | `accel` | virtual; upduino-v3 copy | cocotb 4/4, bridge 4/4 on both; 3,214 cells (60.9%), 32.3 MHz; 1,669 / 2,067, 4 EBR, 1 DSP |
 | `spi-flash` | virtual; upduino-v3 copy | cocotb 1/1, bridge 1/1 on both; 3,985 cells (75.5%), 30.3 MHz |
 | `i2c-sensor` | virtual; upduino-v3 copy | cocotb 1/1, bridge 1/1 on both; 3,479 cells (65.9%), 34.1 MHz |
-| `pong` | virtual | the front panel: 11 frames at 9.5 frames a second, 3.98 MHz simulated; the net, the background and both paddles' columns |
+| `pong` | virtual | cocotb 1/1 (the game, calling `vga_pixel` and `vga_frame`); `check_panel.py`: the paddle follows held buttons on the screen, the ball, net, background and score, 27.0 frames a second at 11.26 MHz |
+| `test/vga-board` | a second board with a screen, no serial port | pong's `check_panel.py`: 27.2 frames a second |
 | `test/probe` | upduino-v3 | cocotb 5/5, bridge 5/5; 2,304 cells, 29.7 MHz |
 | `rtl/periph/test` | — | 6 PASS lines (SPI, and I2C at five speeds and stretches) |
 | `rtl/hal/ice40/test` | — | 10 PASS lines (the HAL, 9 mapping checks) |
@@ -586,8 +631,9 @@ the UPduino, which has no screen ("no resource `vga`").
 Also checked:
 - **Tests**: `cargo test --workspace --profile quick` and clippy with
   `-D warnings` pass. The new unit tests:
-  - `kg-board`: the interface (7), the generator (5), the Python names, and
-    `kg board new`'s manifest edits and shared examples;
+  - `kg-board`: the interface (7), the generator (5), the `serve` testbench
+    (2), the Python names, and `kg board new`'s manifest edits and shared
+    examples;
   - `kg-config`: resources, `connect`, `tests`;
   - `kg-cli`: every board command parses.
 - **The front panel in a browser's place**: the page served, its script
@@ -626,6 +672,12 @@ failing run, none a compile error (three checked in the log):
   signedness, and the DSP branch itself (the mapping count).
 - **Not counted here**: the peripheral engines' own 12 (`rtl/periph/test/mutate.sh`, §5).
 
+Six more for the front panel (2026-10-17), all caught: the generated
+testbench's I2C pull-up and its VGA capture source (its unit tests), the
+capture's horizontal timing and the panel's input handling (pong's
+`check_panel.py`), pong's clamped motion (its cocotb test), and kgbridge's
+`only="cocotb"` filter (pong's test run over the bridge).
+
 One survived first: the cocotb driver read a fixed-latency result a cycle
 late and the probe still passed, because the driver left a call's arguments
 on the ports after it, so the late read saw the same answer. The driver now
@@ -644,8 +696,11 @@ drives idle arguments to zero, and the mutant is caught.
   is the next step if a design wants it.
 - **A Kanagawa class declared outside the project's sources** cannot be
   described yet, nor a template instance (`export Foo<8>`).
-- **The front panel for the UPduino's `serve`**: its bridge has LEDs to show
-  and could use `vboard.cpp` as the virtual board does.
+- **Other VGA modes.** 640x480 at 60 Hz is the one mode, shared by
+  `vga_timing.sv` and `vga_capture.sv` through `wrapper.rs`'s `VGA_H` and
+  `VGA_V`; another is a row in each.
+- **Faster than half real time** would need the design simulated in
+  parallel; Verilator's threads made this one slower (§9).
 - **Whether `kg board sim` and `test` join CI**: they need Verilator 5,
   Yosys's cell models and cocotb on the runner, while CI builds no backend
   today (AGENTS.md).
@@ -658,3 +713,6 @@ drives idle arguments to zero, and the mutant is caught.
 - 2026-10-17: step 1 built and checked (§2).
 - 2026-10-17: steps 2–7 built and checked (§4–§9, §11); three faults in the
   platform layer found and fixed on the way (§10).
+- 2026-10-17: the front panel generated for any board, with a live screen
+  for any board with a `vga` resource (§9); `kgbridge.Panel`; a second VGA
+  board as the test.

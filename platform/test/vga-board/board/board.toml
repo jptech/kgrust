@@ -1,0 +1,35 @@
+# A second board with a screen, for the board tooling's own tests: the
+# generated `serve` testbench and the front panel are the same for any board
+# with a `vga` resource, whatever it calls its resources, with no serial
+# port at all (docs/plans/board-tooling.md §9). Simulated only.
+
+[board]
+name = "vga-test"
+core-module = "screen_core"
+
+[fpga]
+device = "ice40-up5k"
+part = "up5k"
+package = "sg48"
+hal = "ice40"
+tool = "virtual"
+
+[clock]
+mhz = 25
+
+[hw]
+max-threads-default = 4
+
+[resources.screen]
+kind = "vga"
+doc = "a VGA connector"
+
+[resources.keys]
+kind = "button"
+width = 4
+doc = "four keys"
+
+[resources.lights]
+kind = "led"
+width = 8
+doc = "eight lights"

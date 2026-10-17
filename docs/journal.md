@@ -18191,3 +18191,36 @@ first, and the test asserts the order.
 **The virtual board's VGA ran faster than estimated.** The plan judged 7
 frames a second from blinky's simulation speed. Pong measured 9.2 to 10.4,
 the simulation at 3.8 to 3.9 MHz.
+
+## A live screen for any board — 2026-10-17
+
+**The front panel became infrastructure.** The virtual board's screen lived
+in its own hand-written testbench. `kg board serve` now generates the
+testbench from any board's `[resources]`
+([`plans/board-tooling.md`](plans/board-tooling.md) §9), and a board gets a
+live screen by declaring `[resources.vga]`. A second test board, its
+resources named differently and with no serial port, runs pong through the
+same checks unchanged. The UPduino's `serve` gained the panel as well.
+
+**Live came from the clock, not from the screen.** Reading the VGA pins
+seemed the obvious cost, and it measured as none: 3.89 MHz with it, 3.85
+without, so the planned `--no-screen` switch was dropped. The cost was
+Verilator's `--timing` scheduler, driving a clock written as `#` delays.
+Taking the clock as a port and toggling it from a C++ loop tripled the
+speed: pong went from 9.2 to 27.4 frames a second, 48% of real time.
+Verilator's threads made it six to twelve times slower. `--noassert` would
+add 9%, but it turns off the runtime's assertions, and those found this
+session's HAL bug, so it stays off.
+
+**The screen check found a bug the cocotb tests could not.** A frame with no
+ball in it led to pong's opening move: the ball starts at x = 0 heading
+left, `_x - SPEED` wrapped a `uint10` to 1020, and the ball spent 95 frames
+off screen before drifting back. The motion now clamps, and the opening
+frame scores and serves, which both the cocotb test and the panel check
+assert.
+
+**A `git checkout -- <file>` threw away uncommitted work.** It was meant to
+undo a one-line experiment in a file that also held a rewrite; the rewrite
+went with it and had to be applied again from the session's own record. To
+undo an experiment, edit it back out. Restore a file from git only when
+everything uncommitted in it is meant to go.

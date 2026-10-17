@@ -11,15 +11,29 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::{Design, Failure, Result, fresh_dir, require, run_logged};
 
+/// How a testbench is clocked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Clock {
+    /// It clocks itself with `#` delays, under `--timing`.
+    Own,
+    /// `platform/sim/main.cpp` drives its `clk` port: no `--timing`.
+    Port,
+}
+
 /// Builds `srcs` (top `tb`) into `<out>/<name>/obj/tb`.
-pub fn build(design: &Design, name: &str, srcs: &[Utf8PathBuf], defines: &[&str]) -> Result<Utf8PathBuf> {
+pub fn build(design: &Design, name: &str, srcs: &[Utf8PathBuf], defines: &[&str], clock: Clock) -> Result<Utf8PathBuf> {
     require("verilator")?;
     let dir = design.out.join(name);
     fresh_dir(&dir)?;
+    let mode: &[&str] = match clock {
+        Clock::Own => &["--binary", "--timing"],
+        Clock::Port => &["--cc", "--exe", "--build"],
+    };
     // SIMULATION: upstream's mock HAL refuses to compile without it.
     run_logged(
         Command::new("verilator")
-            .args(["--binary", "--timing", "-j", "0", "-DSIMULATION", "-Wno-fatal", "-Wno-lint", "-Wno-style"])
+            .args(mode)
+            .args(["-j", "0", "-DSIMULATION", "-Wno-fatal", "-Wno-lint", "-Wno-style"])
             .args(["--top-module", "tb", "-o", "tb"])
             .arg("-Mdir").arg(dir.join("obj"))
             .args(defines)
@@ -32,7 +46,7 @@ pub fn build(design: &Design, name: &str, srcs: &[Utf8PathBuf], defines: &[&str]
 
 /// Builds and runs a testbench; passes on its `PASS` line.
 pub fn check(design: &Design, name: &str, srcs: &[Utf8PathBuf], defines: &[&str], log: &mut dyn Write) -> Result<()> {
-    let tb = build(design, name, srcs, defines)?;
+    let tb = build(design, name, srcs, defines, Clock::Own)?;
     let run_log = design.out.join(name).join("run.log");
     let mut child = Command::new(&tb)
         .stdout(Stdio::piped())
@@ -61,37 +75,44 @@ fn verdict_line(line: &str) -> bool {
     ["PASS", "FAIL", "ERROR"].iter().any(|w| line.starts_with(w)) || line.contains("%Error")
 }
 
-/// `kg board serve`: the core under the board's bridge testbench, its I/O
-/// on the host — for a serial port, a pseudo-terminal whose path the bridge
-/// writes to the file named by `+pty_path_file`. The path is printed and
-/// passed to `command` as `BOARD_PTY`, and a front panel's address, where
-/// the bridge has one, as `BOARD_PANEL`; with a command, the simulation stops
-/// when it does, and its status is the result. Without one, the simulation
-/// runs, its output shown, until interrupted.
+/// `kg board serve`: the core with its I/O on the host, under the board's
+/// own bridge testbench where `board.toml` names one, else the testbench
+/// generated from its resources ([`crate::bench`]). A serial port is a
+/// pseudo-terminal whose path the testbench writes to the file named by
+/// `+pty_path_file`; it is printed and passed to `command` as `BOARD_PTY`.
+/// The front panel's address, where there is one, is printed and passed as
+/// `BOARD_PANEL`. With a command, the simulation stops when it does, and
+/// its status is the result; without one, the simulation runs, its output
+/// shown, until interrupted.
 pub fn serve(design: &Design, command: &[String], log: &mut dyn Write) -> Result<i32> {
-    let bridge: Vec<Utf8PathBuf> = design.board.spec.board.bridge.iter().map(|p| design.board.file(p)).collect();
-    if bridge.is_empty() {
-        return Err(Failure::Usage(format!("the board {} has no bridge for `serve`", design.board.name())));
-    }
+    let board = design.board;
+    let own: Vec<Utf8PathBuf> = board.spec.board.bridge.iter().map(|p| board.file(p)).collect();
+    let (bridge, defines, clock) = if own.is_empty() {
+        let mut files = vec![crate::bench::write(board, &design.out)?];
+        files.extend(crate::bench::support(board));
+        (files, Vec::new(), Clock::Port)
+    } else {
+        // A board's own bridge takes its UART's rate as a parameter.
+        let spec = &board.spec;
+        let clks = spec.resources.values().find(|r| r.kind == "uart").zip(spec.clock.mhz).map(|(uart, mhz)| {
+            let baud = u64::from(uart.baud.unwrap_or(115_200));
+            format!("-GCLKS_PER_BIT={}", (mhz as u64 * 1_000_000 + baud / 2) / baud)
+        });
+        (own, clks.into_iter().collect(), Clock::Own)
+    };
     let srcs = design.simulation_sources(&bridge)?;
-    // The bridge's UART at the board's rate.
-    let spec = &design.board.spec;
-    let clks = spec.resources.values().find(|r| r.kind == "uart").zip(spec.clock.mhz).map(|(uart, mhz)| {
-        let baud = u64::from(uart.baud.unwrap_or(115_200));
-        format!("-GCLKS_PER_BIT={}", (mhz as u64 * 1_000_000 + baud / 2) / baud)
-    });
-    let defines: Vec<&str> = clks.iter().map(String::as_str).collect();
-    let tb = build(design, "serve", &srcs, &defines)?;
+    let defines: Vec<&str> = defines.iter().map(String::as_str).collect();
+    let tb = build(design, "serve", &srcs, &defines, clock)?;
     let dir = design.out.join("serve");
     let pty_file = dir.join("pty");
+    let panel_file = dir.join("panel");
+    let page = board.platform.join("sim/vboard.html");
     let run_log = dir.join("run.log");
     let output = if command.is_empty() {
         Stdio::inherit()
     } else {
         Stdio::from(std::fs::File::create(&run_log).map_err(|e| Failure::Failed(format!("{run_log}: {e}")))?)
     };
-    let panel_file = dir.join("panel");
-    let page = design.board.platform.join("sim/vboard.html");
     let mut sim = Command::new(&tb)
         .arg(format!("+pty_path_file={pty_file}"))
         .arg(format!("+vboard_page={page}"))
@@ -99,30 +120,38 @@ pub fn serve(design: &Design, command: &[String], log: &mut dyn Write) -> Result
         .stdout(output)
         .spawn()
         .map_err(|e| Failure::Failed(format!("cannot run {tb}: {e}")))?;
-    let Some(pty) = wait_for(&pty_file, Duration::from_secs(30)) else {
+    let has_uart = board.spec.resources.values().any(|r| r.kind == "uart") || !board.spec.board.bridge.is_empty();
+    let has_panel = bridge.iter().any(|p| p.file_name() == Some("vboard.cpp"));
+    let pty = if has_uart { wait_for(&pty_file, Duration::from_secs(30)) } else { None };
+    let panel = if has_panel { wait_for(&panel_file, Duration::from_secs(30)).map(|port| format!("http://127.0.0.1:{port}/")) } else { None };
+    if (has_uart && pty.is_none()) || (has_panel && panel.is_none()) {
         let _ = sim.kill();
         let _ = sim.wait();
-        return Err(Failure::Failed(format!("the simulation opened no pseudo-terminal ({run_log})")));
-    };
-    // A bridge with a front panel (platform/sim/vboard.cpp) opens it next.
-    let panel = if bridge.iter().any(|p| p.file_name() == Some("vboard.cpp")) {
-        wait_for(&panel_file, Duration::from_secs(10)).map(|port| format!("http://127.0.0.1:{port}/"))
-    } else {
-        None
-    };
+        return Err(Failure::Failed(format!("the simulation opened neither its pseudo-terminal nor its front panel ({run_log})")));
+    }
     if let Some(url) = &panel {
         let _ = writeln!(log, "front panel: {url}");
     }
     let Some((program, args)) = command.split_first() else {
-        let _ = writeln!(log, "serving on {pty} (BOARD_PTY); ^C stops");
+        match &pty {
+            Some(pty) => {
+                let _ = writeln!(log, "serving on {pty} (BOARD_PTY); ^C stops");
+            }
+            None => {
+                let _ = writeln!(log, "serving; ^C stops");
+            }
+        }
         let _ = log.flush();
         let status = sim.wait().map_err(|e| Failure::Failed(format!("{tb}: {e}")))?;
         return Ok(status.code().unwrap_or(1));
     };
-    let _ = writeln!(log, "serving on {pty}: {}", command.join(" "));
+    let _ = writeln!(log, "serving on {}: {}", pty.as_deref().unwrap_or("no serial port"), command.join(" "));
     let _ = log.flush();
     let mut child = Command::new(program);
-    child.args(args).env("BOARD_PTY", &pty);
+    child.args(args);
+    if let Some(pty) = &pty {
+        child.env("BOARD_PTY", pty);
+    }
     if let Some(url) = &panel {
         child.env("BOARD_PANEL", url);
     }

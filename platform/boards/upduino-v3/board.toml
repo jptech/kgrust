@@ -14,14 +14,6 @@ url = "https://github.com/tinyvision-ai-inc/UPduino-v3.0"
 # (platform/rtl/periph) come with every board.
 rtl = ["rtl/upduino_top.sv"]
 top-module = "upduino_top"
-# `kg board serve`: the core's serial pins on a pseudo-terminal, in
-# simulation, and models of a SPI flash and an I2C sensor on its buses.
-bridge = [
-    "sim/uart_pty.sv",
-    "../../sim/uart_pty.cpp",
-    "../../sim/models/spi_flash_model.sv",
-    "../../sim/models/i2c_target_model.sv",
-]
 core-module = "upduino_core"
 
 [fpga]
@@ -58,6 +50,9 @@ no-reset-fanout = true
 max-threads-default = 4
 
 # What a design can use, on the core module's ports (rtl/upduino_top.sv).
+# `kg board serve` puts each on the host too: the LED on a front panel in
+# the browser, the serial port there and on a pseudo-terminal, and a SPI
+# flash and an I2C sensor on the buses (crates/kg-board/src/bench.rs).
 # A function binds to one by name (`led`, `uart_rx`, `_spi`) or by the
 # project's [board] connect; whatever binds to nothing is reachable over the
 # serial port through the host bridge (docs/plans/board-tooling.md §6).
@@ -66,6 +61,7 @@ max-threads-default = 4
 kind = "led"
 doc = "the RGB LED: {red, green, blue}, 1 lights"
 width = 3
+style = "rgb"
 pins = { out = "rgb" }
 
 [resources.uart]

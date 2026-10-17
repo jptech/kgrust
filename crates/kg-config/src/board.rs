@@ -99,6 +99,9 @@ pub struct Resource {
     pub hz: Option<u32>,
     /// SPI's mode, 0 to 3.
     pub mode: Option<u8>,
+    /// How a front panel shows it: `rgb` for three LEDs that are one RGB
+    /// LED, `switch` for buttons that stay where they are put.
+    pub style: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]

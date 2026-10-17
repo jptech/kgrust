@@ -85,14 +85,17 @@ public:
             _left = paddle(_left, (buttons & 1) != 0, (buttons & 2) != 0, _y);
             _right = paddle(_right, (buttons & 4) != 0, (buttons & 8) != 0, _y);
 
-            uint10 x = _rightward ? _x + SPEED : _x - SPEED;
-            uint10 y = _downward ? _y + SPEED : _y - SPEED;
-            if (y < SPEED)
+            // Clamped at the edges, never wrapped: the ball starts at the
+            // corner, heading left, so the first frame is a miss and serves.
+            uint10 x = _rightward ? _x + SPEED : (_x > SPEED ? _x - SPEED : 0);
+            uint10 y = _downward ? _y + SPEED : (_y > SPEED ? _y - SPEED : 0);
+            if (y == 0)
             {
                 _downward = true;
             }
-            if (y >= HEIGHT - BALL - SPEED)
+            if (y >= HEIGHT - BALL)
             {
+                y = HEIGHT - BALL;
                 _downward = false;
             }
 
@@ -100,8 +103,8 @@ public:
             // and the ball serves again from the middle.
             bool left_hit = !_rightward && within(x, LEFT_X, 8) && y + BALL > _left && y < _left + PADDLE;
             bool right_hit = _rightward && x + BALL > RIGHT_X && x < RIGHT_X + 8 && y + BALL > _right && y < _right + PADDLE;
-            bool left_miss = !_rightward && x < SPEED;
-            bool right_miss = _rightward && x > WIDTH - BALL - SPEED;
+            bool left_miss = !_rightward && x == 0;
+            bool right_miss = _rightward && x >= WIDTH - BALL;
             if (left_hit)
             {
                 _rightward = true;

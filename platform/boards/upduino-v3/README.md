@@ -21,7 +21,10 @@ kg board new hello --board upduino-v3 --example accel
 | `i2c` | I2C bus | header pins 2 (SCL), 3 (SDA) | 100 kHz, open drain, internal pull-ups |
 
 The clock is the internal 48 MHz oscillator divided to 24 MHz (`SB_HFOSC`),
-so no jumper is needed. `kg board info` lists the resources too.
+so no jumper is needed. `kg board info` lists the resources too, and `kg
+board serve` puts them on the host: the LED and the serial console on a
+front panel in the browser, the serial port on a pseudo-terminal, and a SPI
+flash and an I2C sensor on the buses.
 
 ## Decisions, and how to change them
 

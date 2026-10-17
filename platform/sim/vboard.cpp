@@ -1,19 +1,22 @@
-// The virtual board's front panel: a simulated design's LEDs, buttons,
-// switches, serial console and screen, in a browser. A board's bridge
-// testbench (virtual/sim/vboard.sv) calls these through Verilator's DPI-C as
-// the simulation runs; a thread here serves vboard.html and the panel's
-// state over HTTP on 127.0.0.1, at the port it writes to the file named by
-// `vb_open`'s second argument (`kg board serve` prints the address).
+// A simulated board's front panel: its LEDs, buttons and switches, serial
+// console and screen, in a browser. The `serve` testbench kg board generates
+// from a board's resources (crates/kg-board/src/bench.rs) declares a widget
+// per resource and calls these through Verilator's DPI-C as the simulation
+// runs; a thread here serves vboard.html and the panel's state over HTTP on
+// 127.0.0.1, at the port it writes to the file named by `vb_open`'s second
+// argument (`kg board serve` prints the address; `kgbridge.Panel` reads it).
 //
 // The simulation never waits for the browser. State is shared under one
 // mutex: the testbench's calls set it, the page polls it.
 //
 // HTTP, one request per connection:
 //   GET  /             the page
-//   GET  /state?uart=N the panel as JSON, with the serial output from byte N
+//   GET  /layout       the board and its widgets, as JSON
+//   GET  /state?uart=N every widget's value, the screen's rates, and the
+//                      serial output from byte N, as JSON
 //   GET  /frame        the last whole frame: width x height pixels of 12 bits,
 //                      two bytes each, little-endian {r, g, b}
-//   POST /input?buttons=B&switches=S
+//   POST /input?id=I&value=V   an input widget's value
 //   POST /uart         the body's bytes, to the design's serial input
 
 #include <arpa/inet.h>
@@ -36,11 +39,18 @@ namespace {
 constexpr int WIDTH = 640;
 constexpr int HEIGHT = 480;
 
+struct Widget {
+    std::string kind, name, style, doc;
+    int width = 1;
+    uint32_t value = 0;
+};
+
 struct Panel {
     std::mutex lock;
     std::string page;
-    uint32_t leds[4] = {0, 0, 0, 0};     // by the testbench's index: 0 rgb, 1 leds
-    uint32_t inputs[4] = {0, 0, 0, 0};   // 0 buttons, 1 switches
+    std::string board;
+    double clock_mhz = 0;
+    std::vector<Widget> widgets;        // by the testbench's id
     std::vector<uint8_t> uart_out;      // everything the design has sent
     std::deque<uint8_t> uart_in;        // typed in the page, not yet sent
     std::vector<uint16_t> drawing = std::vector<uint16_t>(WIDTH * HEIGHT);
@@ -55,6 +65,17 @@ struct Panel {
 };
 
 Panel panel;
+
+// A string as a JSON literal.
+std::string json_string(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '"' || c == '\\') out += '\\';
+        if (static_cast<unsigned char>(c) < 0x20) continue;
+        out += c;
+    }
+    return out + "\"";
+}
 
 std::string query(const std::string& target, const std::string& key) {
     auto q = target.find('?');
@@ -121,15 +142,26 @@ void serve_one(int fd) {
     std::lock_guard<std::mutex> guard(panel.lock);
     if (method == "GET" && path == "/") {
         respond(fd, "text/html; charset=utf-8", panel.page.data(), panel.page.size());
+    } else if (method == "GET" && path == "/layout") {
+        std::string json = "{\"board\":" + json_string(panel.board) + ",\"mhz\":" + std::to_string(panel.clock_mhz) + ",\"widgets\":[";
+        for (size_t i = 0; i < panel.widgets.size(); i++) {
+            const Widget& w = panel.widgets[i];
+            if (i) json += ",";
+            json += "{\"id\":" + std::to_string(i) + ",\"kind\":" + json_string(w.kind) + ",\"name\":" + json_string(w.name) +
+                    ",\"width\":" + std::to_string(w.width) + ",\"style\":" + json_string(w.style) + ",\"doc\":" + json_string(w.doc) + "}";
+        }
+        json += "]}";
+        respond(fd, "application/json", json.data(), json.size());
     } else if (method == "GET" && path == "/state") {
         size_t from = strtoul(query(target, "uart").c_str(), nullptr, 10);
         if (from > panel.uart_out.size()) from = panel.uart_out.size();
-        std::string json = "{";
+        std::string json = "{\"values\":[";
+        for (size_t i = 0; i < panel.widgets.size(); i++) {
+            if (i) json += ",";
+            json += std::to_string(panel.widgets[i].value);
+        }
         char num[160];
-        snprintf(num, sizeof num,
-                 "\"rgb\":%u,\"leds\":%u,\"buttons\":%u,\"switches\":%u,\"frames\":%llu,\"fps\":%.2f,"
-                 "\"mhz\":%.3f,\"screen\":%s,\"uart_at\":%zu,\"uart\":[",
-                 panel.leds[0], panel.leds[1], panel.inputs[0], panel.inputs[1],
+        snprintf(num, sizeof num, "],\"frames\":%llu,\"fps\":%.2f,\"mhz\":%.3f,\"screen\":%s,\"uart_at\":%zu,\"uart\":[",
                  static_cast<unsigned long long>(panel.frames), panel.fps, panel.cycles_per_second / 1e6,
                  panel.screen.load() ? "true" : "false", panel.uart_out.size());
         json += num;
@@ -142,9 +174,9 @@ void serve_one(int fd) {
     } else if (method == "GET" && path == "/frame") {
         respond(fd, "application/octet-stream", panel.shown.data(), panel.shown.size() * 2);
     } else if (method == "POST" && path == "/input") {
-        std::string b = query(target, "buttons"), s = query(target, "switches");
-        if (!b.empty()) panel.inputs[0] = static_cast<uint32_t>(strtoul(b.c_str(), nullptr, 10));
-        if (!s.empty()) panel.inputs[1] = static_cast<uint32_t>(strtoul(s.c_str(), nullptr, 10));
+        std::string id = query(target, "id"), value = query(target, "value");
+        size_t i = strtoul(id.c_str(), nullptr, 10);
+        if (!id.empty() && i < panel.widgets.size()) panel.widgets[i].value = static_cast<uint32_t>(strtoul(value.c_str(), nullptr, 10));
         respond(fd, "text/plain", "ok", 2);
     } else if (method == "POST" && path == "/uart") {
         for (char c : body) panel.uart_in.push_back(static_cast<uint8_t>(c));
@@ -166,9 +198,12 @@ void server(int listener) {
 
 }  // namespace
 
-// Starts the panel: `page` is vboard.html's path; the port goes to
-// `port_file`, and to stdout. Returns 0, or -1 if no socket could be had.
-extern "C" int vb_open(const char* page, const char* port_file) {
+// Starts the panel for `board`, clocked at `mhz`: `page` is vboard.html's
+// path; the port goes to `port_file`, and to stdout. Returns 0, or -1 if no
+// socket could be had. Widgets are declared after, before the first edge.
+extern "C" int vb_open(const char* page, const char* port_file, const char* board, int mhz) {
+    panel.board = board;
+    panel.clock_mhz = mhz;
     if (FILE* f = fopen(page, "rb")) {
         char buf[8192];
         size_t n;
@@ -201,16 +236,30 @@ extern "C" int vb_open(const char* page, const char* port_file) {
     return 0;
 }
 
-// An output's new value: 0 the RGB LED, 1 the row of LEDs.
-extern "C" void vb_leds(int which, int value) {
+// A widget for one of the board's resources; its id is the order declared.
+// `kind` is the resource's (led, button, uart, spi, i2c, vga).
+extern "C" int vb_declare(const char* kind, const char* name, int width, const char* style, const char* doc) {
     std::lock_guard<std::mutex> guard(panel.lock);
-    if (which >= 0 && which < 4) panel.leds[which] = static_cast<uint32_t>(value);
+    Widget w;
+    w.kind = kind;
+    w.name = name;
+    w.width = width;
+    w.style = style;
+    w.doc = doc;
+    panel.widgets.push_back(w);
+    return static_cast<int>(panel.widgets.size() - 1);
 }
 
-// An input's value: 0 the buttons, 1 the switches.
-extern "C" int vb_inputs(int which) {
+// An output widget's new value (LEDs).
+extern "C" void vb_output(int id, int value) {
     std::lock_guard<std::mutex> guard(panel.lock);
-    return which >= 0 && which < 4 ? static_cast<int>(panel.inputs[which]) : 0;
+    if (id >= 0 && static_cast<size_t>(id) < panel.widgets.size()) panel.widgets[id].value = static_cast<uint32_t>(value);
+}
+
+// An input widget's value (buttons, switches), as the page last set it.
+extern "C" int vb_input(int id) {
+    std::lock_guard<std::mutex> guard(panel.lock);
+    return id >= 0 && static_cast<size_t>(id) < panel.widgets.size() ? static_cast<int>(panel.widgets[id].value) : 0;
 }
 
 // A byte the design sent on its serial port.

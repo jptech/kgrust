@@ -14,6 +14,7 @@
 //! beside its results, under the project's `target/board/`. A missing tool
 //! is said by name before anything runs.
 
+pub mod bench;
 pub mod icestorm;
 pub mod interface;
 pub mod locate;

@@ -1,1 +1,0 @@
---frames 10 --expect 666@319,0 --expect 013@100,100 --column fff@20 --column fff@620

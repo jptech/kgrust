@@ -89,35 +89,31 @@ fn kind(name: &str) -> Option<Kind> {
     })
 }
 
+/// The VGA mode: 640x480 at 60 Hz, the one both `vga_timing.sv` and the
+/// `serve` testbench's capture are built for; pixels per line and lines per
+/// frame, each visible, front porch, sync, back porch.
+pub const VGA_H: [u32; 4] = [640, 16, 96, 48];
+pub const VGA_V: [u32; 4] = [480, 10, 2, 33];
+
 /// The kinds, for an error that lists them.
 const KINDS: &str = "led, button, uart, spi, i2c, vga";
 
 /// One core port.
-struct Pin {
+#[derive(Debug, Clone)]
+pub struct Pin {
     /// The kind's name for it: `rx`, `sclk`.
-    key: &'static str,
-    port: String,
-    input: bool,
-    width: u32,
+    pub key: &'static str,
+    pub port: String,
+    /// Into the core.
+    pub input: bool,
+    pub width: u32,
 }
 
-/// Generates the core module for `board` around `interface`, binding by
-/// `connect` (the manifest's) and by name.
-pub fn generate(board: &Board, interface: &Interface) -> Result<Core> {
-    let core = board
-        .core_module()
-        .ok_or_else(|| Failure::Usage(format!("the board {} names no core-module to generate", board.name())))?
-        .to_owned();
-    let resources = &board.spec.resources;
-    if resources.is_empty() {
-        return Err(Failure::Usage(format!(
-            "the board {} declares no [resources.*] to generate a core from; name your core in [board] rtl",
-            board.name()
-        )));
-    }
-    let clock_hz = board.spec.clock.mhz.map(|m| m as u64 * 1_000_000);
+/// Each resource's core ports, in the board's order: the one list the
+/// generated core and the generated `serve` testbench (`bench`) both take.
+pub fn resource_pins(board: &Board) -> Result<Vec<(String, Vec<Pin>)>> {
     let mut pins: Vec<(String, Vec<Pin>)> = Vec::new();
-    for (name, resource) in resources {
+    for (name, resource) in &board.spec.resources {
         let k = kind(&resource.kind).ok_or_else(|| {
             Failure::Usage(format!("[resources.{name}]: no kind `{}`; kinds are {KINDS}", resource.kind))
         })?;
@@ -137,6 +133,25 @@ pub fn generate(board: &Board, interface: &Interface) -> Result<Core> {
         }
         pins.push((name.clone(), list));
     }
+    Ok(pins)
+}
+
+/// Generates the core module for `board` around `interface`, binding by
+/// `connect` (the manifest's) and by name.
+pub fn generate(board: &Board, interface: &Interface) -> Result<Core> {
+    let core = board
+        .core_module()
+        .ok_or_else(|| Failure::Usage(format!("the board {} names no core-module to generate", board.name())))?
+        .to_owned();
+    let resources = &board.spec.resources;
+    if resources.is_empty() {
+        return Err(Failure::Usage(format!(
+            "the board {} declares no [resources.*] to generate a core from; name your core in [board] rtl",
+            board.name()
+        )));
+    }
+    let clock_hz = board.spec.clock.mhz.map(|m| m as u64 * 1_000_000);
+    let pins = resource_pins(board)?;
 
     let bindings = bind(board, interface)?;
     let mut g = Gen::new(&core, board.name(), &interface.module);
@@ -235,7 +250,7 @@ fn no_clock(board: &Board, resource: &str) -> Failure {
     Failure::Usage(format!("the board {} gives no [clock] mhz, which `{resource}` needs for its timing", board.name()))
 }
 
-fn find_pin<'a>(pins: &'a [(String, Vec<Pin>)], resource: &str, key: &str) -> &'a Pin {
+pub fn find_pin<'a>(pins: &'a [(String, Vec<Pin>)], resource: &str, key: &str) -> &'a Pin {
     pins.iter()
         .find(|(r, _)| r == resource)
         .and_then(|(_, list)| list.iter().find(|p| p.key == key))
