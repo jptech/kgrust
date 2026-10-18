@@ -1,0 +1,91 @@
+# tinyVision UPduino v3.0/v3.1: the reference board for the iCE40 UP5K
+# (docs/plans/platform-layer.md §8). Read by `kg board` for a project whose
+# kanagawa.toml names it in [board] (docs/plans/board-tooling.md); each of
+# examples/ is such a project.
+
+[board]
+name = "upduino-v3"
+vendor = "tinyVision.ai"
+revision = "v3.0, v3.1"
+url = "https://github.com/tinyvision-ai-inc/UPduino-v3.0"
+# The shell every design shares, and the module beneath it: generated from
+# [resources] below, or supplied by the project (its testbench and
+# `kg board netsim` drive that module directly). The peripheral engines
+# (platform/rtl/periph) come with every board.
+rtl = ["rtl/upduino_top.sv"]
+top-module = "upduino_top"
+core-module = "upduino_core"
+
+[fpga]
+# `--target-device`: platform/library/device/<device>.
+device = "ice40-up5k"
+# nextpnr-ice40 --<part> --package <package>.
+part = "up5k"
+package = "sg48"
+# The HAL the generated RTL is built against, here and in simulation:
+# platform/rtl/hal/<hal> (ours) or the reference's runtime/rtl/hal/<hal>.
+hal = "ice40"
+sim-hal = "ice40"
+# The flow under platform/vendor/<tool>.
+tool = "icestorm"
+
+[clock]
+mhz = 24
+# The shell's parameter that sets it (SB_HFOSC's divider).
+parameter = "CLK_MHZ"
+
+[hw]
+# Area over frequency, which 24 MHz leaves plenty of; each measured to save
+# area on iCE40 (platform-layer.md §8.3). Backend options only: none changes
+# what a program computes. A project's [hw] goes over these.
+reset-cycles = 1
+semaphore-delay = 0
+additional-latency = 0
+register-ratio = 8
+no-reset-fanout = true
+# A call that waits on a callback keeps every waiting thread's live
+# variables, in a FIFO as deep as the thread limit; the default, 512, is
+# more than the part holds (board-tooling.md §5). Ask for more with
+# [[max_threads(N)]] where it pays.
+max-threads-default = 4
+
+# What a design can use, on the core module's ports (rtl/upduino_top.sv).
+# `kg board serve` puts each on the host too: the LED on a front panel in
+# the browser, the serial port there and on a pseudo-terminal, and a SPI
+# flash and an I2C sensor on the buses (crates/kg-board/src/bench.rs).
+# A function binds to one by name (`led`, `uart_rx`, `_spi`) or by the
+# project's [board] connect; whatever binds to nothing is reachable over the
+# serial port through the host bridge (docs/plans/board-tooling.md §6).
+
+[resources.led]
+kind = "led"
+doc = "the RGB LED: {red, green, blue}, 1 lights"
+width = 3
+style = "rgb"
+pins = { out = "rgb" }
+
+[resources.uart]
+kind = "uart"
+doc = "the FT232H's serial port, the board's USB connection"
+baud = 115200
+pins = { rx = "uart_rxd", tx = "uart_txd" }
+
+[resources.spi]
+kind = "spi"
+doc = "an SPI bus on header pins 44-47 (SCLK, MOSI, MISO, CS#)"
+hz = 1000000
+mode = 0
+pins = { sclk = "spi_sclk", mosi = "spi_mosi", miso = "spi_miso", cs_n = "spi_cs_n" }
+
+[resources.i2c]
+kind = "i2c"
+doc = "an I2C bus on header pins 2 (SCL) and 3 (SDA)"
+hz = 100000
+pins = { scl_oe = "i2c_scl_oe", scl_in = "i2c_scl_in", sda_oe = "i2c_sda_oe", sda_in = "i2c_sda_in" }
+
+[program]
+# Writes the board's SPI flash, from which the FPGA configures itself.
+command = ["iceprog", "-d", "i:0x0403:0x6014"]
+
+[constraints]
+files = ["constraints/upduino-v3.pcf"]

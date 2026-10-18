@@ -1,0 +1,29 @@
+[package]
+name = "kg-board"
+description = "Board flows for `kg board`: simulation, synthesis, bitstreams and programming for the boards a platform describes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (AGENTS.md).
+doctest = false
+
+[dependencies]
+kg-config.workspace = true
+kg-syntax.workspace = true
+serde.workspace = true
+camino.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

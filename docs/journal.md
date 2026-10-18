@@ -64,6 +64,8 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-10-11 | The editor takes each followed module's prefix pass from its kept run where every key before the pass agreed — the nodes the pass appended as it left them, heads carried, expansions found and never interned, children named through the same chain of forks, types carried by the pass's own pairs — and `edit-identity` runs every pass taken on a fork as well and compares. Exact over every root; no keystroke won, the prefix being the edited root's: the next reuse needs re-askable reads | "The prefix pass reused, and where the keystroke is — 2026-10-11" |
 | 2026-10-11 | CI is the light tier only: free runners, this repository's Rust code (`scripts/ci.sh`); it never builds or runs the backend or the reference, and the parity gates stay local (the maintainer's decision) | "Published, a light CI, Linux, and completion after `::`" |
 | 2026-10-12 | Release archives are built with the `ship` profile (`release`, fat LTO, one codegen unit); the gates and `cargo xtask` stay on `release`, which builds a minute faster | "Quick wins: a stale CI cache, and the shipped binaries optimised whole" |
+| 2026-10-17 | Boards reach `kg` only through a manifest's opt-in `[board]`, never for every project; `kg build` hands the backend the compat binary's record for the same options (`[hw]`, `-Z hw.*` through its flag table) | "`kg board`, and `kg build` reading its options" |
+| 2026-10-17 | A design meets a board through its interface description, joined from its declaration and its ports and checked both ways; a function that fits no resource is refused with the contract, never wired approximately; a small part's board caps `max-threads-default` | "No glue RTL: the board wrapper, the bridge, cocotb and a virtual board" |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -17980,3 +17982,285 @@ binary beats it slightly.
 --no-run`, takes ~2.8 s, and the tests themselves run in ~17 s, `query.rs`
 the longest at 6 s. Dropping the dependencies' debug info would not shorten
 the link on macOS, where the linker leaves the DWARF in the object files.
+
+## A device is a directory, and a board is a script around it — 2026-10-17
+
+**Adding a device takes no code.** The question was where support for more
+FPGAs and boards should live. Upstream's answer turned out to be already in
+place: `--target-device` searches `<dir>/device/<name>` under every import
+root first (`Parser/IO.hs:110`, which kgrust ports). The backend also reads
+every device property by name from `compiler.config`
+(`device_config_visitor.cpp:599-634`), and its RTL calls a vendor HAL keyed
+by family. So the Artix-7 XC7A50T is four `.k` files under
+`platform/library`, placed after upstream's library on the import path,
+with no change to the submodule, the frontend or the backend. Upstream's
+Xilinx HAL already serves 7-series, being written on XPM. The plan is
+[`plans/platform-layer.md`](plans/platform-layer.md).
+
+**The release archive cannot synthesise what it builds.** `cargo xtask
+dist` ships `library/` and no `runtime/rtl`, so every RTL file an installed
+`kg build` writes instantiates modules that nothing in the archive defines.
+This was true before any board existed; phase 2 of the plan fixes it.
+
+**Four things a board testbench needs, found the slow way:**
+- **The mock HAL needs a define.** It refuses to compile without
+  `-DSIMULATION`.
+- **Generated RTL needs the simulation runtime.** It instantiates
+  `KanagawaStringTable` inside `synopsys translate_off`, so a simulation
+  needs `runtime/rtl/sim/files.f` too.
+- **Verilator reads its own name as a pragma.** A comment line starting
+  `// Verilator …` is parsed as a pragma and fails the build
+  (`BADVLTPRAGMA`).
+- **One check was not load-bearing at first.** The blinky testbench pressed
+  the reset button while the counter was still near zero, so a button wired
+  to nothing passed. Pressing it after the counter's bit 24 is set makes
+  the mutant fail; all five planted mutants now fail
+  (`scripts/mutant.sh … -- scripts/board.sh mimas-a7 sim`).
+
+## The iCE40 end to end, and what a small Kanagawa design takes — 2026-10-17
+
+The owner asked for the Lattice iCE40 UP5K on the open toolchain, with the
+UPduino v3 as reference board, SPRAM from Kanagawa, and the smallest designs
+fixed latency allows. It runs from source to bitstream through
+`scripts/board.sh upduino-v3 bitstream`, with each example checked in RTL
+and gate-level simulation ([`plans/platform-layer.md`](plans/platform-layer.md) §8).
+Five findings would cost a later reader time.
+
+**Fixed latency is most of the size.**
+- A `[[latency(N)]]` exported method has no ready, no output valid and no
+  return FIFO. The blinky's `step` falls from 95 LUT4s and 84 flip-flops to
+  41 and 38.
+- A family FIFO floor of 2 rather than upstream's 32 halves what
+  ready/valid design remains. Upstream's `simple_exported_class` falls
+  from 983 / 1,193 to 513 / 677.
+- `min_almost_full_depth` looks like the same kind of knob and is not. It
+  is the HAL FIFO's almost-full latency, and lowering it overflows FIFOs.
+- The SPRAM is an external class with a `[[latency(1)]]` method. The
+  compiler refuses a second call site of a fixed-latency external method,
+  which is exactly the block's single port.
+
+**Yosys spends block RAM the backend did not.** It folds the read-address
+register of the runtime's register FIFO into a memory and maps a 16×8 FIFO
+to a whole EBR. The backend had budgeted those EBRs elsewhere. The flow now
+marks every memory without a `ram_style` as logic, and the HAL marks its
+own.
+
+**The backend writes `reg_rst_delayed[0]` against a scalar declaration**
+when a design has a single reset replica (`verilog.cpp:2935`, `:6350`).
+Yosys forgives it; Verilator does not. `platform/vendor/fix_generated.py`
+repairs that one text. It is upstream's bug, and the reference compiler
+emits the same.
+
+**Verilator 5.052 drops a testbench initialiser.** It ignored
+`logic rst = 1'b1` on a variable driving a netlist's input port, so the
+gate-level design never saw reset. The RTL testbench had passed without
+reset ever asserting. Icarus Verilog ran the same netlist correctly, which
+separated a simulator fault from a synthesis one. Testbenches here set such
+signals in `initial` blocks.
+
+**A memory checker needs a fault to be tested.** Deleting the SPRAM
+example's compare survived the testbench, because a correct memory never
+mismatches. The testbench now inverts every stored word mid-run and
+requires red.
+
+## The UPduino's serial pins, traced — 2026-10-17
+
+**The serial pins, from the PCB.** The monitor example
+([`plans/platform-layer.md`](plans/platform-layer.md) §8.7) needed to know
+which FPGA pins reach the FT232H's UART. tinyVision's constraints name
+them, but their comments mix UART and SPI-mode names. The board's KiCad PCB
+names the net on every pad, which settles it as shipped:
+- FPGA pin 15 is fed by ADBUS0 (TXD).
+- FPGA pin 14 feeds ADBUS1 (RXD) through R12.
+- FPGA pin 16 is on the same net as ADBUS4. That is the flash chip select
+  `iceprog` drives, and in UART mode the FT232H's DTR# output.
+
+The board shell had followed the constraints' comment and driven pin 16
+high, so it fought any terminal that asserts DTR. Pin 16 is now an input
+with the pull-up, and the host keeps DTR and RTS deasserted.
+
+**A host program can talk to the simulated design.** `scripts/board.sh
+upduino-v3 serve` puts a core's serial pins on a pseudo-terminal, through a
+DPI-C helper. `host.py` then runs against the RTL exactly as against the
+board. Its first streamed test lost bytes: it sent 2,000 commands before
+reading a reply, and the unread replies overflowed the port's input buffer.
+A real port without flow control does the same, so the bug was the host's,
+and the simulation found it before a board could.
+
+**SystemVerilog's static initialisers cost two testbench runs.** A
+`byte x = f();` declared inside a loop of an `initial` block initialises
+once, at time zero, because the block is static, so every check compared
+against the first value. The testbenches here assign instead.
+
+## `kg board`, and `kg build` reading its options — 2026-10-17
+
+**The board flow moved into `kg`, opt-in.** A manifest's `[board]` sets the
+device and appends the platform's library after every other directory, in
+`kg` and in the editor alike. `kg board` then runs the flows in Rust
+(`crates/kg-board`), replacing a zsh script, two zsh flows and two Python
+helpers ([`plans/board-tooling.md`](plans/board-tooling.md)). Each board
+example became a project with its own `kanagawa.toml`, so `kg board new`
+copies one, and a user's design and an example are the same kind of thing.
+A project without `[board]` resolves exactly as before. Two tests pin that:
+one with no board, and one where a board names another device and is
+refused.
+
+**`kg build` now reads `[hw]` and `-Z`, through the compat binary's own
+flag table.** The board flow had gone through `kanagawa` because `kg build`
+read neither. Writing the keys into a `LegacyOptions` and passing it
+through `option_values` makes the two binaries hand the backend the same
+record by construction, and a unit test compares the two records. The
+monitor example compiled both ways gave identical reports and types.
+`Monitor.sv` differed only in its command-line header and in the order of
+one comment's source-location list. Three runs of `kanagawa` alone gave two
+orders, so that is the backend's own nondeterminism.
+
+**`kg build` had the transaction-size warning on regardless.** It started
+from the ABI harness's defaults, which turn on `_enableTransactionSizeWarning`,
+where the reference leaves the warning off unless asked for
+(`CmdArgs.hs:111-117`). The backend's three warning switches now come from
+the project's warning settings, as `kanagawa`'s come from its `--W…` flags.
+
+**The backend asserts on a report name without a dot.** `--emit
+resource-usage=out/resources` crashed the worker
+(`CompiledModule::ModifyFileName`, `compiler.cpp:2140`), because the
+backend inserts each module's name before the extension. `kg build` now
+refuses such a name with a message saying why.
+
+**Two of 39 mutants went red for the wrong reason.** A guarded match arm
+made the match non-exhaustive, and a filter dropped its type inference.
+Both "caught" mutants were compile errors. Replanted to compile, both were
+caught by their tests. A third mutant survived: the translate-off filter
+accepted any text between `synopsys` and the word. The batch script now
+labels a compile error as such.
+
+## No glue RTL: the board wrapper, the bridge, cocotb and a virtual board — 2026-10-17
+
+**One description, four consumers.** Every `kg board` build now writes the
+exported class's interface ([`plans/board-tooling.md`](plans/board-tooling.md)
+§4). The declaration gives names, signs and attributes, and the generated
+module's port list gives names, widths and protocols. A port no function
+explains, or a function without its ports, is an error. The generated core,
+the bridge's dispatcher, the Python module and the cocotb driver all read
+the one description, so they cannot disagree about a port. The probe design
+that settled the port names also answered the plan's open question: an
+exported class's callbacks are module ports. A nested public object cannot
+add any, because the frontend refuses public objects in an exportable class.
+A private library object handed the class's own callback compiles, and that
+is how the peripheral library works.
+
+**Callbacks with results are expensive at the default thread limit.** That
+was step 3's first measurement, and it was dramatic. With the library's
+reads written one call per byte, the first peripherals example (SPI and
+I2C together) synthesised to 155,798 LUT4s on a part of 5,280 logic cells.
+Each call site that waits on a callback keeps every waiting thread's live
+variables in a FIFO as deep as the thread limit, 512 by default. Rewriting
+the library as loops with one call site each barely moved it (122,879).
+`max-threads-default = 4` took it to 3,811, and both small-part boards now
+set it. Both buses together still did not place, so the example split in
+two; `spi-flash` with one thread uses 3,992 cells (75.6%).
+For the `accel` example, making its pure methods `[[latency(N)]]` saved
+another 900 LUT4s: a handshake method keeps a FIFO for its arguments and
+one for its result.
+
+**Three faults in the platform layer, found by the first designs to use
+it.** The block-RAM FIFO of the iCE40 HAL let almost_full fall the cycle
+reset did, and the runtime asserts it does not (`write_delay_fifo.sv:74`).
+The device config claimed the backend emits `*` when no DSP intrinsic is
+named, but it emits `KanagawaLutMul` (`ir.cpp:6551-6560`), which the HAL
+built in logic, so no UP5K design ever used a DSP block. And once the HAL
+fed the DSP, Yosys 0.69's `ice40_dsp` segfaulted on a 16x16 product followed
+by two registers, the backend's own pipeline; a nine-line module reproduces
+it. The HAL now instantiates `SB_MAC16` itself, `kg board` synthesises
+without `-dsp`, and the HAL check keeps the crashing shape as a case.
+
+**A stale file nearly sent the DSP fix the wrong way.** Testing whether an
+instantiated block survives synthesis without `-dsp`, the first answer was
+no: 679 LUT4s, no DSP. The file was a leftover of the last mutant run, the
+DSP branch removed. Regenerated, the instantiated block survives. A
+conclusion drawn from a file in `target/` needs the file's provenance first.
+
+**One test, three places.** `test_probe.py` exercises every protocol of
+the backend's (handshake, no backpressure with and without a result, fixed
+latency 0 and 1, and every kind of callback) through cocotb and through the
+serial bridge, plus the bytes SLIP escapes each way. One ordering question
+came up: a pulse callback fired during a method reached the host after that
+method's reply, because the transmitter preferred replies. Calls out now go
+first, and the test asserts the order.
+
+**The virtual board's VGA ran faster than estimated.** The plan judged 7
+frames a second from blinky's simulation speed. Pong measured 9.2 to 10.4,
+the simulation at 3.8 to 3.9 MHz.
+
+## A live screen for any board — 2026-10-17
+
+**The front panel became infrastructure.** The virtual board's screen lived
+in its own hand-written testbench. `kg board serve` now generates the
+testbench from any board's `[resources]`
+([`plans/board-tooling.md`](plans/board-tooling.md) §9), and a board gets a
+live screen by declaring `[resources.vga]`. A second test board, its
+resources named differently and with no serial port, runs pong through the
+same checks unchanged. The UPduino's `serve` gained the panel as well.
+
+**Live came from the clock, not from the screen.** Reading the VGA pins
+seemed the obvious cost, and it measured as none: 3.89 MHz with it, 3.85
+without, so the planned `--no-screen` switch was dropped. The cost was
+Verilator's `--timing` scheduler, driving a clock written as `#` delays.
+Taking the clock as a port and toggling it from a C++ loop tripled the
+speed: pong went from 9.2 to 27.4 frames a second, 48% of real time.
+Verilator's threads made it six to twelve times slower. `--noassert` would
+add 9%, but it turns off the runtime's assertions, and those found this
+session's HAL bug, so it stays off.
+
+**The screen check found a bug the cocotb tests could not.** A frame with no
+ball in it led to pong's opening move: the ball starts at x = 0 heading
+left, `_x - SPEED` wrapped a `uint10` to 1020, and the ball spent 95 frames
+off screen before drifting back. The motion now clamps, and the opening
+frame scores and serves, which both the cocotb test and the panel check
+assert.
+
+**A `git checkout -- <file>` threw away uncommitted work.** It was meant to
+undo a one-line experiment in a file that also held a rewrite; the rewrite
+went with it and had to be applied again from the session's own record. To
+undo an experiment, edit it back out. Restore a file from git only when
+everything uncommitted in it is meant to go.
+
+## The front panel shows the design, not the board — 2026-10-17
+
+**What the panel shows comes from the generated core.** It showed every
+resource the board declares, so pong on the virtual board offered switches,
+an RGB LED, a console and two buses that pong never touches. The generated
+core already knows what the design binds, so the `serve` testbench now
+declares widgets for those alone and ties the rest at rest
+([`plans/board-tooling.md`](plans/board-tooling.md) §9). Each widget names
+the function serving it, with its `//|` documentation, and under the host
+bridge the page decodes the SLIP frames into a live count of calls for each
+function. A project with a core of its own still gets every resource,
+since nothing says which it uses.
+
+**Reset is not restart.** The board's reset line restarted nothing in pong:
+Kanagawa's member variables are registers with no reset (`Pong_reg_4_w1
+_left_score` takes no `rst`), and the score survived it, as it would
+survive the reset button on the FPGA. So the panel has both. Reset holds
+the reset line, worded for what it does. Restart exits the simulation with
+status 75, and `kg board serve` starts it again on the same port.
+
+**A restart can be faster than the page notices.** The first Restart came
+back between two of the page's polls, 40 ms apart. The page carried on with
+its offsets into the old run's serial output, and would have missed the new
+run's first bytes. `/layout` and `/state` now carry the run, the process id,
+and the page reloads when it changes; a dropped connection was never the
+signal to rely on.
+
+**Two streams have no order.** The console took what the design sent and
+what it was sent as two streams. A page loaded after a session showed every
+command before any reply, because nothing recorded which byte came first.
+The simulation now keeps one transcript of the line, and the monitor's
+panel check asserts each command comes before its reply.
+
+**Found by looking, not by the gates.** In an HTML `<option value="\r">`,
+`\r` is two characters, not a carriage return, so Enter sent no line
+ending and the monitor never replied. Separately, a well's `keys` class
+also styled the footer's "Keys" line. Neither failed a check; both showed
+the first time the page was driven in a browser (Playwright and headless
+Chrome, from a scratch `uv` environment). A page is checked by using it.

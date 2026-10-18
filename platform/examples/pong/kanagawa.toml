@@ -1,0 +1,21 @@
+# Pong on the virtual board's screen (pong.k): `kg board serve`, then open
+# the front panel it prints. Runs on any board with `vga`, `buttons` and
+# `leds` resources.
+
+[package]
+name = "pong"
+
+[project]
+sources = ["pong.k"]
+# The standard library, from this checkout's reference submodule; where
+# that is absent, an installed kg uses its own.
+import-dirs = ["../../../third_party/kanagawa/library"]
+
+[board]
+# The board, of the platform (`kg board list`); `kg board new <dir> --board
+# <name> --example pong` makes a copy for another with a screen.
+name = "virtual"
+platform = "../.."
+# Each binds by its name alone; named here as well, so a board without a
+# screen refuses the design rather than serving it over the bridge.
+connect = { vga_pixel = "vga.pixel", vga_frame = "vga.frame", _buttons = "buttons", _leds = "leds" }

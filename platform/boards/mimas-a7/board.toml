@@ -1,0 +1,30 @@
+# Numato Lab Mimas A7: the platform layer's pilot board
+# (docs/plans/platform-layer.md). Read by `kg board` for a project whose
+# kanagawa.toml names it in [board]. It has no shared shell: a design
+# supplies its own top module.
+
+[board]
+name = "mimas-a7"
+vendor = "Numato Lab"
+# The constraints follow Numato's V3.0 file; V4.0 moved at least PROG_B.
+revision = "V3"
+url = "https://numato.com/product/mimas-a7-artix-7-fpga-development-board-with-ddr-sdram-and-gigabit-ethernet/"
+
+[fpga]
+# `--target-device`: platform/library/device/<device>.
+device = "artix7-xc7a50t"
+# The vendor tool's part name.
+part = "xc7a50tfgg484-1"
+# The HAL the generated RTL is synthesised against: runtime/rtl/hal/<hal>.
+hal = "xilinx"
+# Simulation cannot use it (XPM ships with Vivado): upstream's mock HAL.
+sim-hal = "mock"
+# The flow under platform/vendor/<tool>.
+tool = "vivado"
+
+[clock]
+port = "CLK1"
+mhz = 100
+
+[constraints]
+files = ["constraints/mimas-a7.xdc"]

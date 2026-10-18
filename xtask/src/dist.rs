@@ -8,6 +8,11 @@
 //!                                   beside the executables, where they look for it
 //!   share/kanagawa/library/         the standard library, from the submodule —
 //!                                   `kg`'s import directory when nothing else names one
+//!   share/kanagawa/runtime/rtl/     the runtime RTL generated designs build against,
+//!                                   from the submodule, for `kg board`
+//!   share/kanagawa/platform/        this project's devices, HALs and boards, their
+//!                                   examples (`kg board list`, `kg board new`), the
+//!                                   peripheral library and `kgbridge.py`
 //!   LICENSE                         this project's
 //!   THIRD-PARTY-NOTICES.md          everything else in the archive, with its license
 //!   README.md
@@ -63,6 +68,8 @@ pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: boo
         copy(&backend_lib, &stage.join("bin").join(lib_name))?;
     }
     copy_tree(&kanagawa_root.join("library"), &stage.join("share/kanagawa/library"))?;
+    copy_tree(&kanagawa_root.join("runtime/rtl"), &stage.join("share/kanagawa/runtime/rtl"))?;
+    copy_tree(&workspace.join("platform"), &stage.join("share/kanagawa/platform"))?;
     copy(&workspace.join("LICENSE"), &stage.join("LICENSE"))?;
     std::fs::write(stage.join("THIRD-PARTY-NOTICES.md"), notices(&workspace, &kanagawa_root, no_backend)?)?;
     std::fs::write(stage.join("README.md"), readme(&name, no_backend))?;
@@ -103,6 +110,11 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
         let path = entry.path();
         let target = to.join(entry.file_name());
         if path.is_dir() {
+            // A board example's own builds (`kg board`), and the bytecode
+            // Python leaves beside a test it imported, stay out.
+            if entry.file_name() == "target" || entry.file_name() == "__pycache__" {
+                continue;
+            }
             copy_tree(&path, &target)?;
         } else {
             copy(&path, &target)?;
@@ -131,8 +143,8 @@ fn notices(workspace: &Path, kanagawa_root: &Path, no_backend: bool) -> Result<S
     let read = |p: PathBuf| std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()));
     out.push_str("## Kanagawa\n\n");
     out.push_str(
-        "The standard library (`share/kanagawa/library`) and the code generator \
-         (`bin/libkanagawa-backend.*`) are built from [microsoft/kanagawa](https://github.com/microsoft/kanagawa), \
+        "The standard library (`share/kanagawa/library`), the runtime RTL \
+         (`share/kanagawa/runtime/rtl`) and the code generator (`bin/libkanagawa-backend.*`) are built from [microsoft/kanagawa](https://github.com/microsoft/kanagawa), \
          MIT License.\n\n```text\n",
     );
     out.push_str(read(kanagawa_root.join("LICENSE"))?.trim_end());
@@ -269,6 +281,9 @@ fn readme(name: &str, no_backend: bool) -> String {
          ```sh\nexport PATH=\"$PWD/bin:$PATH\"\nkg check my_design.k\n```\n\n\
          The standard library ships in `share/kanagawa/library` and is used when a project names no import \
          directory of its own. {build}\n\
+         Boards: `kg board list` lists them, and `kg board new hello --board virtual --example accel` starts a \
+         project that runs with no hardware (`kg board serve` opens its front panel); the guide is \
+         `share/kanagawa/platform/README.md`.\n\n\
          `kg --help` lists the commands; `kanagawa` takes the reference compiler's command line unchanged.\n\n\
          Licenses: `LICENSE` (kgrust, MIT) and `THIRD-PARTY-NOTICES.md` (everything else in this archive).\n"
     )

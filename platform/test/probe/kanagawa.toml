@@ -1,0 +1,13 @@
+# Every protocol of an exported function, for the board tooling's own tests
+# (probe.k, test_probe.py; platform/check.zsh runs them).
+
+[package]
+name = "probe"
+
+[project]
+sources = ["probe.k"]
+import-dirs = ["../../../third_party/kanagawa/library"]
+
+[board]
+name = "upduino-v3"
+platform = "../.."

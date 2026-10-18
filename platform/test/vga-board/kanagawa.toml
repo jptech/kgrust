@@ -1,0 +1,14 @@
+# Pong on a second board with a screen (board/board.toml), bound by
+# `connect` to resources named unlike the virtual board's.
+
+[package]
+name = "vga-board"
+
+[project]
+sources = ["../../examples/pong/pong.k"]
+import-dirs = ["../../../third_party/kanagawa/library"]
+
+[board]
+path = "board"
+platform = "../.."
+connect = { vga_pixel = "screen.pixel", vga_frame = "screen.frame", _buttons = "keys", _leds = "lights" }

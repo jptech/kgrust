@@ -80,10 +80,37 @@ Independent options, roughly in the order recommended.
    sorted lowering (a verdict change, through `errors` and `conformance`);
    the 18 recovery positions where ours would mislead (divergence #30);
    the one-shot memory peak; `kg explain` prose for the backend's codes;
-   settings accepted and not yet read (`kg build --emit` and `-Z`, the
-   manifest's `[hw]` and `[project] exclude`; [`spec/cli.md`](spec/cli.md)
-   §9–10); call hierarchy and code lenses
+   settings accepted and not yet read (the manifest's `[project] exclude`;
+   [`spec/cli.md`](spec/cli.md) §9–10); call hierarchy and code lenses
    ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
+7. **Devices and boards: the platform layer.** More devices, boards and
+   libraries than upstream ships, in `platform/`, through the seams
+   upstream already has: `--target-device` and the backend's device
+   configuration. Two pilots (2026-10-17):
+   - The tinyVision UPduino v3 (iCE40 UP5K) runs on the open toolchain from
+     source to bitstream, with SPRAM reachable from Kanagawa, its examples
+     simulated at RTL and gate level, and a design's size halved by fixed
+     latency and a FIFO floor of 2.
+   - The Numato Mimas A7 (Artix-7 XC7A50T) is built and simulated, but not
+     yet through Vivado.
+
+   `kg board` (2026-10-17) reaches them from `kg`, opt-in through a
+   manifest's `[board]`: a project from an example, its testbench in
+   Verilator, a bitstream, the programmer, the design in simulation behind
+   a pseudo-terminal. It works from the release archive with nothing
+   configured ([`plans/board-tooling.md`](plans/board-tooling.md) §2).
+   Later that day, a design needs no glue RTL: an interface description
+   checked against the generated ports, a core generated from the board's
+   resources, a host bridge with a generated Python module, cocotb through
+   the same API, SPI and I2C engines with a library over them, and a virtual
+   board with a front panel in the browser (§4–§9 there).
+
+   Next, in order:
+   - the UPduino on a board, and the owner's own UP5K board;
+   - the Vivado checklist;
+   - what board-tooling §13 leaves open: the UP5K's hard SPI and I2C
+     blocks, wider DSP products, the HAL's block-RAM FIFOs using more EBRs
+     than the backend budgets.
 
 ## Open questions
 
@@ -103,6 +130,7 @@ Each blocks only its own item; the work assumes the first answer meanwhile.
 | Rename in a project with no manifest: refuse, or scan the declaring file's directories | searches the open buffers' programs | [`history/handoff-2026-10-11.md`](history/handoff-2026-10-11.md) |
 | Lints beyond the reference's six warnings (width surprises) | none | [`plans/developer-tooling.md`](plans/developer-tooling.md) §2.5 |
 | The VS Code extension's publisher and display name (distinct from upstream's own extension) | unset | [`plans/developer-tooling.md`](plans/developer-tooling.md) §2.1 |
+| Where the platform layer lives (here, or a repository of its own) and whether the release archive carries it | here, in `platform/`; shipped since 2026-10-17, so that an installed `kg board` works (two lines of `xtask/src/dist.rs`) | [`plans/platform-layer.md`](plans/platform-layer.md) §8 |
 | mimalloc as the binaries' allocator | kept | [`journal.md`](journal.md) |
 
 ## Decisions that bind

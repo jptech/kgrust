@@ -1,0 +1,18 @@
+# An accelerator called from Python over the board's serial port (accel.k,
+# test_accel.py). Runs on any board with a serial port and an LED; from
+# this directory: `kg board test`, `kg board serve -- python3 test_accel.py`.
+
+[package]
+name = "accel"
+
+[project]
+sources = ["accel.k"]
+# The standard library, from this checkout's reference submodule; where
+# that is absent, an installed kg uses its own.
+import-dirs = ["../../../third_party/kanagawa/library"]
+
+[board]
+# The board, of the platform (`kg board list`); `kg board new <dir> --board
+# <name> --example <this>` makes a copy for another.
+name = "virtual"
+platform = "../.."

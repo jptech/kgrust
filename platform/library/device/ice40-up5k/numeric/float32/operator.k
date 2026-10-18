@@ -1,0 +1,35 @@
+//| Floating-point operators for the iCE40 UP5K: soft logic with denormals
+// flushed, as upstream's ultrascaleplus-xcu250 has them. Each operator is a
+// sizeable share of a 5,280-cell part: measure before relying on one.
+module numeric.float32.operator
+    { mul
+    , add
+    , sub
+    , mad
+    }
+
+import numeric.float32.internal.operator as F32
+
+//| Floating-point multiplication.
+inline float32 mul(float32 x, float32 y)
+{
+    return F32::float32_mul_denormoff(x, y);
+}
+
+//| Floating-point addition.
+inline float32 add(float32 x, float32 y)
+{
+    return F32::float32_add_denormoff(x, y);
+}
+
+//| Floating-point subtraction.
+inline float32 sub(float32 x, float32 y)
+{
+    return F32::float32_sub_denormoff(x, y);
+}
+
+//| Floating-point multiply-accumulate.
+inline float32 mad(float32 x, float32 y, float32 z)
+{
+    return F32::float32_add_denormoff(x, F32::float32_mul_denormoff(y, z));
+}

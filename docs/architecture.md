@@ -17,7 +17,8 @@ one caller.
 ```
                     ┌──────────── kg-cli ────────────┐
                     │  kg build / check / fmt / lsp  │   ┌── kanagawa (compat binary)
-                    │  kg doc / dump / explain       │   │   ~92 legacy flags
+                    │  kg doc / dump / explain       │
+                    │  kg board ─▶ kg-board (flows)  │   │   ~92 legacy flags
                     └────────────────┬───────────────┘   └────────┬───────────
                                      │                            │
       kg-lsp ────────────────────────┤                            │
@@ -47,7 +48,7 @@ one caller.
 | `kg-base` | done | `FileId`, `TextRange`, `LineIndex` (byte ⇄ UTF-16), the string interner, names and mangling |
 | `kg-diag` | done | The diagnostic model and the legacy terminal renderer the test harness greps |
 | `kg-vfs` | done | Virtual file system with in-memory overlays for unsaved buffers |
-| `kg-config` | done | `kanagawa.toml`: import dirs, target device, defines, warnings, fmt |
+| `kg-config` | done | `kanagawa.toml`: import dirs, target device, defines, warnings, fmt; `board`, a manifest's opt-in `[board]` and the `board.toml` it names, found and applied (device, the platform's library) |
 | `kg-parser` | done | Lexer + error-recovering grammar → a flat event stream; no tree dependency |
 | `kg-syntax` | done | rowan CST + the typed AST generated from `grammar/kanagawa.ungram`; the documentation each doc-carrying element carries (`file_docs`), as the reference's generator reads it, and its Pandoc Markdown as CommonMark (`to_commonmark`) |
 | `kg-resolve` | done | Module graph, import resolution, scopes, name binding |
@@ -61,7 +62,8 @@ one caller.
 | `kg-abi-gen` | done; not in a plain `cargo build` | bindgen over the reference's C headers, once: the generators `xtask codegen` writes the two crates above with, and the configuration `kg-ptrace`'s build script uses |
 | `kg-ptrace` | done; not in a plain `cargo build` | The interposer: a shim backend logging every ParseTree call the reference makes; its build script needs the reference and libclang |
 | `kg-pttrace` | done | The call-trace format both sides of `ptdiff` read and write |
-| `kg-cli` | done | `kg` (check, build, fmt, lsp, doc, dump, explain) and the argv-compatible `kanagawa` |
+| `kg-cli` | done | `kg` (check, build, fmt, lsp, doc, dump, explain, board) and the argv-compatible `kanagawa`; `kg build`'s `[hw]` and `-Z hw.*` through the compat binary's flag table |
+| `kg-board` | built 2026-10-17 | `kg board`'s flows once `kg build` has written a board's RTL: the interface description (`interface`), the generated core and its host bridge (`wrapper`), the Python module (`python`), Verilator testbenches and `serve`, cocotb (`test`), gate-level simulation, the icestorm and Vivado flows, programming, `kg board new` ([`plans/board-tooling.md`](plans/board-tooling.md)) |
 | `kg-doc` | done | `kg doc`: a static site from the doc comments — a page per module in the reference generator's structure, linked signatures, folded examples, a search over every declaration; Markdown by `pulldown-cmark` |
 | `kg-lsp` | done; latency open | Language server on `lsp-server`: diagnostics, quick fixes, goto-definition and type definition, hover (with the declaration's documentation), references, rename, completion (documentation on resolve), signature help, inlay hints, symbols (document and workspace), folding, selection ranges, highlight, semantic tokens. Queries never block the message loop. Diagnostics land twice where the program-wide loop runs past four rounds — its fourth round's, then its fixpoint's, `kg check`'s — from one run on a thread of its own, which an edit cancels; every other feature reads the newest of the two ready (`PassBudget::Layered`, `kg_db::layered`, sprint W7.6) |
 | `kg-fmt` | done | Comment-preserving formatter over the CST, with a verifier that refuses any edit that changes the program |

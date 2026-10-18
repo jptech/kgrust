@@ -1,0 +1,47 @@
+# tinyVision UPduino v3.0/v3.1 (iCE40UP5K-SG48): pins for upduino_top
+# (rtl/upduino_top.sv).
+#
+# From tinyVision's own constraints, RTL/common/upduino.pcf in
+# github.com/tinyvision-ai-inc/UPduino-v3.0, and its tutorials:
+# - The RGB LED is on the dedicated current-sink pins, driven through
+#   SB_RGBA_DRV; cutting R28 disconnects it from the header.
+# - serial_txd/serial_rxd reach the FT232H's UART, sharing nets with the SPI
+#   flash. Traced 2026-10-17 in tinyVision's Board/v3.0/UPduino_v3.0.kicad_pcb,
+#   as shipped (R12, R13 fitted; R11, R27 not, which is flash programming):
+#     FPGA pin 15 (FT_SCK)  - FT232H pad 13, ADBUS0: TXD in UART mode
+#     FPGA pin 14 (FPGA_SO) - R12 - FT232H pad 14, ADBUS1: RXD in UART mode
+#     FPGA pin 16 (FT_SSn)  - FT232H pad 17, ADBUS4: DTR# in UART mode, and
+#                             the flash's chip select (iceprog's CS pin)
+#   Board/EEPROM/upduino_30_eeprom.conf sets no channel mode, so the FT232H
+#   is a UART after iceprog lets it go. The shell leaves spi_cs undriven,
+#   with the pull-up; the host keeps DTR deasserted so the flash stays
+#   deselected. Refitted for CRAM programming (R11, R27), pin 14 reaches
+#   ADBUS2 instead, and the FPGA's serial output no longer reaches RXD.
+# - The 12 MHz oscillator reaches pin 20 (a global buffer input) only with
+#   R16, marked OSC, shorted; upduino_top uses the internal oscillator.
+
+set_io led_green 39
+set_io led_blue 40
+set_io led_red 41
+
+set_io serial_txd 14
+set_io serial_rxd 15
+set_io -pullup yes spi_cs 16
+
+# The shell's SPI and I2C buses (the resources `spi` and `i2c` in
+# board.toml): a choice of header pins, free to change here.
+set_io spi_sclk 44
+set_io spi_mosi 45
+set_io spi_miso 46
+set_io spi_cs_n 47
+set_io i2c_scl 2
+set_io i2c_sda 3
+
+# The rest of the header, ready to name in a shell:
+# set_io gpio_4 4      set_io gpio_6 6
+# set_io gpio_9 9      set_io gpio_10 10    set_io gpio_11 11    set_io gpio_12 12
+# set_io gpio_13 13    set_io gpio_18 18    set_io gpio_19 19    set_io gpio_20 20
+# set_io gpio_21 21    set_io gpio_23 23    set_io gpio_25 25    set_io gpio_26 26
+# set_io gpio_27 27    set_io gpio_28 28    set_io gpio_31 31    set_io gpio_32 32
+# set_io gpio_34 34    set_io gpio_35 35    set_io gpio_36 36    set_io gpio_37 37
+# set_io gpio_38 38    set_io gpio_42 42    set_io gpio_43 43    set_io gpio_48 48

@@ -34,6 +34,9 @@ pub struct Env {
     pub base_library: Option<String>,
     /// `KG_COLOR` — `auto`, `always` or `never`; `--color` still wins.
     pub color: Option<String>,
+    /// `KG_PLATFORM` — where a manifest's `[board]` is looked for when it
+    /// names no `platform` (`kg_config::board`).
+    pub platform: Option<String>,
     /// `KG_LEFTOVERS`, `KG_INFER_FULL`, `KG_PTBRIDGE_SEED` —
     /// the port's verdict switches ([`kg_config::Verdicts`]), read here and
     /// nowhere inside the compiler.
@@ -49,6 +52,7 @@ impl Env {
             target_device: get("KG_TARGET_DEVICE"),
             base_library: get("KG_BASE_LIBRARY"),
             color: get("KG_COLOR"),
+            platform: get("KG_PLATFORM"),
             verdicts: crate::verdicts_from_env(),
         }
     }
@@ -88,6 +92,11 @@ pub struct Resolved {
     /// `project.sources`, resolved against the manifest directory. Used when a
     /// command is given no paths.
     pub sources: Vec<Utf8PathBuf>,
+    /// The manifest's `[board]`, found and applied to `settings`.
+    pub board: Option<kg_config::Board>,
+    /// The backend options, lowest layer first: the board's `[hw]`, then the
+    /// manifest's (profile applied). `-Z hw.<key>=<v>` goes over both.
+    pub hw: Vec<std::collections::BTreeMap<String, toml::Value>>,
 }
 
 /// Layers every source into one [`Settings`].
@@ -131,22 +140,38 @@ pub fn resolve(
         }
     };
 
-    let (mut settings, sources) = match &found {
+    let (mut settings, sources, manifest) = match &found {
         Some(path) => {
             let manifest = load_with_profile(path, profile.as_deref())?;
             let root = path.parent().unwrap_or(Utf8Path::new(".")).to_owned();
             let sources =
                 manifest.project.sources.iter().map(|s| join(&root, s)).collect::<Vec<_>>();
-            (Settings::from_manifest(&manifest, path), sources)
+            (Settings::from_manifest(&manifest, path), sources, Some(manifest))
         }
-        None => (Settings::fallback(cwd), Vec::new()),
+        None => (Settings::fallback(cwd), Vec::new(), None),
     };
 
     apply_env(&mut settings, env);
     apply_overrides(&mut settings, overrides)?;
-    let settings = settings.or_bundled_library();
+    let mut settings = settings.or_bundled_library();
 
-    Ok(Resolved { settings, manifest_path: found, profile, sources })
+    // After the bundled library, so the platform's follows every library
+    // the project could otherwise see.
+    let mut hw = Vec::new();
+    let mut board = None;
+    if let Some(manifest) = manifest {
+        if let (Some(table), Some(path)) = (&manifest.board, &found) {
+            let root = path.parent().unwrap_or(Utf8Path::new("."));
+            let platform = env.platform.as_deref().map(Utf8Path::new);
+            let found = kg_config::board::resolve(table, root, platform).map_err(|e| format!("{path}: {e}"))?;
+            kg_config::board::apply(&mut settings, &found).map_err(|e| format!("{path}: {e}"))?;
+            hw.push(found.hw());
+            board = Some(found);
+        }
+        hw.push(manifest.hw);
+    }
+
+    Ok(Resolved { settings, manifest_path: found, profile, sources, board, hw })
 }
 
 /// Reads a manifest and deep-merges `[profile.<name>]` over the base tables.
@@ -300,6 +325,54 @@ warnings = { all = true, shadow = "allow" }
 
     fn resolved(dir: &Dir, profile: Option<&str>, env: Env, overrides: Overrides) -> Resolved {
         resolve(None, false, profile, &env, &overrides, &dir.0, &dir.0).unwrap()
+    }
+
+    /// `[board]`: the board's device, the platform's library after the
+    /// project's, and two `[hw]` layers — the board's (its clock as the
+    /// frequency), then the manifest's under the profile. KG_PLATFORM finds
+    /// a board the manifest names without a platform.
+    #[test]
+    fn a_board_sets_the_device_the_library_and_the_hw_layers() {
+        let dir = Dir::new(
+            "board",
+            "[project]\nimport-dirs = [\"library\"]\n[board]\nname = \"demo\"\n[hw]\nregister-ratio = 4\n\
+             [profile.fast]\nhw = { register-ratio = 2 }\n",
+        );
+        let platform = dir.0.join("platform");
+        std::fs::create_dir_all(platform.join("library")).unwrap();
+        std::fs::create_dir_all(platform.join("boards/demo")).unwrap();
+        std::fs::write(
+            platform.join("boards/demo/board.toml"),
+            "[fpga]\ndevice = \"ice40-up5k\"\npart = \"up5k\"\nhal = \"ice40\"\ntool = \"icestorm\"\n\
+             [clock]\nmhz = 24\n[hw]\nregister-ratio = 8\n",
+        )
+        .unwrap();
+        let env = Env { platform: Some(platform.to_string()), ..Env::default() };
+        let r = resolved(&dir, Some("fast"), env, Overrides::default());
+        assert_eq!(r.settings.target_device, "ice40-up5k");
+        assert_eq!(r.settings.import_dirs, [dir.0.join("library"), platform.join("library")]);
+        assert_eq!(r.hw.len(), 2);
+        assert_eq!(r.hw[0]["register-ratio"].as_integer(), Some(8));
+        assert_eq!(r.hw[0]["frequency"].as_integer(), Some(24));
+        assert_eq!(r.hw[1]["register-ratio"].as_integer(), Some(2));
+        assert_eq!(r.board.as_ref().map(kg_config::Board::name), Some("demo"));
+
+        let err = resolve(None, false, None, &Env::default(), &Overrides::default(), &dir.0, &dir.0).unwrap_err();
+        assert!(err.contains("no platform to find `demo`"), "{err}");
+        let overrides = Overrides { target_device: Some("artix7-xc7a50t".to_owned()), ..Overrides::default() };
+        let env = Env { platform: Some(platform.to_string()), ..Env::default() };
+        let err = resolve(None, false, None, &env, &overrides, &dir.0, &dir.0).unwrap_err();
+        assert!(err.contains("is a ice40-up5k"), "{err}");
+    }
+
+    /// No `[board]`, no change: one `[hw]` layer, the manifest's.
+    #[test]
+    fn without_a_board_nothing_changes() {
+        let dir = Dir::new("noboard", MANIFEST);
+        let r = resolved(&dir, None, Env::default(), Overrides::default());
+        assert!(r.board.is_none());
+        assert_eq!(r.hw.len(), 1);
+        assert!(r.hw[0].is_empty());
     }
 
     #[test]

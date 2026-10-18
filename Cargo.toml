@@ -22,6 +22,7 @@ default-members = [
     "crates/kg-alloc",
     "crates/kg-backend-sys",
     "crates/kg-base",
+    "crates/kg-board",
     "crates/kg-cli",
     "crates/kg-config",
     "crates/kg-const",
@@ -67,6 +68,7 @@ kg-syntax   = { path = "crates/kg-syntax" }
 kg-fmt      = { path = "crates/kg-fmt" }
 kg-vfs      = { path = "crates/kg-vfs" }
 kg-config   = { path = "crates/kg-config" }
+kg-board    = { path = "crates/kg-board" }
 kg-resolve  = { path = "crates/kg-resolve" }
 kg-hir      = { path = "crates/kg-hir" }
 kg-sem      = { path = "crates/kg-sem" }

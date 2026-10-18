@@ -1,0 +1,20 @@
+# The UPduino blinky: the RGB LED counts in binary (blinky.k).
+# Run from this directory: `kg board sim`, `kg board bitstream`, … (platform/README.md).
+
+[package]
+name = "upduino-blinky"
+
+[project]
+sources = ["blinky.k"]
+# The standard library, from this checkout's reference submodule; where
+# that is absent, an installed kg uses its own.
+import-dirs = ["../../../../../third_party/kanagawa/library"]
+
+[board]
+# The board this example belongs to; a project of your own names it
+# instead: `name = "<board>"` (`kg board new` writes that).
+path = "../.."
+# No core.sv: kg board generates the core from the board's resources.
+# `step` serves the LED; a method named `led` would bind by its name alone.
+connect = { step = "led" }
+testbench = "tb.sv"

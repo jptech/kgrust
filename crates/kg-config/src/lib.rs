@@ -10,9 +10,11 @@
 //! So this is not a convenience feature. It is the prerequisite for every
 //! editor-facing capability in the toolchain.
 
+pub mod board;
 mod discover;
 mod resolve;
 
+pub use board::{Board, BoardSpec, BoardTable};
 pub use discover::{ManifestError, discover, load};
 pub use resolve::{BackendOptions, DEFAULT_TARGET_DEVICE, Settings, Verdicts};
 
@@ -39,6 +41,9 @@ pub struct Manifest {
     /// flag does not require a schema change here.
     #[serde(default)]
     pub hw: BTreeMap<String, toml::Value>,
+    /// The board the design is for, if any: opt-in ([`board`]).
+    #[serde(default)]
+    pub board: Option<BoardTable>,
     /// Named overlays selected with `--profile`.
     #[serde(default)]
     pub profile: BTreeMap<String, Profile>,
