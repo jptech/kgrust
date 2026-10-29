@@ -41,6 +41,9 @@ loop tiers, `gates.sh`, `scripts/identity.sh` and `scripts/build-backend.sh`
 take the machine-wide heavy lock ([Memory](#memory)). Every script runs
 from any worktree of the repository (`scripts/worktree.sh`).
 
+The gates run the binaries built under `target/`, never a `kg` on `PATH`, so a
+stale `cargo xtask install` cannot skew a verdict.
+
 ### `scripts/gates.sh`, stage by stage
 
 `scripts/gates.sh [--no-backend] [--no-bench] [--snapshot[=<commit>]] >
