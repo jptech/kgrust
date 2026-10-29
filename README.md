@@ -178,7 +178,7 @@ backend build is tested on macOS (Apple silicon), and reports from Linux are wel
 ## Parity and speed
 
 kgrust is graded against the reference compiler on the reference's own test corpus, in
-gates that run on every milestone:
+gates:
 
 | | |
 |---|---|
@@ -196,11 +196,10 @@ Checking a design, against the reference frontend ([details](docs/plans/performa
 | `processor/risc-v.k` | 54.0 s | 24.6 s | 1.95 s | 13× |
 
 Those are the `release` build's times. The release archives are optimised as one
-program and check 6–10% faster again, with identical output
-([measured 2026-10-12](docs/journal.md#quick-wins-a-stale-ci-cache-and-the-shipped-binaries-optimised-whole--2026-10-12)).
+program and check 6–10% faster again, with identical output.
 
 A whole build is mostly the shared code generator, so `kg build` finishes 1.5–2× sooner
-end to end (measured 2026-10-11; [where the time goes](docs/plans/backend-survey.md)). Deliberate differences
+end to end ([where the time goes](docs/plans/backend-survey.md)). Deliberate differences
 from the reference are listed, each with its reason, in
 [`docs/known-divergences.md`](docs/known-divergences.md).
 

@@ -44,8 +44,8 @@ with the extension compiled from `src/`; open a folder of `.k` files in it.
 
 **Installed:** `code --install-extension kanagawa-kgrust-0.1.0.vsix`, and
 `code --uninstall-extension undefined_publisher.kanagawa-kgrust` to remove
-it. The package names no publisher yet — one is chosen when the extension is
-published — so VS Code files it under `undefined_publisher`. To keep it out
+it. The package declares no publisher, so VS Code files it under
+`undefined_publisher`. To keep it out
 of your usual VS Code, give it a profile and an extensions directory of its
 own:
 
