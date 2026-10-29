@@ -43,9 +43,10 @@ export PATH="$PWD/kgrust-0.1.0-aarch64-apple-darwin/bin:$PATH"
 kg --version
 ```
 
-An archive holds everything: `kg`, `kanagawa`, the code generator beside them, and
-Kanagawa's standard library, which `kg` finds on its own. To make one for your platform,
-see [Build from source](#build-from-source).
+An archive holds everything: `kg`, `kanagawa`, the code generator beside them,
+Kanagawa's standard library and the boards of `kg board`, which `kg` finds on its own.
+To make one for your platform, or to install your checkout the same way, see
+[Build from source](#build-from-source).
 
 ## Quick start
 
@@ -155,7 +156,14 @@ also needs Kanagawa's code generator, a C++ library built from the submodule:
 ```sh
 scripts/build-backend.sh                    # → target/backend/dist/bin/libkanagawa-backend.*
 cargo xtask dist                            # → target/dist/kgrust-<version>-<target>.tar.gz
+cargo xtask install                         # the same tree under ~/.local/share/kgrust, linked into ~/.cargo/bin
 ```
+
+`cargo xtask install` is the way to put your checkout's `kg` on the `PATH` (`--prefix`
+and `--bin-dir` move either half; run it again to update). `cargo install --path
+crates/kg-cli` is not: it copies the two executables alone, so `kg board new` finds no
+platform and `kg build` no backend. `kg` finds both, and the standard library, relative to
+its own real path, which the links `install` makes preserve.
 
 `build-backend.sh` compiles LLVM, MLIR and CIRCT with the backend — about half an hour on
 16 cores the first time, incremental after — and needs CMake ≥ 3.30, Ninja and Boost ≥ 1.88

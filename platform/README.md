@@ -24,8 +24,9 @@ The design behind it, what was measured and what is still open:
 
 ## Demo: pong in the browser
 
-The shortest way to see a design on a screen. With an installed `kg` and
-Verilator 5:
+The shortest way to see a design on a screen. With an installed `kg` (a
+release archive, or `cargo xtask install` from a checkout with the backend
+built; not `cargo install`, which carries no platform) and Verilator 5:
 
 ```sh
 kg board new pong --board virtual --example pong
@@ -33,7 +34,7 @@ cd pong
 kg board serve                     # prints `front panel: http://127.0.0.1:…/`; open it
 ```
 
-From this checkout instead, with the backend built (the top-level README's
+From this checkout without installing, with the backend built (the top-level README's
 "Build from source"):
 
 ```sh
@@ -296,8 +297,9 @@ with DTR and RTS deasserted, as `kgbridge` and the monitor's `host.py` do
 
 In this checkout, run `kg` built here (`cargo build --profile quick --bin
 kg`) with `KG_BACKEND_DIR` naming the backend, and set `KG_PLATFORM` to this
-directory for `list` and `new` outside it. An installed `kg` carries the
-platform and needs neither.
+directory for `list` and `new` outside it. An installed `kg` (an archive's, or
+`cargo xtask install`'s) carries the platform and needs neither; `kg board:
+no platform` means a `kg` that was copied alone, as `cargo install` does.
 
 ## Small designs on the iCE40
 
