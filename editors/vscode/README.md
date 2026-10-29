@@ -9,9 +9,8 @@ folding and formatting. [What the server provides](#what-the-server-provides)
 has the detail.
 
 **It needs `kg`.** The extension runs `kg lsp`, with `kg` found on `PATH`.
-Install a kgrust release, or build it from source
-(`cargo build --release -p kg-cli`, see the
-[kgrust README](https://github.com/jptech/kgrust#readme)), or point the
+Install a kgrust release, or install your checkout with `cargo xtask install`
+(see the [kgrust README](https://github.com/jptech/kgrust#readme)), or point the
 `kanagawa.server.path` setting at the binary. Without it you get the bundled
 syntax highlighting and nothing else.
 
@@ -60,7 +59,9 @@ code --user-data-dir ~/.vscode-kgrust/data --extensions-dir ~/.vscode-kgrust/ext
 
 - `cargo xtask dist` → `target/dist/kgrust-<version>-<target>/bin/kg`, with
   the standard library and the code generator beside it, as a release has
-  them, and optimised as a release is (a minute longer to build); or
+  them, and optimised as a release is (a minute longer to build);
+- `cargo xtask install`: the same tree under `~/.local/share/kgrust`, with `kg`
+  linked into `~/.cargo/bin`, so it is on `PATH` and needs no setting; or
 - `cargo build --release -p kg-cli` → `target/release/kg`. A source build
   bundles no standard library: point the project's `import-dirs` at one —
   the submodule's `third_party/kanagawa/library`.

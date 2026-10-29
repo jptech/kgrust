@@ -54,12 +54,13 @@ asserts (`compiler/cpp/backend_common.h:457`). At most ten entries per type
 are allowed (`config.h:80-84`). A type with no entries is never chosen,
 which is how upstream's Intel devices state that they have no deep RAM.
 
-**What kgrust adds today: nothing device-specific, and two gaps.**
-- `cargo xtask dist` ships `library/` but not `runtime/rtl`, so an installed
-  `kg build` writes RTL that nothing in the archive can synthesise
-  (`xtask/src/dist.rs:65`).
-- The manifest's `[hw]` table is accepted and read by nothing
-  ([`spec/cli.md`](../spec/cli.md) §10). There is no notion of a board.
+**What kgrust added: nothing device-specific, and two gaps** (as surveyed;
+both closed since — `dist` ships `runtime/rtl` and the platform, and `[hw]`
+and `[board]` are read; see the progress note at §8).
+- `cargo xtask dist` shipped `library/` but not `runtime/rtl`, so an installed
+  `kg build` wrote RTL that nothing in the archive could synthesise.
+- The manifest's `[hw]` table was accepted and read by nothing
+  ([`spec/cli.md`](../spec/cli.md) §10). There was no notion of a board.
 
 ## 2. Goals
 

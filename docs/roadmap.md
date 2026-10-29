@@ -21,7 +21,8 @@ written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10
   by `scripts/build-backend.sh`.
 - **The tools:** `kg check`, `build`, `fmt`, `lsp`, `doc`, `dump`,
   `explain`, and the argv-compatible `kanagawa`; a release archive from
-  `cargo xtask dist`; the VS Code extension in `editors/vscode`, which
+  `cargo xtask dist` (and `cargo xtask install`, the same tree linked into
+  `~/.cargo/bin`); the VS Code extension in `editors/vscode`, which
   packages (`npm run package`) and installs locally — completion after
   `::` (an enum's constants with their values) its latest feature.
 - **Published** at [github.com/jptech/kgrust](https://github.com/jptech/kgrust),

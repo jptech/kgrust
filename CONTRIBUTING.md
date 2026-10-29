@@ -30,7 +30,9 @@ That gives `kg check`, `fmt`, `lsp` and `doc`. A source build bundles no
 standard library: pass `-I third_party/kanagawa/library`, or list it in a
 project's `kanagawa.toml`. `kg build` also needs Kanagawa's C++ code
 generator, `scripts/build-backend.sh` (CMake ≥ 3.30, Ninja, Boost ≥ 1.88;
-about half an hour on 16 cores, once).
+about half an hour on 16 cores, once). To use your build as the `kg` on your
+`PATH`, with the standard library, the boards and the backend found as in a
+release, run `cargo xtask install`; `cargo install` copies the binaries alone.
 
 The parity gates run the reference compiler itself, and need far more: GHC
 via ghcup, ≥ 32 GB of RAM (64 GB recommended), ~25 GB of disk and about an

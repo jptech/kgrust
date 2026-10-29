@@ -98,6 +98,9 @@ generates the board-level wiring from the board's resources, writes a Python cla
 with a method per exported function, and runs the same tests under cocotb, against
 the simulation, and on the board:
 
+You need Verilator 5 (`brew install verilator`) and, for the cocotb tests, Python with
+cocotb 2 (`uv venv && uv pip install cocotb`). `kg board info` says what else is missing.
+
 ```sh
 kg board new hello --board virtual --example accel
 cd hello
