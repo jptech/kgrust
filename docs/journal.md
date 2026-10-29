@@ -18264,3 +18264,25 @@ ending and the monitor never replied. Separately, a well's `keys` class
 also styled the footer's "Keys" line. Neither failed a check; both showed
 the first time the page was driven in a browser (Playwright and headless
 Chrome, from a scratch `uv` environment). A page is checked by using it.
+
+## `cargo install` copies a binary, and `kg` is a tree — 2026-10-28
+
+`kg board new pong --board virtual --example pong` failed with "no platform"
+on a `kg` put on the `PATH` by `cargo install --path crates/kg-cli`. Nothing
+was broken: the platform, the standard library and the backend are all found
+relative to the executable (`../share/kanagawa/platform`,
+`../share/kanagawa/library`, the executable's own directory), a layout only a
+release archive has. `platform/README.md` said "an installed `kg`" and meant
+the archive.
+
+`cargo xtask install` stages the archive's tree (`stage_tree`, shared with
+`dist`) under `~/.local/share/kgrust` and links `kg` and `kanagawa` into
+`~/.cargo/bin`. The platform and library lookups already canonicalised the
+executable's path, so the links worked; the backend's (`kg-backend-sys`
+`locate.rs`) used `current_exe()` as given and did not, found nothing, and is
+fixed, with a unit test that fails on the mutation. It refuses to replace a
+real file in the bin directory, which is what `cargo install` leaves.
+
+Checked 2026-10-28 from the installed `kg` with no environment variables
+set: `kg board new`, `kg board interface`, and `kg board serve` (the front
+panel answered 200) for the pong example.

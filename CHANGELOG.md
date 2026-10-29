@@ -8,6 +8,11 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Added
 
+- `cargo xtask install`: the release archive's tree under a prefix
+  (`~/.local/share/kgrust`) with `kg` and `kanagawa` linked into
+  `~/.cargo/bin`, so a source build finds the platform, the standard library
+  and the backend as a release does. `kg` now looks for the backend beside its
+  real path, symlinks followed.
 - `kg board`, opt-in through a manifest's `[board]`: `list`, `info`, `new`
   (a project from a board's example), `sim` (the project's testbench under
   Verilator), `netsim` (on the synthesised netlist), `bitstream` (sv2v,

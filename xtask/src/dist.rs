@@ -33,6 +33,32 @@ use anyhow::{Context, Result, bail};
 
 pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: bool) -> Result<()> {
     let workspace = crate::fresh::workspace();
+    let version = env!("CARGO_PKG_VERSION");
+    let target = host_target()?;
+    let name = format!("kgrust-{version}-{target}");
+    let stage = out.join(&name);
+    let kanagawa_root = stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, &stage)?;
+    copy(&workspace.join("LICENSE"), &stage.join("LICENSE"))?;
+    std::fs::write(stage.join("THIRD-PARTY-NOTICES.md"), notices(&workspace, &kanagawa_root, no_backend)?)?;
+    std::fs::write(stage.join("README.md"), readme(&name, no_backend))?;
+
+    let archive = out.join(format!("{name}.tar.gz"));
+    let status = Command::new("tar").arg("-czf").arg(&archive).arg("-C").arg(out).arg(&name).status()?;
+    if !status.success() {
+        bail!("tar failed");
+    }
+    let sha = sha256(&archive)?;
+    std::fs::write(out.join(format!("{name}.tar.gz.sha256")), format!("{sha}  {name}.tar.gz\n"))?;
+    let size = std::fs::metadata(&archive)?.len();
+    println!("{} ({:.1} MiB)\nsha256 {sha}", archive.display(), size as f64 / 1048576.0);
+    Ok(())
+}
+
+/// Builds `kg` and `kanagawa` (the `ship` profile) and lays out `stage` as
+/// an archive's tree minus its notices and README: `bin/`, then `share/kanagawa/`.
+/// `cargo xtask install` stages the same tree, so what it installs is what a
+/// release holds. Returns the canonical reference checkout.
+fn stage_tree(workspace: &Path, kanagawa_root: &Path, backend_dir: &Path, no_backend: bool, stage: &Path) -> Result<PathBuf> {
     let kanagawa_root = kanagawa_root.canonicalize().with_context(|| {
         format!("no kanagawa checkout at {} — `git submodule update --init third_party/kanagawa`", kanagawa_root.display())
     })?;
@@ -48,17 +74,13 @@ pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: boo
     eprintln!("dist: building kg and kanagawa (the `ship` profile)");
     let status = Command::new(env!("CARGO"))
         .args(["build", "--profile", "ship", "-p", "kg-cli", "--bin", "kg", "--bin", "kanagawa"])
-        .current_dir(&workspace)
+        .current_dir(workspace)
         .status()?;
     if !status.success() {
         bail!("cargo build failed");
     }
 
-    let version = env!("CARGO_PKG_VERSION");
-    let target = host_target()?;
-    let name = format!("kgrust-{version}-{target}");
-    let stage = out.join(&name);
-    let _ = std::fs::remove_dir_all(&stage);
+    let _ = std::fs::remove_dir_all(stage);
     std::fs::create_dir_all(stage.join("bin"))?;
     for bin in ["kg", "kanagawa"] {
         let exe = if cfg!(windows) { format!("{bin}.exe") } else { bin.to_owned() };
@@ -70,20 +92,46 @@ pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: boo
     copy_tree(&kanagawa_root.join("library"), &stage.join("share/kanagawa/library"))?;
     copy_tree(&kanagawa_root.join("runtime/rtl"), &stage.join("share/kanagawa/runtime/rtl"))?;
     copy_tree(&workspace.join("platform"), &stage.join("share/kanagawa/platform"))?;
-    copy(&workspace.join("LICENSE"), &stage.join("LICENSE"))?;
-    std::fs::write(stage.join("THIRD-PARTY-NOTICES.md"), notices(&workspace, &kanagawa_root, no_backend)?)?;
-    std::fs::write(stage.join("README.md"), readme(&name, no_backend))?;
+    Ok(kanagawa_root)
+}
 
-    let archive = out.join(format!("{name}.tar.gz"));
-    let status = Command::new("tar").arg("-czf").arg(&archive).arg("-C").arg(out).arg(&name).status()?;
-    if !status.success() {
-        bail!("tar failed");
+/// `cargo xtask install`: stage the release tree under `prefix` and link its
+/// executables into `bin_dir`. `kg` finds the platform, the library and the
+/// backend relative to its canonical path (`kg-config`'s `bundled_platform`,
+/// `kg-backend-sys`'s `locate`), and canonicalising follows the links, so a
+/// linked `kg` behaves as one run from an unpacked archive. `cargo install`
+/// copies the binary alone, which is why it cannot.
+pub fn install(kanagawa_root: &Path, backend_dir: &Path, prefix: &Path, bin_dir: &Path, no_backend: bool) -> Result<()> {
+    let workspace = crate::fresh::workspace();
+    let bins: Vec<String> = ["kg", "kanagawa"].iter().map(|b| if cfg!(windows) { format!("{b}.exe") } else { (*b).to_owned() }).collect();
+    // A real file in the way is a `cargo install`'s: refuse before building,
+    // rather than clobber a file this command did not make.
+    for bin in &bins {
+        let link = bin_dir.join(bin);
+        if link.symlink_metadata().is_ok_and(|m| !m.file_type().is_symlink()) {
+            bail!("{} is a regular file, not a link — remove it first (`cargo uninstall kg-cli` if cargo put it there)", link.display());
+        }
     }
-    let sha = sha256(&archive)?;
-    std::fs::write(out.join(format!("{name}.tar.gz.sha256")), format!("{sha}  {name}.tar.gz\n"))?;
-    let size = std::fs::metadata(&archive)?.len();
-    println!("{} ({:.1} MiB)\nsha256 {sha}", archive.display(), size as f64 / 1048576.0);
+    stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, prefix)?;
+    std::fs::create_dir_all(bin_dir)?;
+    for bin in &bins {
+        let link = bin_dir.join(bin);
+        let _ = std::fs::remove_file(&link);
+        link_to(&prefix.join("bin").join(bin), &link)?;
+        println!("{} -> {}", link.display(), prefix.join("bin").join(bin).display());
+    }
+    println!("installed to {}; put {} on your PATH if it is not", prefix.display(), bin_dir.display());
     Ok(())
+}
+
+#[cfg(unix)]
+fn link_to(target: &Path, link: &Path) -> Result<()> {
+    std::os::unix::fs::symlink(target, link).with_context(|| format!("linking {}", link.display()))
+}
+
+#[cfg(windows)]
+fn link_to(target: &Path, link: &Path) -> Result<()> {
+    std::os::windows::fs::symlink_file(target, link).with_context(|| format!("linking {}", link.display()))
 }
 
 /// `rustc -vV`'s host triple: the platform the binaries were built for.

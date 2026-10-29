@@ -11,7 +11,7 @@
 //!   `fuzz`, `reduce`, `passdiff`, `loop-modules`, `loop-rounds`.
 //! * **Upkeep**: `codegen` (the derived files of the syntax layer, the
 //!   editor's grammar, the ABI's bindings), `pin-reference`, `dist` (a
-//!   release archive).
+//!   release archive), `install` (that archive's tree, linked into place).
 
 mod codegen;
 mod dist;
@@ -297,6 +297,27 @@ enum Cmd {
         out: std::path::PathBuf,
         /// Package without the backend: an archive that checks, formats,
         /// edits and documents, but cannot build.
+        #[arg(long)]
+        no_backend: bool,
+    },
+    /// Install this checkout's `kg` as a release would lay it out: the dist
+    /// tree under a prefix, `kg` and `kanagawa` linked into a bin directory.
+    /// Unlike `cargo install`, `kg` then finds the platform, the standard
+    /// library and the backend (`kg board new` works with nothing set).
+    Install {
+        /// The reference checkout the standard library is taken from.
+        #[arg(long, env = "KANAGAWA_ROOT", default_value = "third_party/kanagawa")]
+        kanagawa_root: std::path::PathBuf,
+        /// The backend library's directory (`scripts/build-backend.sh`'s).
+        #[arg(long, default_value = "target/backend/dist/bin")]
+        backend_dir: std::path::PathBuf,
+        /// Where the tree is staged (replaced on each run). Default: `~/.local/share/kgrust`.
+        #[arg(long)]
+        prefix: Option<std::path::PathBuf>,
+        /// Where the executables are linked. Default: `~/.cargo/bin`.
+        #[arg(long)]
+        bin_dir: Option<std::path::PathBuf>,
+        /// Install without the backend: `kg build` and `kg board` will not work.
         #[arg(long)]
         no_backend: bool,
     },
@@ -664,7 +685,7 @@ fn reference_root(command: &mut Cmd) -> Option<&mut std::path::PathBuf> {
         Cmd::Mem { child: Some(_), .. } => None,
         Cmd::Mem { kanagawa_root, .. } => Some(kanagawa_root),
         // The library packaged is the pinned one, unmodified.
-        Cmd::Dist { kanagawa_root, .. } => Some(kanagawa_root),
+        Cmd::Dist { kanagawa_root, .. } | Cmd::Install { kanagawa_root, .. } => Some(kanagawa_root),
         Cmd::StrictLedger { kanagawa_root, .. }
         | Cmd::Backend { kanagawa_root, .. }
         | Cmd::Output { kanagawa_root, .. }
@@ -695,6 +716,19 @@ fn dispatch(command: Cmd) -> Result<()> {
     match command {
         Cmd::Codegen { check, kanagawa_root } => codegen::run(check, &kanagawa_root),
         Cmd::Dist { kanagawa_root, backend_dir, out, no_backend } => dist::run(&kanagawa_root, &backend_dir, &out, no_backend),
+        Cmd::Install { kanagawa_root, backend_dir, prefix, bin_dir, no_backend } => {
+            let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+            let under_home = |rel: &str| home.as_ref().map(|h| h.join(rel)).ok_or_else(|| anyhow::anyhow!("HOME is unset; pass --prefix and --bin-dir"));
+            let prefix = match prefix {
+                Some(p) => p,
+                None => under_home(".local/share/kgrust")?,
+            };
+            let bin_dir = match bin_dir {
+                Some(p) => p,
+                None => under_home(".cargo/bin")?,
+            };
+            dist::install(&kanagawa_root, &backend_dir, &prefix, &bin_dir, no_backend)
+        }
         Cmd::Backend { kanagawa_root, build_dir, show: Some(name), .. } => backend::show(&kanagawa_root, &build_dir, &name),
         Cmd::Backend { kanagawa_root, build_dir, filter, verbose, max_failures, show: None } => {
             backend::run(&kanagawa_root, &build_dir, filter.as_deref(), verbose, max_failures)
