@@ -56,7 +56,7 @@ which is how upstream's Intel devices state that they have no deep RAM.
 
 **What kgrust added: nothing device-specific, and two gaps** (as surveyed;
 both closed since — `dist` ships `runtime/rtl` and the platform, and `[hw]`
-and `[board]` are read; see the progress note at §8).
+and `[board]` are read; see "Phase 2" below).
 - `cargo xtask dist` shipped `library/` but not `runtime/rtl`, so an installed
   `kg build` wrote RTL that nothing in the archive could synthesise.
 - The manifest's `[hw]` table was accepted and read by nothing
