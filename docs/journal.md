@@ -18286,3 +18286,27 @@ real file in the bin directory, which is what `cargo install` leaves.
 Checked 2026-10-28 from the installed `kg` with no environment variables
 set: `kg board new`, `kg board interface`, and `kg board serve` (the front
 panel answered 200) for the pong example.
+
+## The parser's progress guard counted the whole file — 2026-10-29
+
+`Parser::nth` asserted a budget of 15 million lookaheads, documented as
+steps "with no forward progress", but nothing reset the count: it was a
+per-file total. Error recovery looks ahead a few dozen times per token, so
+`kg check` on a 7.5 MB malformed file panicked ("the parser is stuck at
+token 1829273", issue #5); `kg check` on the repository root had met it on a
+9 MB IR dump in `target/identity/`.
+
+Every consumed token now resets the count, so the guard measures what it
+says. A trip is no longer an `assert!`: the parser shows the grammar the end
+of input, drops what the rules say about that fake end, and files the rest of
+the file under one `ERROR` node with `kg_parser::STALLED` — one diagnostic,
+a lossless tree, and the other files of a `kg check` or the server's buffers
+unharmed. A rule that loops even at the end of input still panics after a
+second budget. Only a grammar bug trips it, so `xtask fuzz` counts the
+diagnostic as `ParseStalled`; with `err_and_bump` replaced by `error` in
+`source_file_contents`, 46 of 200 mutants failed that way.
+
+Checked 2026-10-29: the issue's file gives `checked 1 file: 2500002 errors`,
+exit 1, in 7.8 s; `scripts/fast.sh` green, every ratchet +0/-0; `cargo
+xtask bench --filter parse` neutral over four interleaved A/B runs (A
+30.7–32.3 ms, B 31.2–31.9 ms for 481 files).
