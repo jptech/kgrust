@@ -35,6 +35,7 @@ pub(crate) fn source_file(p: &mut Parser<'_>) {
     lookahead::reset();
     let m = p.start();
     items::source_file_contents(p);
+    p.finish_stalled();
     m.complete(p, SOURCE_FILE);
 }
 

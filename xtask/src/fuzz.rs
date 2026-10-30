@@ -62,6 +62,10 @@ enum Failure {
     Panic(String),
     LexNotLossless,
     ParseNotLossless,
+    /// The parser's progress guard tripped. It reports a diagnostic rather
+    /// than panic, so a file cannot take a `kg check` or the server down, but
+    /// only a grammar bug — a rule that neither consumes nor returns — trips it.
+    ParseStalled,
     FormatNotIdempotent,
     FormatLostTokens,
     /// `kg-fmt` caught itself producing a different program. That is the
@@ -172,6 +176,9 @@ fn check(stage: Stage, input: &str) -> Option<Failure> {
         }
         Stage::Parse => {
             let parse = kg_syntax::parse_file(input);
+            if parse.errors().iter().any(|e| e.message == kg_parser::STALLED) {
+                return Err(Failure::ParseStalled);
+            }
             (parse.text() == input).then_some(()).ok_or(Failure::ParseNotLossless)
         }
         Stage::Format => {

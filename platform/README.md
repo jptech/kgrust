@@ -17,7 +17,7 @@ untouched by any of it.
 - [Your own board](#your-own-board)
 - [What is here](#what-is-here)
 
-The design behind it, what was measured and what is still open:
+The design behind it, its measurements and what is still open:
 [`docs/plans/board-tooling.md`](../docs/plans/board-tooling.md) (the
 `kg board` tooling) and [`docs/plans/platform-layer.md`](../docs/plans/platform-layer.md)
 (devices, HALs, boards).
@@ -308,7 +308,7 @@ records each choice made for the part (its pins, thread limit, DSP use,
 synthesis options) with the reason and how to change it.
 
 The UP5K has 5,280 logic cells. What decides whether a design fits
-(measured in [`board-tooling.md`](../docs/plans/board-tooling.md) §5 and
+(with the numbers in [`board-tooling.md`](../docs/plans/board-tooling.md) §5 and
 `platform-layer.md` §8.3):
 - **`[[latency(N)]]` where nothing waits.** A method with a handshake keeps a
   FIFO for its arguments and one for its result. A fixed-latency or

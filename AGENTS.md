@@ -87,7 +87,9 @@ A source build bundles no standard library: pass `-I
 third_party/kanagawa/library` or name it in a `kanagawa.toml`. The submodule
 (`git submodule update --init third_party/kanagawa`) holds that library, the
 corpus (a test that finds none skips itself, except under the scripts, which
-set `KG_REQUIRE_CORPUS=1`) and the backend's sources.
+set `KG_REQUIRE_CORPUS=1`) and the backend's sources. To run your build as the
+`kg` on `PATH`, use `cargo xtask install` (the release layout, linked in), not
+`cargo install`, which leaves `kg` without the platform, library and backend.
 
 **The full gates, from a fresh clone**, in order:
 
