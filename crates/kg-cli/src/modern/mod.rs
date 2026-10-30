@@ -386,7 +386,7 @@ fn doc(global: &GlobalArgs, args: &DocArgs, out: &mut dyn Write, err: &mut dyn W
             let _ = writeln!(err, "kg: cannot read {path}");
             return 2;
         }
-        inputs.push((db.file_id(path), path.clone()));
+        inputs.push((db.file_id(&canonical(path)), path.clone()));
     }
     let project_dir = resolved.manifest_path.as_ref().and_then(|m| m.parent().map(Utf8Path::to_owned)).unwrap_or_else(cwd);
     let site = kg_doc::Site {
@@ -433,6 +433,25 @@ fn cwd() -> Utf8PathBuf {
         .unwrap_or_else(|| Utf8PathBuf::from("."))
 }
 
+/// `canonicalizePath` (`Parser/IO.hs:104`): the reference knows every file
+/// it finds by its canonical path, so `control/loop.k` on the command line
+/// and the `control.loop` that `base.k` imports through `-I $PWD` are one
+/// module. The `Vfs` keys files lexically (`kg_vfs::canonical` says why), so
+/// the paths the CLI hands it are made canonical here: every root, and the
+/// directories imports are found under (issue #4). As the compat binary
+/// does (`legacy::options::settings_from`, `legacy::run::find_file`); a path
+/// that does not exist stays as given.
+fn canonical(path: &Utf8Path) -> Utf8PathBuf {
+    path.canonicalize_utf8().unwrap_or_else(|_| path.to_owned())
+}
+
+/// A file as a diagnostic names it: relative to the working directory when
+/// it is under it, so the canonical roots of `kg check top.k` still print
+/// `--> top.k`.
+fn shown(path: &Utf8Path, here: &Utf8Path) -> String {
+    path.strip_prefix(here).map_or_else(|_| path.to_string(), ToString::to_string)
+}
+
 /// `paths` are the command's input files, and they are here only so that
 /// manifest discovery can start beside the *file* instead of beside the shell.
 /// A user who runs `kg check ../other-project/top.k` means that project's
@@ -461,7 +480,16 @@ fn resolve(
         &cwd,
         &start,
     ) {
-        Ok(resolved) => Some(resolved),
+        Ok(mut resolved) => {
+            // Where imports are found ([`canonical`]); the base library is
+            // looked for under `root` first (`program::load`).
+            let settings = &mut resolved.settings;
+            settings.root = canonical(&settings.root);
+            for dir in &mut settings.import_dirs {
+                *dir = canonical(dir);
+            }
+            Some(resolved)
+        }
         Err(message) => {
             let _ = writeln!(err, "kg: {message}");
             None
@@ -516,7 +544,7 @@ fn check(
             unreadable += 1;
             continue;
         }
-        roots.push(db.file_id(path));
+        roots.push(db.file_id(&canonical(path)));
     }
 
     // `Db::check` applies `settings.warnings` itself, so every consumer of the
@@ -530,7 +558,8 @@ fn check(
 
     // `db.check` already returns program order, so one pass suffices; the cache
     // holds only the file currently being rendered.
-    let mut current: Option<(FileId, kg_base::Utf8PathBuf, kg_vfs::FileText)> = None;
+    let here = canonical(&cwd());
+    let mut current: Option<(FileId, String, kg_vfs::FileText)> = None;
     for diagnostic in &diagnostics {
         if diagnostic.is_error() {
             errors += 1;
@@ -542,18 +571,18 @@ fn check(
         if current.as_ref().is_none_or(|(f, ..)| *f != file) {
             current = db
                 .path(file)
-                .and_then(|path| db.vfs().read(file).map(|text| (file, path, text)));
+                .and_then(|path| db.vfs().read(file).map(|text| (file, shown(&path, &here), text)));
         }
 
         match &current {
             Some((_, path, text)) => {
                 let source =
-                    Source { name: path.as_str(), text: &text.text, line_index: &text.line_index };
+                    Source { name: path, text: &text.text, line_index: &text.line_index };
                 // A `while compiling` note may point into another module of
                 // the program — the instantiation site — which the database
                 // can open.
                 let locate = |range: kg_base::FileRange| {
-                    let name = db.path(range.file)?.to_string();
+                    let name = shown(&db.path(range.file)?, &here);
                     let text = db.vfs().read(range.file)?;
                     Some(render::Located { name, text })
                 };
@@ -849,7 +878,7 @@ fn dump_command(
             let _ = writeln!(err, "kg: cannot read {path}");
             return 1;
         }
-        let root = db.file_id(&path);
+        let root = db.file_id(&canonical(&path));
         if args.what == dump::What::Ir {
             let program = kg_db::sorted::sorted_program(&db, &[root]);
             let _ = write!(
@@ -1032,7 +1061,7 @@ fn compile(
             let _ = writeln!(err, "kg: cannot read {path}");
             return 2;
         }
-        roots.push(db.file_id(path));
+        roots.push(db.file_id(&canonical(path)));
     }
     let rejected = db.check(&roots).iter().any(kg_diag::Diagnostic::is_error);
     phases(&db, err);
