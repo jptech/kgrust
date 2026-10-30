@@ -113,6 +113,83 @@ Independent options, roughly in the order recommended.
      blocks, wider DSP products, the HAL's block-RAM FIFOs using more EBRs
      than the backend budgets.
 
+## Ideas, undecided
+
+A brainstorm (2026-10-29), kept so that it is not lost; nothing here is
+scheduled, and each needs the owner's decision before it is. What
+[`plans/developer-tooling.md`](plans/developer-tooling.md) already lists —
+publishing, `kg test`, watch mode, the whole-run cache, call hierarchy, the
+tree-sitter grammar, a playground — is not repeated.
+
+Every idea obeys one rule: **existing code is untouched, new code opts
+in.** Without the opt-in a program's verdicts, diagnostics and RTL are the
+reference's; `kanagawa` never opts in.
+
+**The mechanism for language changes: editions.** `[package] edition` in
+`kanagawa.toml`, reserved and unread today (`kg-config`'s `Package`).
+Per package, so a library and its users each keep their own; every
+extension desugars inside the frontend to reference Kanagawa, so the
+ParseTree walk and the backend never change, and `kg expand` can print the
+reference program at any time. Planned in [`plans/editions.md`](plans/editions.md).
+
+*Language, edition-gated, each desugared to reference Kanagawa:*
+
+- **Named arguments**, `f(x: 1, y: 2)`, reordered to positional — the
+  smallest, and the first proposed to prove the mechanism.
+- **Tagged enums and `match`**: an enum, a union and a struct, and a
+  `switch`, with an exhaustiveness check — decoders and instruction sets.
+- **Arithmetic that says what it does**: wrapping and saturating operators
+  (`+%`, `-|`) lowered to the casts the reference already accepts, for the
+  width surprises the README names (`a - b` signed, `<<` widening),
+  without changing what `+` and `-` mean.
+- **Template requirements** (`requires Numeric<T>`), lowered to
+  `static_assert`s, so a template's misuse is reported where it is used.
+
+*Diagnostics:*
+
+- **Why this width**: hover or `kg explain-width` showing the chain of
+  inference that made a `uint17`. Frontend-only: the widths are already
+  inferred, so it need not wait for the background backend
+  [`developer-tooling.md`](plans/developer-tooling.md) §2.7 files it under.
+- **Lints of kgrust's own**, in a `kg::` namespace under a `[lints]` table,
+  never touching `--Wall` or the reference's six warnings: signedness and
+  shift-widening surprises, unused exports and imports, oversized `atomic`
+  blocks. The open question below on lints beyond the six decides it.
+- **`kg fix`**: lints' machine-applicable fixes, and `--edition` to migrate
+  a package between editions.
+
+*Hardware insight, from reports the backend already writes
+(`<base>PathLength.pdrpt`, `<base>RtlMap.json`):*
+
+- **Hardware budgets**: this repository's per-item ratchet, offered to
+  users — `[budget]` latency, stages, DSPs or memories per function,
+  `kg budget --check` in CI and `--bless` to accept a change.
+- **`kg diff-hw <rev>`**: two builds' latency, resources and path lengths,
+  per function — what a commit cost in hardware.
+- **Cost on save** in the editor ("+2 DSPs, +3 stages"), once the backend
+  runs in the background.
+- **Waveforms on the source**: a Verilator trace through the RTL map —
+  pick a cycle, see each variable's value beside its line.
+
+*Testing without the backend:*
+
+- **`kg eval`**, an interpreter over the elaborated program for pure
+  functions and constants (`kg-const` the seed): instant answers, doc tests
+  that check their output, and later random inputs compared against the RTL
+  simulation. Threads and pipelines are out of its first scope.
+- **An interface lock**: `kg interface --check` against a committed
+  `interface.lock`, so an exported block's ports do not change unnoticed;
+  pairs with `[package] version`.
+
+*Ecosystem:*
+
+- **`[dependencies]`** with a lockfile and `kg add`, each dependency keeping
+  its own edition; `import-dirs` unchanged.
+- **`kg vendor --for-reference`**: a flat file list and `.kanagawa.args` so
+  upstream's CMake builds a kgrust project — `kg init --from-cmake`
+  ([`spec/cli.md`](spec/cli.md) §10.4) in reverse, and the proof that
+  adopting kgrust locks no one in.
+
 ## Open questions
 
 Each blocks only its own item; the work assumes the first answer meanwhile.
@@ -129,6 +206,7 @@ Each blocks only its own item; the work assumes the first answer meanwhile.
 | Whether the reference's round order binds after parity (it decides whether a demand-driven elaboration, possibly on salsa, is open) | it binds | [`plans/loop-across-edits.md`](plans/loop-across-edits.md) §8 |
 | The query layer's substrate: hand-rolled, or salsa | hand-rolled | [`plans/loop-across-edits.md`](plans/loop-across-edits.md) §8 |
 | Rename in a project with no manifest: refuse, or scan the declaring file's directories | searches the open buffers' programs | [`history/handoff-2026-10-11.md`](history/handoff-2026-10-11.md) |
+| Whether kgrust extends the language at all, behind editions (a direction beyond parity) | no extension lands; the mechanism is planned | [`plans/editions.md`](plans/editions.md) |
 | Lints beyond the reference's six warnings (width surprises) | none | [`plans/developer-tooling.md`](plans/developer-tooling.md) §2.5 |
 | The VS Code extension's publisher and display name (distinct from upstream's own extension) | unset | [`plans/developer-tooling.md`](plans/developer-tooling.md) §2.1 |
 | Where the platform layer lives (here, or a repository of its own) and whether the release archive carries it | here, in `platform/`; shipped since 2026-10-17, so that an installed `kg board` works (two lines of `xtask/src/dist.rs`) | [`plans/platform-layer.md`](plans/platform-layer.md) §8 |
