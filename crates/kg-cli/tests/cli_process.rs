@@ -460,6 +460,33 @@ fn kg_check_reports_syntax_errors_and_exits_one() {
     assert!(run.stdout.contains("--> bad.k:"), "{}", run.stdout);
 }
 
+/// A file is one module however its path is spelled: the reference knows
+/// each by `canonicalizePath` (`Parser/IO.hs:104`). `m.k` named relatively
+/// and also imported by `base.k` through an absolute, a relative or a
+/// symlinked `-I` was two modules, and its one error was reported twice
+/// (issue #4).
+#[test]
+fn kg_check_loads_a_file_once_however_it_is_spelled() {
+    let scratch = Scratch::new("check-spelling");
+    std::fs::create_dir_all(scratch.path().join("lib")).unwrap();
+    scratch.file("lib/base.k", "module base { module m }\n\nimport m\n");
+    scratch.file("lib/m.k", "module m { F }\n\ninline void F()\n{\n    uint32 x = y;\n}\n");
+    std::os::unix::fs::symlink(scratch.path().join("lib"), scratch.path().join("link")).unwrap();
+    let absolute = scratch.path().join("lib");
+    for dir in [absolute.to_str().unwrap(), "lib", "link"] {
+        let run = run_in(KG, scratch.path(), &["--no-manifest", "check", "-I", dir, "lib/m.k"]);
+        assert_eq!(run.code, 1, "-I {dir}: {}{}", run.stdout, run.stderr);
+        assert_eq!(run.stdout.matches("-->").count(), 1, "-I {dir}: {}", run.stdout);
+        assert!(run.stdout.contains("--> lib/m.k:5:16"), "-I {dir}: {}", run.stdout);
+    }
+    // A manifest found from the relative `lib`: the base library is looked
+    // for under its directory first (`program::load`), so that is canonical too.
+    scratch.file("lib/kanagawa.toml", "[project]\nimport-dirs = [\".\"]\n");
+    let run = run_in(KG, scratch.path(), &["check", "lib/m.k"]);
+    assert_eq!(run.code, 1, "manifest: {}{}", run.stdout, run.stderr);
+    assert_eq!(run.stdout.matches("-->").count(), 1, "manifest: {}", run.stdout);
+}
+
 #[test]
 fn kg_check_of_a_clean_file_exits_zero_and_says_what_it_checked() {
     let scratch = Scratch::new("check-ok");

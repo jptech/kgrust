@@ -18310,3 +18310,31 @@ Checked 2026-10-29: the issue's file gives `checked 1 file: 2500002 errors`,
 exit 1, in 7.8 s; `scripts/fast.sh` green, every ratchet +0/-0; `cargo
 xtask bench --filter parse` neutral over four interleaved A/B runs (A
 30.7–32.3 ms, B 31.2–31.9 ms for 481 files).
+
+## One file, two spellings, two modules — 2026-10-29
+
+`kg check -I "$PWD" control/loop.k` in a copy of the library printed two
+invented errors, `pipelined_last` both undefined and ambiguous between
+`control/loop.k:349` and the same file spelled absolutely (issue #4). The
+root was interned as typed; `base.k`, found under the absolute `-I`,
+imported `control.loop` under its own absolute directory; the `Vfs` keys
+paths lexically, so the two were two modules. A symlink did the same with
+both paths absolute: from a shell standing in `/tmp/...` on macOS, `-I
+"$PWD"` is `/tmp/...` while the working directory the base is first looked
+for under is `/private/tmp/...`.
+
+The reference knows every file by `canonicalizePath` (`Parser/IO.hs:104`),
+and the compat binary had already ported that (`legacy::options::
+settings_from`, `legacy::run::find_file`, after the backend's "Duplicate
+function" of 2026-09-19); the modern `kg` never had. It now canonicalises
+at the CLI, where paths come in: every root `check`, `build`, `doc` and
+`dump` hand the database, every import directory, and `Settings::root`. The
+`Vfs` stays lexical, for the reason `kg_vfs::canonical` gives. Diagnostics
+name a file relative to the working directory when it is under it, so the
+canonical root of `kg check top.k` still prints `--> top.k`.
+
+Checked 2026-10-29: `kg check -I "$PWD"` over all 124 library files goes
+from 6 errors to 4, the four the issue names as correct (`hardware.dsp`
+declared by three device files); `kg_check_loads_a_file_once_however_it_is_
+spelled` covers an absolute, a relative and a symlinked `-I` and a manifest
+found from a relative path, and each of its four mutants is caught.
