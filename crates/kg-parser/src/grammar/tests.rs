@@ -14,7 +14,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{LexedStr, StepOwned, SyntaxKind, parse_source_file, to_steps};
+use kg_base::language::{Feature, Features};
+
+use crate::{Input, LexedStr, StepOwned, SyntaxKind, parse_input, parse_source_file, to_steps};
 use SyntaxKind::*;
 
 // ---------------------------------------------------------------- harness
@@ -46,8 +48,15 @@ fn is_transparent(kind: SyntaxKind) -> bool {
 }
 
 fn parse(src: &str) -> (Node, Vec<String>) {
+    parse_in(src, Features::NONE)
+}
+
+/// [`parse`] in a language beyond the reference.
+fn parse_in(src: &str, features: Features) -> (Node, Vec<String>) {
     let lexed = LexedStr::new(src);
-    let events = parse_source_file(&lexed);
+    let mut input = Input::from_lexed(&lexed);
+    input.set_features(features);
+    let events = parse_input(&input);
     let steps = to_steps(&lexed, events);
 
     let mut stack: Vec<(SyntaxKind, Vec<Node>)> = Vec::new();
@@ -528,6 +537,30 @@ fn paths_and_calls() {
     assert_eq!(expr("a.b(1)"), "(CALL_EXPR (FIELD_EXPR a . b) (ARG_LIST ( 1 )))");
     assert_eq!(expr("a[i]"), "(INDEX_EXPR a [ i ])");
     assert_eq!(expr("a[i].b[j]"), "(INDEX_EXPR (FIELD_EXPR (INDEX_EXPR a [ i ]) . b) [ j ])");
+}
+
+/// Edition 1.1's named arguments: a label is an `ARG_LABEL` beside the
+/// argument it names, and only in a file whose language has the feature. In
+/// the reference a call's arguments are bare expressions (`Parser.hs:871`),
+/// so `f(x: 1)` is a parse error there — and still is here, without it.
+#[test]
+fn named_arguments_parse_only_where_the_language_has_them() {
+    let named = Features::NONE.with(Feature::NamedArguments);
+    let call = |src: &str| {
+        let (root, errors) = parse_in(&format!("static assert({src});"), named);
+        (sexpr(&root), errors)
+    };
+    let (tree, errors) = call("f(y: 2, x: 1)");
+    assert_eq!(errors, Vec::<String>::new());
+    assert!(tree.contains("(CALL_EXPR f (ARG_LIST ( (ARG_LABEL y :) 2 , (ARG_LABEL x :) 1 )))"), "{tree}");
+    let (tree, errors) = call("a.f(1, y: g(z))");
+    assert_eq!(errors, Vec::<String>::new());
+    assert!(tree.contains("(ARG_LIST ( 1 , (ARG_LABEL y :) (CALL_EXPR g (ARG_LIST ( z ))) ))"), "{tree}");
+    assert_eq!(expr("f(1, 2)"), "(CALL_EXPR f (ARG_LIST ( 1 , 2 )))", "positional calls are unchanged");
+
+    assert!(!parse("static assert(f(y: 2));").1.is_empty(), "the reference has no named arguments");
+    assert_eq!(call("f(x: 1, x: 2)").1, ["22: the argument `x` is named twice"]);
+    assert_eq!(call("f(x: 1, 2)").1, ["22: a positional argument cannot follow a named one"]);
 }
 
 #[test]
@@ -1034,7 +1067,9 @@ fn node_kind_coverage() {
     let mut seen: BTreeSet<SyntaxKind> = BTreeSet::new();
     let mut record = |src: &str| {
         let lexed = LexedStr::new(src);
-        let events = parse_source_file(&lexed);
+        let mut input = Input::from_lexed(&lexed);
+        input.set_features(Features::all());
+        let events = parse_input(&input);
         for step in to_steps(&lexed, events) {
             if let StepOwned::Enter(kind) = step {
                 seen.insert(kind);
@@ -1064,6 +1099,7 @@ fn node_kind_coverage() {
         "class C { public: private: uint8 p(uint8 a); }",
         "inline void f() { static for (const uint8 i : 4) if (a) { } else { } }",
         "enum E : uint2 { A = 1 }",
+        "inline void f() { g(1, y: 2); }",
         "uint8 g;;",
         ")",
     ] {

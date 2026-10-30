@@ -294,6 +294,9 @@ pub enum SyntaxKind {
     PAREN_EXPR,
     CALL_EXPR,
     ARG_LIST,
+    /// `x:` before an argument, naming its parameter — edition 1.1's named
+    /// arguments (`docs/editions/1.1.md`); never in a reference file.
+    ARG_LABEL,
     /// `a[i]`
     INDEX_EXPR,
     /// `a.b`

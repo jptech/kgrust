@@ -22,7 +22,7 @@
 
 use std::collections::HashSet;
 
-use kg_syntax::{SyntaxElement, SyntaxNode, parse_file};
+use kg_syntax::{SyntaxElement, SyntaxNode};
 
 /// Appends the lifted comments to `output`.
 pub(crate) fn reattach(input: &SyntaxNode, lifted: &[u32], output: String) -> String {
@@ -49,7 +49,7 @@ pub(crate) fn reattach(input: &SyntaxNode, lifted: &[u32], output: String) -> St
         return output;
     }
 
-    let out_root = parse_file(&output).syntax_node();
+    let out_root = crate::reparse(&output).syntax_node();
     let starts = line_starts(&output);
     let token_line: Vec<usize> = out_root
         .descendants_with_tokens()

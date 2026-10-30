@@ -1541,7 +1541,8 @@ Every `compile`-mode flag is accounted for exactly once.
 >
 > | Table | Keys (default) |
 > |---|---|
-> | `[package]` | `name`, `version`, `edition` — all optional; `name` titles `kg doc`'s site, `edition` is reserved |
+> | `[package]` | `name`, `version`, `edition` — all optional; `name` titles `kg doc`'s site; `edition` (`"1.0"`, the reference, or `"1.1"`) is the language the package's files are in, an unknown one an error ([`../editions/`](../editions/README.md); on the `editions-pilot` branch, 2026-10-30) |
+> | `[language]` | `features` (`[]`): single language features beside the edition — `"named-arguments"`; an unknown one an error. Not reachable from a profile; `--edition` and `--feature` override for one run |
 > | `[project]` | `sources` (`[]`), `exclude` (`[]`, read by nothing yet), `import-dirs` (`[]`, order significant), `target-device` (`"mock"`), `base-library` (unset: `base.k`, found on the import path), `implicit-base` (`true`), `parse-docs` (`false`), `[project.defines]`, `[project.using]` |
 > | `[warnings]` | `all` (`false`), `error` (`false`), and one key per kind — `conversion`, `deprecated`, `initializer-overrides`, `redundant-import`, `shadow`, `transaction-size` — as `"allow"`, `"warn"` or `"deny"` (`deny` enables the warning; only `error = true` makes warnings errors) |
 > | `[fmt]` | `line-width` (`100`), `indent` (`4`), `use-tabs` (`false`), `newline` (`"lf"`), `final-newline` (`true`), `group-imports` (`true`), `sort-imports` (`false`) — `ribbon`, `layout` and `tab-width` were not built |
@@ -1582,7 +1583,7 @@ implicitly imports — §4.4), (4) the base library and whether it is implicit,
 [package]
 name    = "my-design"        # optional, informational
 version = "0.1.0"            # optional
-edition = "2026"             # reserved: language-version selector
+edition = "1.0"              # the language: 1.0 (the reference, default) or 1.1
 
 [project]
 # --- source set -------------------------------------------------------------

@@ -8,6 +8,16 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Added
 
+- Language editions, opt-in per package: `[package] edition` in
+  `kanagawa.toml` (`"1.0"`, the reference, by default), single features
+  under `[language] features`, and `--edition` / `--feature` for one run.
+  A file is read in its own package's language; the standard library and
+  everything the `kanagawa` binary compiles are always `1.0`. Edition
+  `1.1` (a preview) adds named arguments, `f(y: 2, x: 1)`, in any order,
+  through `kg check`, `kg build`, `kg fmt` and the language server
+  ([`docs/editions/`](docs/editions/README.md)). Graded by a new gate,
+  `cargo xtask editions`.
+
 - `cargo xtask install`: the release archive's tree under a prefix
   (`~/.local/share/kgrust`) with `kg` and `kanagawa` linked into
   `~/.cargo/bin`, so a source build finds the platform, the standard library

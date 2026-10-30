@@ -134,6 +134,12 @@ impl<'t> Parser<'t> {
     }
 
     #[inline]
+    /// Whether the file opts into `feature` (`kg_base::language`). Every
+    /// rule beyond the reference begins behind this test.
+    pub fn has(&self, feature: kg_base::language::Feature) -> bool {
+        self.inp.features().has(feature)
+    }
+
     pub fn at_end(&self) -> bool {
         self.pos >= self.inp.len() || self.stalled.get().is_some()
     }

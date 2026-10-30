@@ -47,9 +47,10 @@ mod verify;
 
 pub use doc::{Doc, RenderOpts, render};
 
+use kg_base::language::Features;
 use kg_base::{TextRange, TextSize};
 use kg_config::Fmt;
-use kg_syntax::{SyntaxNode, parse_file};
+use kg_syntax::{Parse, ParseOptions, SyntaxNode, parse_file_with};
 
 /// A replacement of one span of the source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,11 +101,19 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
-/// Formats a whole file.
-///
-/// Refuses a file with syntax errors: see the module docs.
+/// Formats a whole file in the reference language ([`format_file_in`]).
 pub fn format_file(text: &str, config: &Fmt) -> Result<String, FormatError> {
-    let parse = parse_file(text);
+    format_file_in(text, config, Features::NONE)
+}
+
+/// Formats a whole file written in a language with `features`
+/// (`kg_base::language`) — its own package's.
+///
+/// Refuses a file with syntax errors: see the module docs. So a file that
+/// uses a feature its package has not turned on is refused, as it would be
+/// by every other command.
+pub fn format_file_in(text: &str, config: &Fmt, features: Features) -> Result<String, FormatError> {
+    let parse = parse_file_with(text, ParseOptions { features, ..ParseOptions::default() });
     if !parse.errors().is_empty() {
         return Err(FormatError::Unparseable {
             errors: parse
@@ -141,7 +150,12 @@ pub fn check_file(text: &str, config: &Fmt) -> bool {
 /// The edit covers whole items: an editor's selection rarely lands on a
 /// construct boundary, and reformatting half of an expression is meaningless.
 pub fn format_range(text: &str, range: TextRange, config: &Fmt) -> Option<Vec<TextEdit>> {
-    let parse = parse_file(text);
+    format_range_in(text, range, config, Features::NONE)
+}
+
+/// [`format_range`] for a file written in a language with `features`.
+pub fn format_range_in(text: &str, range: TextRange, config: &Fmt, features: Features) -> Option<Vec<TextEdit>> {
+    let parse = parse_file_with(text, ParseOptions { features, ..ParseOptions::default() });
     if !parse.errors().is_empty() {
         return None;
     }
@@ -192,6 +206,15 @@ pub fn format_range(text: &str, range: TextRange, config: &Fmt) -> Option<Vec<Te
         return Some(Vec::new());
     }
     Some(vec![TextEdit { range: span, new_text }])
+}
+
+/// The formatter's own output, parsed again — to align it, reattach its
+/// comments and verify it — with every feature on: the input parsed clean in
+/// its language, the output holds the same tokens, and a feature never
+/// changes the parse of a program the language without it accepts
+/// (`docs/plans/editions.md` §1), so the language need not travel here.
+pub(crate) fn reparse(text: &str) -> Parse {
+    parse_file_with(text, ParseOptions { features: Features::all(), ..ParseOptions::default() })
 }
 
 /// Lowers, renders and tidies a parsed file.
@@ -257,6 +280,7 @@ mod profile {
     //! the token-walking predicates in `trivia` are only ~10% of lowering.
 
     use super::*;
+    use kg_syntax::parse_file;
 
     #[test]
     #[ignore = "timing, not correctness"]
@@ -321,6 +345,23 @@ mod tests {
 
     fn fmt(text: &str) -> String {
         format_file(text, &Fmt::default()).expect("should format")
+    }
+
+    /// A named argument's colon hugs its label (`lower`'s `ARG_LABEL`), the
+    /// range path agrees, and a file whose language lacks the feature is
+    /// refused as unparseable rather than laid out as a guess. Red with the
+    /// label laid out by the generic spacing, `y : 1`.
+    #[test]
+    fn named_arguments_are_formatted_in_their_language() {
+        use kg_base::language::Feature;
+        let named = Features::NONE.with(Feature::NamedArguments);
+        let text = "inline void f()\n{\n    g( y :1,x:  h(z : 2) );\n}\n";
+        let want = "inline void f()\n{\n    g(y: 1, x: h(z: 2));\n}\n";
+        assert_eq!(format_file_in(text, &Fmt::default(), named).unwrap(), want);
+        let whole = TextRange::up_to(TextSize::of(text));
+        let edits = format_range_in(text, whole, &Fmt::default(), named).expect("formats the range");
+        assert!(edits.iter().any(|e| e.new_text.contains("g(y: 1, x: h(z: 2));")), "{edits:?}");
+        assert!(matches!(format_file(text, &Fmt::default()), Err(FormatError::Unparseable { .. })));
     }
 
     #[test]

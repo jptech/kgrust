@@ -65,8 +65,8 @@ pub fn ast(text: &str, styles: &Styles, options: kg_syntax::ParseOptions) -> Str
 /// Unstyled: the rendering is the same string `cargo xtask ir` compares IRs
 /// by (plus provenance), and colour codes inside it would make "pipe two
 /// dumps into `diff`" — its main use — lie about differences.
-pub fn ir(text: &str) -> String {
-    let parse = kg_syntax::parse_file(text);
+pub fn ir(text: &str, options: kg_syntax::ParseOptions) -> String {
+    let parse = kg_syntax::parse_file_with(text, options);
     let interner = kg_base::Interner::new();
     let file = kg_syntax::ast::SourceFile::cast(parse.syntax_node()).expect("root is SOURCE_FILE");
     let lowered = kg_hir::lower(&file, kg_base::FileId(0), &interner);
@@ -88,9 +88,10 @@ pub fn instances_rooted(db: &kg_db::Db, root: kg_base::FileId) -> String {
 /// stdin's text as a program alone — no imports, no base library — the
 /// way `kg_db::check_source` checks one: a template an import declares is
 /// not there, so nothing instantiates it.
-pub fn instances_standalone(text: &str) -> String {
+pub fn instances_standalone(text: &str, language: kg_base::language::Language) -> String {
     let mut settings = kg_config::Settings::fallback("/kg-dump-instances");
     settings.implicit_base = false;
+    settings.language = settings.language.with_project(language);
     let mut db = kg_db::Db::new(settings);
     let root = db.set_file_text(kg_base::Utf8Path::new("/kg-dump-instances/stdin.k"), text.to_owned());
     instances_rooted(&db, root)

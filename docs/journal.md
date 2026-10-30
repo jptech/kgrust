@@ -18338,3 +18338,53 @@ from 6 errors to 4, the four the issue names as correct (`hardware.dsp`
 declared by three device files); `kg_check_loads_a_file_once_however_it_is_
 spelled` covers an absolute, a relative and a symlinked `-I` and a manifest
 found from a relative path, and each of its four mutants is caught.
+
+## Editions, piloted: named arguments in any order — 2026-10-30
+
+At the owner's request, the plan of 2026-10-29 (`plans/editions.md`)
+piloted on the `editions-pilot` branch: editions numbered `MAJOR.MINOR`,
+`1.0` the reference; `1.1`, a preview, adds named arguments; "if we
+support named arguments, then we should support reordering them at call
+sites correctly". What a later reader would otherwise rediscover:
+
+- **The thread count stands where `tid` is declared.** A `[[pipelined]]`
+  function's type keeps every parameter, the thread's index first
+  (`funcType`, `Type.hs:1364-1373`), and a call passes the count in that
+  position. The first build added a slot for the count *before* the
+  parameters, and a pipelined call reported a missing `tid`; the fixture
+  `accept/pipelined.k` is the reason it no longer does.
+- **A faulted call must not be met again.** The pass runs at every round of
+  the loop. An argument it faulted became an error node and the call kept
+  its other labels, so the next round placed the remaining label against an
+  error node sitting in slot 0 and reported "given an argument twice" beside
+  the true error. A faulted call now drops every other label. Pinned by
+  `a_misnamed_argument_is_reported_at_its_label`, red with the labels kept.
+- **The evaluation order is refused, not rewritten.** The backend evaluates
+  a call's arguments in list order (`compiler/cpp/ir.cpp:10912-10919`), so
+  reordering can move one argument's side effect ahead of another's. Calls
+  commute only with pure arguments (literals, the function's own locals and
+  parameters); any other swap is an error naming both arguments. Hoisting
+  the arguments into locals instead was left for later: the rule as built
+  never changes what a program does, and costs only refusals.
+- **The walk sees no new node, and the twins prove it.** `kg build` of
+  `reorder.k` and of its hand-written twin gives the same SystemVerilog,
+  location comments aside (by hand). The first twin crashed the backend
+  (`VerilogCompiler::InstantiateFifoMergers`, `verilog.cpp:5079`) on the
+  twin as much as on the named program: a public method also called from
+  within its class. That is a backend case of its own, not the edition's.
+- **No boundary at an import directory.** The plan stopped a file's
+  manifest search at the import directory that found it. That boundary
+  misses a dependency whose manifest sits beside the `src/` its users
+  import. Since a minor edition only adds, a library read in a later
+  edition than its own reads the same, so the nearest manifest wins.
+
+Checked 2026-10-30: `cargo xtask editions` passes in ~6 s (481 reference
+files parse the same with every feature on; 4 claims, 3 twins, 1
+rejection fixture). Each of its four checks went red under a planted
+mutation (`scripts/mutant.sh`), and so did each of the 10 mutants planted
+against the new unit tests. `cargo test --workspace --profile quick`: 1,983
+passed. `scripts/fast.sh --lint loop`: all green, every ratchet +0/-0, with
+`infer-identity` 304/304 and `edit-identity` 87/87 identical. `kg check`
+release A/B against `7c375a6`, interleaved, two rounds of five:
+`risc-v.k` 2.060/2.100 s then 2.083/2.093 s (base/pilot means),
+`float32.k` 0.409/0.413 s then 0.418/0.417 s. Within noise.

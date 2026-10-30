@@ -3021,6 +3021,10 @@ impl ArgList {
         support::token(&self.syntax, &[SyntaxKind::L_PAREN])
     }
     #[inline]
+    pub fn arg_labels(&self) -> impl Iterator<Item = ArgLabel> + use<> {
+        support::children(&self.syntax)
+    }
+    #[inline]
     pub fn exprs(&self) -> impl Iterator<Item = Expr> + use<> {
         support::children(&self.syntax)
     }
@@ -3031,6 +3035,37 @@ impl ArgList {
     #[inline]
     pub fn r_paren_token(&self) -> Option<SyntaxToken> {
         support::token(&self.syntax, &[SyntaxKind::R_PAREN])
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ArgLabel {
+    pub(crate) syntax: SyntaxNode,
+}
+
+impl AstNode for ArgLabel {
+    #[inline]
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::ARG_LABEL
+    }
+    #[inline]
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) { Some(ArgLabel { syntax }) } else { None }
+    }
+    #[inline]
+    fn syntax(&self) -> &SyntaxNode {
+        &self.syntax
+    }
+}
+
+impl ArgLabel {
+    #[inline]
+    pub fn ident_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, &[SyntaxKind::IDENT])
+    }
+    #[inline]
+    pub fn colon_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, &[SyntaxKind::COLON])
     }
 }
 

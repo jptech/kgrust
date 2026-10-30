@@ -1962,16 +1962,39 @@ impl<'a> Lower<'a> {
             None => self.unsupported(node),
         };
 
-        let args: Vec<ExpId> = c
-            .arg_list()
-            .map(|list| list.exprs().map(|e| self.expr(&e, false)).collect())
-            .unwrap_or_default();
+        let args: Vec<ExpId> = c.arg_list().map(|list| self.args(&list)).unwrap_or_default();
         let args = match c.arg_list() {
             Some(list) => self.alloc(list.syntax(), Exp::Seq(args)),
             None => self.synth(node, Exp::Seq(args)),
         };
 
         self.alloc(node, Exp::FunctionCall { attr, function, args })
+    }
+
+    /// A call's arguments, in the order written. One a later edition names
+    /// (`x: e`, an [`ast::ArgLabel`] before its expression) is an
+    /// [`Exp::Labelled`] at the label, which `kg_sem::named` puts in its
+    /// parameter's place; a reference file has none, and lowers exactly
+    /// the expressions [`ast::ArgList::exprs`] yields.
+    fn args(&mut self, list: &ast::ArgList) -> Vec<ExpId> {
+        let mut out = Vec::new();
+        let mut label: Option<ast::ArgLabel> = None;
+        for child in list.syntax().children() {
+            if let Some(l) = ast::ArgLabel::cast(child.clone()) {
+                label = Some(l);
+            } else if let Some(e) = ast::Expr::cast(child) {
+                let value = self.expr(&e, false);
+                let named = label.take().and_then(|l| Some((l.ident_token()?, l)));
+                out.push(match named {
+                    Some((ident, l)) => {
+                        let label = self.interner.intern(ident.text());
+                        self.alloc(l.syntax(), Exp::Labelled { label, value })
+                    }
+                    None => value,
+                });
+            }
+        }
+        out
     }
 
     /// `Name<E>(C)` read as the reference's parser reads it when `Name` is

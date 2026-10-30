@@ -210,6 +210,8 @@ fn classify_ident(token: &SyntaxToken) -> (TokenType, u32) {
         ATTR => (TokenType::Decorator, 0),
         // The `b3` of `"{x:b3}"`.
         FORMAT_SPEC => (TokenType::Modifier, 0),
+        // Edition 1.1's `f(x: 1)`: the label names one of `f`'s parameters.
+        ARG_LABEL => (TokenType::Parameter, 0),
         _ => (TokenType::Variable, 0),
     }
 }
@@ -403,7 +405,12 @@ mod tests {
     ];
 
     fn tokens(text: &str) -> Vec<(String, TokenType, u32)> {
-        let parse = parse_file(text);
+        tokens_in(text, kg_base::language::Features::NONE)
+    }
+
+    /// [`tokens`] of a file in a language beyond the reference.
+    fn tokens_in(text: &str, features: kg_base::language::Features) -> Vec<(String, TokenType, u32)> {
+        let parse = kg_syntax::parse_file_with(text, kg_syntax::ParseOptions { features, ..Default::default() });
         let index = LineIndex::new(text);
         let tokens =
             semantic_tokens(&parse.syntax_node(), &index, PositionEncoding::Utf16, None);
@@ -487,6 +494,17 @@ mod tests {
         // library — and that is exactly what the modifier says.
         let (_, mods) = find("float x;", "float");
         assert_eq!(mods & Modifier::DefaultLibrary.bit(), 0, "`float` claimed to be a builtin");
+    }
+
+    /// A named argument's label is a parameter, as the callee's declaration
+    /// of it is. Red with the label left to the `variable` fallback.
+    #[test]
+    fn an_argument_label_is_a_parameter() {
+        let named = kg_base::language::Features::NONE.with(kg_base::language::Feature::NamedArguments);
+        let all = tokens_in("inline void f()\n{\n    g(x: y);\n}\n", named);
+        let kind = |name: &str| all.iter().find(|(t, ..)| t == name).map(|(_, ty, _)| *ty);
+        assert_eq!(kind("x"), Some(TokenType::Parameter));
+        assert_eq!(kind("y"), Some(TokenType::Variable));
     }
 
     #[test]

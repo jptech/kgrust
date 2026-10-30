@@ -1,10 +1,12 @@
 # Editions: layering language changes on the frontend, opt-in
 
-*Part of the [plans](README.md). **Plan, 2026-10-29 — nothing built, and
-nothing to be built before the owner decides that kgrust extends the
-language at all** ([`../roadmap.md`](../roadmap.md), open questions). The
-ideas it would carry are the roadmap's "Ideas, undecided". Surveyed at
-`3562431`; every "today" below was read in the code then.*
+*Part of the [plans](README.md). **Plan, 2026-10-29; piloted
+2026-10-30 on the `editions-pilot` branch** at the owner's request: steps
+1–3 built, with the owner's decisions of that day — versioned editions,
+`1.0` the reference; named arguments in any order, reordered — folded in
+below and marked *as built*. Whether the pilot merges is still the
+roadmap's open question. The user's pages: [`../editions/`](../editions/README.md).
+Surveyed at `3562431`; every "today" below was read in the code then.*
 
 The goal: new code and new users can opt into language changes; existing
 code never notices. A program without the opt-in — every program the
@@ -52,11 +54,17 @@ Two levels, as Rust has them (its `cargo-features` and editions):
 
 ```toml
 [package]
-edition = "reference"            # the default; the language at reference.lock's pin
+edition = "1.1"                  # default "1.0": the language at reference.lock's pin
 
 [language]
 features = ["named-arguments"]   # one extension each, opt-in, not yet frozen
 ```
+
+*As built:* editions are versioned `MAJOR.MINOR` (the owner, 2026-10-30):
+`1.0` is the reference and follows the pin, a minor edition only adds, and
+only a major one may reject what an earlier edition accepts. `1.1` is a
+preview until a release freezes it. Each edition's page lists everything
+that differs from the one before ([`../editions/`](../editions/README.md)).
 
 - **A feature** is the unit of change: one extension, specified, tested,
   and free to change between kgrust releases while it is a feature. A
@@ -92,7 +100,11 @@ needs that mapping, as a new piece of `Settings`:
   walk already treats it (`crates/kg-lsp/src/handlers/sources.rs:36-52`).
 - **A file reached through an import directory outside the project** is in
   the language of the nearest manifest from the file up to, and including,
-  that import directory; none means `"reference"`.
+  that import directory; none means `"reference"`. *As built: the nearest
+  manifest above the file, with no boundary at the import directory* — a
+  boundary misses the common layout of a dependency's manifest beside the
+  `src/` its users import, and by rule 2 a library read in a later edition
+  than its own reads the same (`crates/kg-config/src/language.rs`).
 - **The standard library is always `"reference"`**, bundled
   (`Settings::or_bundled_library`, `crates/kg-config/src/resolve.rs:163-170`)
   or named; no manifest sits above the submodule's (checked 2026-10-29).
@@ -238,7 +250,17 @@ as `edit-identity` grades).
 `scripts/fast.sh` and `gates.sh`. A new gate, not an edit to
 `conformance.rs` or `corpus.rs` (the scoreboard).
 
-**Step 3 — the pilot: named arguments, in declaration order.**
+**Step 3 — the pilot: named arguments, in declaration order.** *As built
+(2026-10-30), the owner asked for more: labels in any order, reordered —
+"if we support named arguments, then we should support reordering them at
+call sites correctly." So the "later, its own step" below came first: an
+`Exp::Labelled` from the lowering, placed by `crates/kg-sem/src/named.rs`
+inside the loop from the callee's inferred type (labels matched by name in
+deduction, `crate::deduce::by_parameter`), with the reference's evaluation
+order — left to right in the list, `compiler/cpp/ir.cpp:10912-10919` —
+kept by refusing any reorder two arguments could tell apart
+([`../editions/1.1.md`](../editions/1.1.md)). The plan as first written
+follows.*
 `f(x: 1, y: 2)` where `f` declares `x` then `y`; the labels are checked,
 the order must be the declaration's, and every argument after a labelled
 one is labelled. It is the smallest extension that exercises every layer
@@ -334,8 +356,8 @@ them, and a change to one is a change to the language.
 
 | Question | Assumed meanwhile |
 |---|---|
-| Does kgrust extend the language at all (the roadmap's) | no; step 0 |
-| The first edition's name and the naming scheme | none until a bundle exists |
-| A file-level opt-in for single files without a manifest (a header comment), beyond `--feature` | flags only; the language server reads manifests only |
-| Whether an edition may also carry *stricter* checks — diagnosing in the frontend what the reference leaves to the backend (the 241 assertions the compat path must not catch early: [`../architecture.md`](../architecture.md), "The scoreboard precedes the work it scores") | no; features add syntax only |
+| Does kgrust extend the language at all (the roadmap's) | piloted on a branch (2026-10-30), unmerged |
+| The first edition's name and the naming scheme | **decided** 2026-10-30: versioned, `1.0` the reference, `1.1` named arguments |
+| A file-level opt-in for single files without a manifest (a header comment), beyond `--feature` | flags only, applied under the first input's directory; the language server reads manifests only (the owner left single files to the implementer, 2026-10-30) |
+| Whether an edition may also carry *stricter* checks — diagnosing in the frontend what the reference leaves to the backend (the 241 assertions the compat path must not catch early: [`../architecture.md`](../architecture.md), "The scoreboard precedes the work it scores") | allowed, in a major edition only (the owner: "an edition can be stricter, but TBD how much we want to push for that"); none planned |
 | Where the user's guide to the language beyond the reference lives | beside each feature's fixtures, gathered into one page at step 5 |

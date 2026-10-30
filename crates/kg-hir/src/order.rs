@@ -120,6 +120,9 @@ fn ctor_index(e: &Exp) -> u32 {
         Exp::Error(..) => 92,
         Exp::Path(..) => 93,
         Exp::Unsupported => 94,
+        // No constructor of the reference's: a later edition's, gone before
+        // any comparison the reference makes would meet it.
+        Exp::Labelled { .. } => 95,
     }
 }
 

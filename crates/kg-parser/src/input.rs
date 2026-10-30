@@ -18,6 +18,10 @@ pub struct Input<'a> {
     /// Indices of `<` tokens the caller has proven are comparisons — see
     /// [`Input::mark_comparison`]. Sorted, and almost always empty.
     comparisons: Vec<usize>,
+    /// What the file may use beyond the reference (`kg_base::language`):
+    /// empty for every file whose package opts into nothing, and then no
+    /// rule reaches a branch the reference does not have.
+    features: kg_base::language::Features,
 }
 
 impl<'a> Input<'a> {
@@ -69,6 +73,16 @@ impl<'a> Input<'a> {
     /// `__LAST`, which no real token can be, so `at(...)` is false for every
     /// real kind and the parser terminates naturally.
     #[inline]
+    /// Lets the grammar accept the language beyond the reference that
+    /// `features` names.
+    pub fn set_features(&mut self, features: kg_base::language::Features) {
+        self.features = features;
+    }
+
+    pub fn features(&self) -> kg_base::language::Features {
+        self.features
+    }
+
     pub fn kind(&self, idx: usize) -> SyntaxKind {
         self.kind.get(idx).copied().unwrap_or(SyntaxKind::__LAST)
     }

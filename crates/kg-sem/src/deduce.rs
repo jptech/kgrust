@@ -285,7 +285,7 @@ impl<'a> Cx<'a> {
                 let Exp::FunctionSpecifier { receiver: x, function: y } = m.rw.arena[b].exp.clone() else {
                     return Exp::Designator { name: a, value: b };
                 };
-                let y2 = self.deduce_instance(m, &[], y);
+                let y2 = self.deduce_instance(m, &[], &[], y);
                 if y2 == y {
                     return Exp::Designator { name: a, value: b };
                 }
@@ -296,8 +296,19 @@ impl<'a> Cx<'a> {
                 let Exp::FunctionSpecifier { receiver: x, function: y } = m.rw.arena[b].exp.clone() else {
                     return Exp::FunctionCall { attr, function: b, args: c };
                 };
-                let arg_types: Vec<Ty> = Self::items(m.rw.arena, c).iter().map(|&i| m.types.get(i)).collect();
-                let y2 = self.deduce_instance(m, &arg_types, y);
+                let items = Self::items(m.rw.arena, c);
+                let arg_types: Vec<Ty> = items.iter().map(|&i| m.types.get(i)).collect();
+                // A later edition's labels, which name the template's own
+                // parameters until `crate::named` can read its instance's.
+                let labels: Vec<Option<Symbol>> = items
+                    .iter()
+                    .map(|&i| match m.rw.arena[i].exp {
+                        Exp::Labelled { label, .. } => Some(label),
+                        _ => None,
+                    })
+                    .collect();
+                let labels = if labels.iter().any(Option::is_some) { labels } else { Vec::new() };
+                let y2 = self.deduce_instance(m, &arg_types, &labels, y);
                 if y2 == y {
                     return Exp::FunctionCall { attr, function: b, args: c };
                 }
@@ -305,13 +316,13 @@ impl<'a> Cx<'a> {
                 Exp::FunctionCall { attr, function: b, args: c }
             }
             Exp::NamedValue(a) if matches!(m.rw.arena[a].exp, Exp::QualifiedIdentifier(_)) && !m.types.resolved(a) => {
-                Exp::NamedValue(self.deduce_instance(m, &[], a))
+                Exp::NamedValue(self.deduce_instance(m, &[], &[], a))
             }
             Exp::TypeIdentifier(s, t) if matches!(m.rw.arena[t].exp, Exp::TemplateInstance { .. }) => {
-                Exp::TypeIdentifier(s, self.deduce_instance(m, &[], t))
+                Exp::TypeIdentifier(s, self.deduce_instance(m, &[], &[], t))
             }
             Exp::ScopedName { scope, prefix: Some(t), ident } if matches!(m.rw.arena[t].exp, Exp::TemplateInstance { .. }) => {
-                Exp::ScopedName { scope, prefix: Some(self.deduce_instance(m, &[], t)), ident }
+                Exp::ScopedName { scope, prefix: Some(self.deduce_instance(m, &[], &[], t)), ident }
             }
             e => e,
         }
@@ -351,12 +362,12 @@ impl<'a> Cx<'a> {
     /// it changed the module ([`crate::reads::Door::tentative`]): a
     /// deduction a later round makes again of a call it already rewrote
     /// reads the template's signature and changes nothing.
-    fn deduce_instance(&self, m: &mut Mint<'_, '_>, arg_types: &[Ty], x: ExpId) -> ExpId {
-        let Some(door) = self.door else { return self.deduce_instance_reading(m, arg_types, x) };
+    fn deduce_instance(&self, m: &mut Mint<'_, '_>, arg_types: &[Ty], labels: &[Option<Symbol>], x: ExpId) -> ExpId {
+        let Some(door) = self.door else { return self.deduce_instance_reading(m, arg_types, labels, x) };
         let before = (m.rw.arena.len(), m.rw.arena.writes(), m.types.writes());
         let read = self.read.borrow().len();
         door.tentative();
-        let out = self.deduce_instance_reading(m, arg_types, x);
+        let out = self.deduce_instance_reading(m, arg_types, labels, x);
         let changed = out != x || before != (m.rw.arena.len(), m.rw.arena.writes(), m.types.writes());
         // The templates this deduction read, shown only where it changed
         // the module: a signature is spelled for what it moved, never for a
@@ -374,7 +385,7 @@ impl<'a> Cx<'a> {
         out
     }
 
-    fn deduce_instance_reading(&self, m: &mut Mint<'_, '_>, arg_types: &[Ty], x: ExpId) -> ExpId {
+    fn deduce_instance_reading(&self, m: &mut Mint<'_, '_>, arg_types: &[Ty], labels: &[Option<Symbol>], x: ExpId) -> ExpId {
         if get_name(m.rw.arena, x).is_none_or(|name| !self.templates.contains(&name)) {
             return x;
         }
@@ -385,7 +396,7 @@ impl<'a> Cx<'a> {
         };
         match t.arena[decl].exp.clone() {
             Exp::Function { scope, ret, params, .. } | Exp::FunctionDecl { scope, ret, params, .. } => {
-                self.deduce_from_signature(m, &t, &scope, ret, params, arg_types, x)
+                self.deduce_from_signature(m, &t, &scope, ret, params, arg_types, labels, x)
             }
             _ => {
                 let Exp::TemplateInstance { base: typ, args: a } = m.rw.arena[x].exp.clone() else { return x };
@@ -493,6 +504,7 @@ impl<'a> Cx<'a> {
         ret: ExpId,
         func_params: ExpId,
         arg_types: &[Ty],
+        labels: &[Option<Symbol>],
         q: ExpId,
     ) -> ExpId {
         let Exp::QualifiedIdentifier(ident) = m.rw.arena[q].exp.clone() else { return q };
@@ -510,8 +522,10 @@ impl<'a> Cx<'a> {
             state: (args.len()..t.params.len()).map(|i| (i, None)).collect(),
             how: How::Supertype,
         };
-        for (&p, ty) in Self::items(t.arena, func_params).iter().zip(arg_types) {
-            if let Exp::FuncParam { ty: pt, .. } = &t.arena[p].exp {
+        let params = Self::items(t.arena, func_params);
+        let Some(by_param) = Self::by_parameter(t.arena, &params, arg_types, labels) else { return q };
+        for (&p, ty) in params.iter().zip(&by_param) {
+            if let (Exp::FuncParam { ty: pt, .. }, Some(ty)) = (&t.arena[p].exp, ty) {
                 d.deduce_type(Pat::of(*pt), ty);
             }
         }
@@ -566,6 +580,31 @@ impl<'a> Cx<'a> {
         m.copy_note(q, Exp::QualifiedIdentifier(instance))
     }
 
+    /// Each parameter's argument type: positionally, as the reference zips
+    /// them (`zipWithM_ deduceFromFuncParam`, `Type.hs:1477`), or — a later
+    /// edition's labelled arguments — by the parameter each names. `None`
+    /// where a label names no parameter, or two arguments one: nothing is
+    /// deduced, and the call is left for `crate::named` to report.
+    fn by_parameter<'t>(arena: &ExpArena, params: &[ExpId], arg_types: &'t [Ty], labels: &[Option<Symbol>]) -> Option<Vec<Option<&'t Ty>>> {
+        if labels.is_empty() {
+            return Some(arg_types.iter().map(Some).collect());
+        }
+        let mut out: Vec<Option<&Ty>> = vec![None; params.len().max(arg_types.len())];
+        for (i, (ty, label)) in arg_types.iter().zip(labels).enumerate() {
+            let slot = match label {
+                None => i,
+                Some(l) => params.iter().position(|&p| match &arena[p].exp {
+                    Exp::FuncParam { name, .. } => kg_hir::rewrite::ident_sym(arena, *name) == Some(*l),
+                    _ => false,
+                })?,
+            };
+            if out[slot].replace(ty).is_some() {
+                return None;
+            }
+        }
+        Some(out)
+    }
+
     /// `deduceInstanceFromType` (`Type.hs:1468-1471`): a function named as
     /// the argument of a function-typed parameter is deduced against that
     /// type's parameters.
@@ -586,7 +625,7 @@ impl<'a> Cx<'a> {
         if m.types.resolved(b) {
             return e;
         }
-        let b2 = self.deduce_instance(m, &params, b);
+        let b2 = self.deduce_instance(m, &params, &[], b);
         if b2 == b {
             return e;
         }

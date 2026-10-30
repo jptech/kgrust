@@ -1597,6 +1597,9 @@ impl Cx<'_> {
             Exp::ParamInt(x) => self.natural(*x).map_or(Ty::Unresolved, |w| tt(Ty::Signed(w))),
             Exp::ParamUint(x) => self.natural(*x).map_or(Ty::Unresolved, |w| tt(Ty::Unsigned(w))),
             Exp::Positional { index, value } => Ty::Positional(*index, TyRef::new(self.ty(*value).un_const())),
+            // A later edition's named argument is its value until
+            // `crate::named` puts it in its place (`docs/editions/1.1.md`).
+            Exp::Labelled { value, .. } => self.ty(*value),
             Exp::Reference(a) => tt(Ty::Reference(SymbolPath::new(kg_hir::sort::spine_qualname(self.arena, *a)))),
             Exp::Return(None) => Ty::Void,
             Exp::Return(Some(a)) => self.ty(*a).un_const(),

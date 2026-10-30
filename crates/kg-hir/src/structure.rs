@@ -255,6 +255,10 @@ impl<'a> Writer<'a> {
                 self.line(label, id, depth, &format!("Positional {index}"));
                 self.node("value", value, d);
             }
+            Exp::Labelled { label: name, value } => {
+                self.line(label, id, depth, &format!("Labelled {}", self.sym(name)));
+                self.node("value", value, d);
+            }
             Exp::InitializerList(e) => {
                 self.line(label, id, depth, "InitializerList");
                 self.node("items", e, d);

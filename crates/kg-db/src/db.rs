@@ -58,6 +58,7 @@
 
 use std::sync::{Arc, Mutex, RwLock};
 
+use kg_base::language::Features;
 use kg_base::{FileId, FxHashMap, Interner, Symbol, SymbolPath, Utf8Path};
 use kg_config::Settings;
 use kg_diag::Diagnostic;
@@ -252,6 +253,10 @@ struct ParseMemo {
     /// revision so that changing an unrelated setting does not invalidate
     /// every parse in the program.
     parse_docs: bool,
+    /// The file's language beyond the reference, for the same reason
+    /// ([`Db::features_of`]). The parse records it too, so everything keyed
+    /// on the parse's pointer follows a change of language.
+    features: Features,
 }
 
 #[derive(Clone, Debug)]
@@ -410,6 +415,16 @@ impl Db {
 
     pub fn path(&self, file: FileId) -> Option<kg_base::Utf8PathBuf> {
         self.vfs.path(file)
+    }
+
+    /// What `module` may use beyond the reference: its own package's
+    /// language (`Settings::language_of`). The synthetic modules, and a
+    /// buffer with no path, are the reference.
+    pub fn features_of(&self, module: ModuleSource) -> Features {
+        match module {
+            ModuleSource::File(file) => self.path(file).map_or(Features::NONE, |p| self.settings.language_of(&p).features()),
+            ModuleSource::Cmdargs | ModuleSource::Options => Features::NONE,
+        }
     }
 
     /// Replaces the project settings — import dirs, target device, defines.
@@ -579,10 +594,12 @@ impl Db {
     pub fn parse_module(&self, module: ModuleSource) -> Arc<Parse> {
         let stamp = self.stamp(module);
         let parse_docs = self.settings.parse_docs;
+        let features = self.features_of(module);
         let cached = self.memo.parses.read().unwrap().get(&module).cloned();
         if let Some(memo) = &cached
             && memo.stamp == stamp
             && memo.parse_docs == parse_docs
+            && memo.features == features
         {
             self.stats.hit(Query::Parse);
             return memo.value.clone();
@@ -598,7 +615,7 @@ impl Db {
         // modes — so the tree, losslessness and the formatter are unaffected.
         let parsed = kg_syntax::parse_file_with(
             &text,
-            kg_syntax::ParseOptions { parse_docs },
+            kg_syntax::ParseOptions { parse_docs, features },
         );
         // The firewall: an edit that produces an identical tree keeps the old
         // `Arc`, so `item_tree`, `program` and `global_symbols` all stay valid.
@@ -614,10 +631,11 @@ impl Db {
         if let Some(memo) = parses.get(&module)
             && memo.stamp == stamp
             && memo.parse_docs == parse_docs
+            && memo.features == features
         {
             return memo.value.clone();
         }
-        parses.insert(module, ParseMemo { value: value.clone(), stamp, parse_docs });
+        parses.insert(module, ParseMemo { value: value.clone(), stamp, parse_docs, features });
         value
     }
 

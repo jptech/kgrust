@@ -18,10 +18,11 @@
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 
 use camino::{Utf8Path, Utf8PathBuf};
+use kg_base::language::Features;
 use kg_base::{FileId, FxHashMap};
 use kg_config::Settings;
 use kg_db::Db;
-use kg_syntax::{Parse, parse_file};
+use kg_syntax::{Parse, ParseOptions, parse_file_with};
 use kg_vfs::{FileText, Vfs};
 use lsp_types::Uri;
 
@@ -523,14 +524,18 @@ impl GlobalState {
             return Err(NoFile::TooLarge);
         }
 
+        // The file's language, as the database's parse reads it
+        // (`Db::features_of`): a buffer in edition 1.1 parses as 1.1 here
+        // too, and a manifest edited to another edition reparses it.
+        let features = self.inner.vfs.path(file).map_or(Features::NONE, |p| settings.language_of(&p).features());
         let cached = lock(&self.inner.parses).get(&file).cloned();
         let parse = match cached {
-            Some((index, parse)) if Arc::ptr_eq(&index, &text.line_index) => parse,
+            Some((index, parse)) if Arc::ptr_eq(&index, &text.line_index) && parse.features() == features => parse,
             // Parsed outside the lock: two workers racing on one new text
             // parse it twice, where holding the lock would make every other
             // document's snapshot wait for this one's parse.
             _ => {
-                let parse = Arc::new(parse_file(&text.text));
+                let parse = Arc::new(parse_file_with(&text.text, ParseOptions { features, ..ParseOptions::default() }));
                 lock(&self.inner.parses)
                     .insert(file, (Arc::clone(&text.line_index), Arc::clone(&parse)));
                 parse

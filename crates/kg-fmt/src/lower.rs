@@ -376,6 +376,10 @@ impl<'a> Lowerer<'a> {
             TEMPLATE_DECL => self.template_decl(n, at),
             TEMPLATE_PARAM_LIST => self.template_param_list(n, at),
             PARAM_LIST | ARG_LIST => self.delim_node(n, at, paren_list_cfg()),
+            // Edition 1.1's `f(x: 1)`: the colon hugs the label, as a switch
+            // arm's does. No measurement backs it: the corpus is reference
+            // Kanagawa, which has no named arguments.
+            ARG_LABEL => self.tight(n, at),
             FN_TYPE_PARAM_LIST => self.delim_node(n, at, fn_type_list_cfg()),
             TEMPLATE_ARG_LIST | CAPTURE_LIST => self.delim_node(n, at, tight_list_cfg()),
             INIT_LIST_EXPR => self.init_list(n, at),

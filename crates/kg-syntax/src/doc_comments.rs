@@ -871,7 +871,7 @@ fn run_text(run: &[SyntaxToken]) -> String {
 mod tests {
     use crate::{ParseOptions, parse_file, parse_file_with};
 
-    const DOCS: ParseOptions = ParseOptions { parse_docs: true };
+    const DOCS: ParseOptions = ParseOptions { parse_docs: true, features: kg_base::language::Features::NONE };
 
     fn doc_errors(text: &str) -> usize {
         let with = parse_file_with(text, DOCS).errors().len();
@@ -1065,7 +1065,7 @@ mod tests {
         // check is `the_corpus_gains_no_errors_under_the_flag` below.
         assert_eq!(parse_file("//|\n").errors(), &[]);
         assert_eq!(
-            parse_file_with("//|\n", ParseOptions { parse_docs: false }),
+            parse_file_with("//|\n", ParseOptions { parse_docs: false, ..ParseOptions::default() }),
             parse_file("//|\n"),
         );
     }

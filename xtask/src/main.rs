@@ -5,7 +5,7 @@
 //!   corpus's embedded assertions) and `strict-ledger`, `errors`, `ir`,
 //!   `ptdiff`, `backend`, `output`, `repoint`, `cli`, `loop-left`,
 //!   `resilience`, `edit-identity`, `infer-identity`, `corpus`, `fmt-check`,
-//!   `lint`, `bench` and `mem`; `ratchet` compares their ledgers with
+//!   `editions`, `lint`, `bench` and `mem`; `ratchet` compares their ledgers with
 //!   `baseline.json`, and `status-md` renders `docs/status.md`'s headline.
 //! * **Instruments**: `ptrace` (records the reference's ParseTree calls),
 //!   `fuzz`, `reduce`, `passdiff`, `loop-modules`, `loop-rounds`.
@@ -23,6 +23,7 @@ mod conformance;
 mod errors;
 mod differential;
 mod edit_identity;
+mod editions;
 mod edits;
 mod difffuzz;
 mod corpus;
@@ -460,6 +461,17 @@ enum Cmd {
         #[arg(long, default_value_t = 4000)]
         max_tests: usize,
     },
+    /// Grade the language beyond the reference: every feature neutral over the
+    /// corpus, its fixtures claimed, walked as their twins, and rejected as
+    /// expected (`docs/editions/README.md`).
+    Editions {
+        /// Path to the reference checkout.
+        #[arg(long, env = "KANAGAWA_ROOT", default_value = "third_party/kanagawa")]
+        kanagawa_root: std::path::PathBuf,
+        /// Report every twin's walk, not only the failures.
+        #[arg(long)]
+        verbose: bool,
+    },
     /// Prove the formatter is idempotent and layout-only over the whole corpus.
     FmtCheck {
         /// Path to the reference checkout.
@@ -705,6 +717,7 @@ fn reference_root(command: &mut Cmd) -> Option<&mut std::path::PathBuf> {
         | Cmd::Reduce { kanagawa_root, .. }
         | Cmd::Bench { kanagawa_root, .. }
         | Cmd::FmtCheck { kanagawa_root, .. }
+        | Cmd::Editions { kanagawa_root, .. }
         | Cmd::Errors { kanagawa_root, .. }
         | Cmd::Conformance { kanagawa_root, .. }
         | Cmd::Cli { kanagawa_root, .. }
@@ -783,6 +796,7 @@ fn dispatch(command: Cmd) -> Result<()> {
         Cmd::FmtCheck { kanagawa_root, width, verbose } => {
             fmtgate::run(&kanagawa_root, width, verbose)
         }
+        Cmd::Editions { kanagawa_root, verbose } => editions::run(&kanagawa_root, verbose),
         Cmd::Errors { kanagawa_root, filter, max_failures, verbose } => {
             errors::run(&kanagawa_root, filter.as_deref(), max_failures, verbose)
         }

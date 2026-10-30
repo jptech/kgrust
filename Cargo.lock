@@ -443,6 +443,7 @@ name = "kg-board"
 version = "0.1.0"
 dependencies = [
  "camino",
+ "kg-base",
  "kg-config",
  "kg-syntax",
  "serde",

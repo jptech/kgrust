@@ -458,8 +458,16 @@ TernaryExpr =
 CallExpr =
   AttrList* callee:Expr ArgList
 
+// An argument may be named by its parameter in edition 1.1
+// (`docs/editions/1.1.md`). The label stands *before* its expression rather
+// than around it, so `exprs` reads the same arguments with labels or without;
+// and it is a bare identifier, neither a `Name` (it declares nothing) nor a
+// `NameRef` (it is no value), so no walker of either mistakes it for one.
 ArgList =
-  '(' (Expr (',' Expr)*)? ')'
+  '(' (ArgLabel? Expr (',' ArgLabel? Expr)*)? ')'
+
+ArgLabel =
+  'ident' ':'
 
 IndexExpr =
   base:Expr '[' index:Expr ']'
