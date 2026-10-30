@@ -22,7 +22,7 @@ pub use event::Event;
 pub use input::Input;
 pub use lexer::{LexError, LexedStr};
 pub use output::{Step, StepOwned, build_tree, to_steps};
-pub use parser::{CompletedMarker, Marker, Parser};
+pub use parser::{CompletedMarker, Marker, Parser, STALLED};
 pub use syntax_kind::SyntaxKind;
 pub use token_set::TokenSet;
 
