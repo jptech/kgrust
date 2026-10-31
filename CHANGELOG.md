@@ -14,7 +14,9 @@ Notable changes to kgrust, newest first. The format follows
   A file is read in its own package's language; the standard library and
   everything the `kanagawa` binary compiles are always `1.0`. Edition
   `1.1` (a preview) adds named arguments, `f(y: 2, x: 1)`, in any order,
-  through `kg check`, `kg build`, `kg fmt` and the language server
+  through `kg check`, `kg build`, `kg fmt` and the language server —
+  where a label navigates to its parameter, renames with it, lights it in
+  signature help and is offered as a completion
   ([`docs/editions/`](docs/editions/README.md)). Graded by a new gate,
   `cargo xtask editions`.
 

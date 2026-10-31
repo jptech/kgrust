@@ -93,3 +93,44 @@ fn a_misnamed_argument_is_reported_at_its_label() {
         ]
     );
 }
+
+/// Where `definition_at` lands from inside the `nth` (from 0) occurrence of
+/// `needle`, as `line:column` from 1.
+fn lands(db: &Db, file: FileId, text: &str, needle: &str, nth: usize) -> Option<String> {
+    let at = text.match_indices(needle).nth(nth).expect("the needle is in the text").0 + 1;
+    let found = db.definition_at(&[file], file, kg_base::TextSize::new(at as u32))?;
+    let at = kg_base::LineIndex::new(text).line_col(found.range.range.start());
+    Some(format!("{}:{}", at.line + 1, at.col + 1))
+}
+
+/// A label names the callee's parameter — of a function, of a method through
+/// its receiver, of a function template — and never what its spelling names
+/// in the caller's scope: `y: y` is the parameter, then the local. Every
+/// navigation feature asks here (references and rename resolve each
+/// occurrence so), and a rename that left a label behind would break the
+/// call. Red with labels resolved as the names they are spelled as.
+#[test]
+fn a_label_is_its_parameter() {
+    let text = "inline uint8 sub(uint8 x, uint8 y)\n{\n    return x - y;\n}\n\ntemplate <typename T>\ninline T pick(bool first, T a, T b)\n{\n    return first ? a : b;\n}\n\nclass C\n{\npublic:\n    uint8 add(uint8 value, uint8 shift) { return value << shift; }\n}\n\nclass Top\n{\nprivate:\n    C _c;\n\npublic:\n    uint8 run()\n    {\n        uint8 y = 2;\n        uint8 n = sub(y: y, x: 3);\n        uint8 m = _c.add(shift: 1, value: n);\n        return pick(first: true, b: m, a: n);\n    }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(errors_of(&db, file, text), Vec::<String>::new());
+    assert_eq!(lands(&db, file, text, "y: y", 0).as_deref(), Some("1:33"), "the label is `sub`'s `y`");
+    assert_eq!(lands(&db, file, text, "y, x: 3", 0).as_deref(), Some("26:15"), "the value is the local");
+    assert_eq!(lands(&db, file, text, "x: 3", 0).as_deref(), Some("1:24"));
+    assert_eq!(lands(&db, file, text, "shift: 1", 0).as_deref(), Some("15:34"), "a method's, through `_c`");
+    assert_eq!(lands(&db, file, text, "b: m", 0).as_deref(), Some("7:34"), "a template's");
+}
+
+/// A label that names no parameter lands nowhere — not on the callee's one
+/// parameter, and not on a declaration of its spelling in scope, the guesses
+/// `definition_at` never makes. Red with a label's spelling unchecked against
+/// the parameters'.
+#[test]
+fn a_label_that_names_no_parameter_lands_nowhere() {
+    let text = "inline uint8 neg(uint8 x)\n{\n    return -x;\n}\n\ninline uint8 main()\n{\n    uint8 z = 2;\n    return neg(z: z);\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(lands(&db, file, text, "z: z", 0), None);
+    assert_eq!(lands(&db, file, text, "z)", 0).as_deref(), Some("8:11"));
+}

@@ -18378,6 +18378,17 @@ sites correctly". What a later reader would otherwise rediscover:
   import. Since a minor edition only adds, a library read in a later
   edition than its own reads the same, so the nearest manifest wins.
 
+- **A label made a parameter visible outside its file.** References and
+  rename search past the open buffers only for what another file can name
+  (`kg-lsp`'s `references::importable`), and a parameter never was — until
+  `sub(x: 1)` in an importing file named one. Searching every parameter
+  rename across the project would cost a 1.0 project for nothing, so the
+  search reads, for a parameter, only files whose language has named
+  arguments (`references::labelled`). Pinned by
+  `a_parameter_is_renamed_in_an_unopened_file_s_labels`; the editor resolves
+  a label through the callee's declaration (`Db::definitions_at`), so every
+  feature built on it — hover, highlight, rename — follows at once.
+
 Checked 2026-10-30: `cargo xtask editions` passes in ~6 s (481 reference
 files parse the same with every feature on; 4 claims, 3 twins, 1
 rejection fixture). Each of its four checks went red under a planted

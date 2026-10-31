@@ -122,6 +122,83 @@ impl Db {
         self.names_in_scope(roots, module, &anchor)
     }
 
+    /// The parameters an argument begun at `offset` could name (edition
+    /// 1.1's named arguments, `docs/editions/1.1.md`), in their order: at
+    /// the start of an argument — after the `(` or a `,`, or on the one
+    /// identifier typed there so far — in a file whose language has them,
+    /// each parameter of the callee no other argument fills, by position
+    /// before any named one or by name. A pipelined function's first
+    /// parameter is the thread's index, which no call names
+    /// (`Type.hs:1364-1373`). Empty where the callee's name reaches no
+    /// single function; resolved through `looped` alone, as a member list
+    /// is, so a keystroke never runs a loop.
+    pub fn label_completions(
+        &self,
+        roots: &[FileId],
+        file: FileId,
+        offset: TextSize,
+        looped: Option<&EditorLoop>,
+    ) -> Vec<Completion> {
+        let parse = self.parse(file);
+        if !parse.features().has(kg_base::language::Feature::NamedArguments) {
+            return Vec::new();
+        }
+        let root = parse.syntax_node();
+        let Some(anchor) = token_left_of(&root, offset) else { return Vec::new() };
+        let Some(list) = argument_start(&anchor, offset) else { return Vec::new() };
+        let Some(call) = list.syntax().parent().and_then(ast::CallExpr::cast) else { return Vec::new() };
+        let Some(probe) = crate::navigate::callee_probe(&call) else { return Vec::new() };
+        let callees = self.definitions_at_through(&|| looped.cloned(), roots, file, probe);
+        let [callee] = callees.as_slice() else { return Vec::new() };
+
+        // Each argument's label, one per comma-separated slot; the caret's
+        // slot is the one it is past as many commas as.
+        let mut labels: Vec<Option<String>> = vec![None];
+        for element in list.syntax().children_with_tokens() {
+            match element {
+                kg_syntax::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => labels.push(None),
+                kg_syntax::NodeOrToken::Node(n) => {
+                    if let Some(l) = ast::ArgLabel::cast(n).and_then(|l| l.ident_token()) {
+                        *labels.last_mut().expect("never empty") = Some(l.text().to_owned());
+                    }
+                }
+                kg_syntax::NodeOrToken::Token(_) => {}
+            }
+        }
+        let at = list.comma_tokens().filter(|c| c.text_range().end() <= offset).count();
+        let positional = labels.iter().take(at).take_while(|l| l.is_none()).count();
+        let named: FxHashSet<&str> =
+            labels.iter().enumerate().filter(|&(i, _)| i != at).filter_map(|(_, l)| l.as_deref()).collect();
+
+        let names = self.interner();
+        let params = self.parameters_of(callee);
+        let pipelined = self.is_pipelined(callee);
+        if pipelined && at == 0 {
+            return Vec::new(); // the thread count's place, written by position
+        }
+        let skip = usize::from(pipelined).max(positional);
+        params
+            .into_iter()
+            .skip(skip)
+            .filter_map(|p| {
+                let name = names.resolve(p.qualified_name.last()?).to_string();
+                (!named.contains(name.as_str())).then_some(Completion { name, kind: p.kind, def: p.def, rank: 0, ty: None })
+            })
+            .collect()
+    }
+
+    /// Whether the function `def` is is declared `[[pipelined]]`.
+    fn is_pipelined(&self, def: &Definition) -> bool {
+        let Some(file) = def.def.module.file() else { return false };
+        let root = self.parse(file).syntax_node();
+        let Some(name) = root.token_at_offset(def.range.range.start()).find(|t| t.text_range() == def.range.range) else {
+            return false;
+        };
+        name.parent_ancestors()
+            .find_map(ast::FnDecl::cast)
+            .is_some_and(|f| f.attr_lists().flat_map(|l| l.attrs()).any(|a| a.ident_token().is_some_and(|t| t.text() == "pipelined")))
+    }
+
     /// Whether a completion at `offset` follows a path's `::` — the context
     /// a client asks about when `:` triggered it, since a single `:` (a
     /// label, a `case`, a ternary) wants no list at all.
@@ -439,6 +516,28 @@ pub(crate) fn is_aggregate(ty: &Ty) -> bool {
         Ty::Struct(..) | Ty::Union(..) | Ty::Class(..) | Ty::Reference(_) => true,
         _ => false,
     }
+}
+
+/// The argument list whose argument `anchor` begins: `anchor` its `(` or a
+/// `,`, or the one identifier an argument holds so far, the caret past its
+/// first character — and not a label already written, whose name the caret
+/// is on.
+fn argument_start(anchor: &SyntaxToken, offset: TextSize) -> Option<ast::ArgList> {
+    let parent = anchor.parent()?;
+    if matches!(anchor.kind(), SyntaxKind::L_PAREN | SyntaxKind::COMMA) {
+        return ast::ArgList::cast(parent);
+    }
+    if anchor.kind() != SyntaxKind::IDENT || anchor.text_range().start() >= offset {
+        return None;
+    }
+    let argument = anchor.parent_ancestors().find(|n| n.parent().is_some_and(|p| p.kind() == SyntaxKind::ARG_LIST))?;
+    // A label written ends in its `:`, so the caret on its name is never on
+    // an argument alone.
+    let alone = argument.first_token().as_ref() == Some(anchor) && argument.last_token().as_ref() == Some(anchor);
+    if !alone {
+        return None;
+    }
+    ast::ArgList::cast(argument.parent()?)
 }
 
 /// The non-trivia token immediately left of the caret, or the identifier the

@@ -16,7 +16,10 @@
 //!
 //! The active parameter is the number of commas the caret is past, clamped to
 //! the last parameter, so a caret in an over-long call keeps the last one lit
-//! rather than none.
+//! rather than none. A named argument (edition 1.1: `docs/editions/1.1.md`)
+//! lights the parameter its label names, and none where it names none; an
+//! argument not yet named after one that is — `sub(y: 1, |` — lights the
+//! first parameter no argument fills, the one left to name.
 //!
 //! # The instance a call compiles
 //!
@@ -50,7 +53,7 @@
 use kg_base::{FileId, TextSize};
 use kg_db::ModuleSource;
 use kg_db::looped::{IrAnswer, Looped};
-use kg_syntax::{AstNode, SyntaxKind, SyntaxNode, ast};
+use kg_syntax::{AstNode, NodeOrToken, SyntaxKind, SyntaxNode, ast};
 use lsp_types::{
     Documentation, MarkupContent, MarkupKind, ParameterInformation, ParameterLabel, SignatureHelp,
     SignatureHelpParams, SignatureInformation,
@@ -72,6 +75,7 @@ pub fn signature_help(
         return Ok(None);
     };
     let Some(probe) = callee_probe(&call) else { return Ok(None) };
+    let labels = call.arg_list().map(|list| labels(&list)).unwrap_or_default();
 
     let help = state
         .with_db(snap.file, |db| {
@@ -93,7 +97,7 @@ pub fn signature_help(
                 }))
             });
             Some(SignatureHelp {
-                active_parameter: (parameters > 0).then(|| active.min(parameters - 1)),
+                active_parameter: (parameters > 0).then(|| active_parameter(&labels, active as usize, &signature.names)),
                 signatures: vec![SignatureInformation {
                     label: signature.label,
                     documentation,
@@ -183,6 +187,8 @@ struct Signature {
     /// `[start, end)` of each parameter inside `label`, in UTF-16 units as the
     /// protocol's `ParameterLabel::LabelOffsets` counts them.
     params: Vec<(u32, u32)>,
+    /// Each parameter's name, which a label names it by.
+    names: Vec<String>,
 }
 
 /// `name(p1, p2) -> ret`, each parameter spelled as written with its
@@ -204,6 +210,7 @@ fn signature_of(decl: &SyntaxNode) -> Option<Signature> {
     let mut label = name.clone();
     label.push('(');
     let mut spans = Vec::new();
+    let mut names = Vec::new();
     for (i, param) in params.params().enumerate() {
         if i > 0 {
             label.push_str(", ");
@@ -211,13 +218,51 @@ fn signature_of(decl: &SyntaxNode) -> Option<Signature> {
         let start = utf16_len(&label);
         label.push_str(&collapse_whitespace(param.syntax()));
         spans.push((start, utf16_len(&label)));
+        names.push(param.name().and_then(|n| n.ident_token()).map(|t| t.text().to_owned()).unwrap_or_default());
     }
     label.push(')');
     if let Some(ret) = ret {
         label.push_str(" -> ");
         label.push_str(&collapse_whitespace(ret.syntax()));
     }
-    Some(Signature { name, label, params: spans })
+    Some(Signature { name, label, params: spans, names })
+}
+
+/// Each argument's label, in the order written — `None` for a positional
+/// one — one per comma-separated slot, an empty one included.
+fn labels(list: &ast::ArgList) -> Vec<Option<String>> {
+    let mut out = vec![None];
+    for element in list.syntax().children_with_tokens() {
+        match element {
+            NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => out.push(None),
+            NodeOrToken::Node(n) => {
+                if let Some(label) = ast::ArgLabel::cast(n).and_then(|l| l.ident_token()) {
+                    *out.last_mut().expect("never empty") = Some(label.text().to_owned());
+                }
+            }
+            NodeOrToken::Token(_) => {}
+        }
+    }
+    out
+}
+
+/// The parameter the `active`th argument fills, as the module docs say: the
+/// one its label names — `names.len()`, which lights none, where it names
+/// none — and after a named argument, the first no argument fills; else the
+/// one its position gives, clamped.
+fn active_parameter(labels: &[Option<String>], active: usize, names: &[String]) -> u32 {
+    let index = |label: &str| names.iter().position(|n| n == label);
+    if let Some(Some(label)) = labels.get(active) {
+        return index(label).unwrap_or(names.len()) as u32;
+    }
+    if labels[..active.min(labels.len())].iter().any(Option::is_some) {
+        let positional = labels.iter().take_while(|l| l.is_none()).count();
+        let named: Vec<usize> = labels.iter().flatten().filter_map(|l| index(l)).collect();
+        if let Some(free) = (positional..names.len()).find(|i| !named.contains(i)) {
+            return free as u32;
+        }
+    }
+    (active as u32).min(names.len().saturating_sub(1) as u32)
 }
 
 fn utf16_len(s: &str) -> u32 {
@@ -316,6 +361,31 @@ inline void main()
         assert_eq!(help(SRC, Position::new(9, 24)).map(|h| h.2), Some(Some(0)), "inside add(2, …)");
         assert_eq!(help(SRC, Position::new(9, 27)).map(|h| h.2), Some(Some(1)), "inside add(2, false)");
         assert_eq!(help(SRC, Position::new(9, 35)).map(|h| h.2), Some(Some(1)), "back in the outer call");
+    }
+
+    /// [`help`]'s active parameter, the file read in edition 1.1.
+    fn active_in_1_1(tag: &str, text: &str, pos: Position) -> Option<u32> {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let files = [("sig.k", text)];
+        let (dir, state, src) = lay_out_1_1(&format!("signature-{tag}"), &files);
+        let uri = open_one(&state, &src, &files, "sig.k");
+        let help = signature_help(&state, &params(&uri, pos)).expect("the document is open");
+        std::fs::remove_dir_all(&dir).unwrap();
+        help.expect("a signature").active_parameter
+    }
+
+    /// A named argument lights the parameter its label names, not the one
+    /// its position would; one that names none lights none (the count, out
+    /// of range); and an argument not yet named after a named one lights the
+    /// parameter left to fill. Red with the commas counted alone.
+    #[test]
+    fn a_named_argument_lights_the_parameter_it_names() {
+        let text = "inline uint8 sub(uint8 x, uint8 y, uint8 z)\n{\n    return x - y - z;\n}\n\ninline uint8 main()\n{\n    return sub(z: 1, x: 2, );\n}\n";
+        assert_eq!(active_in_1_1("z", text, Position::new(7, 16)), Some(2), "on `z: 1`");
+        assert_eq!(active_in_1_1("x", text, Position::new(7, 22)), Some(0), "on `x: 2`");
+        assert_eq!(active_in_1_1("next", text, Position::new(7, 27)), Some(1), "the slot after: `y` is left");
+        let wrong = text.replace("x: 2", "w: 2");
+        assert_eq!(active_in_1_1("none", &wrong, Position::new(7, 22)), Some(3), "`w` names no parameter");
     }
 
     /// Off any argument list — on the callee's name, on a declaration — the
