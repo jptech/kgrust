@@ -2,7 +2,7 @@
 
 /// Every kind in discriminant order, so a `u16` can be turned back into a
 /// `SyntaxKind` without `unsafe`.
-const KIND_TABLE: [SyntaxKind; 217] = [
+const KIND_TABLE: [SyntaxKind; 218] = [
     WHITESPACE,
     LINE_COMMENT,
     BLOCK_COMMENT,
@@ -189,6 +189,7 @@ const KIND_TABLE: [SyntaxKind; 217] = [
     PAREN_EXPR,
     CALL_EXPR,
     ARG_LIST,
+    ARG_LABEL,
     INDEX_EXPR,
     FIELD_EXPR,
     CAST_EXPR,

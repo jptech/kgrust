@@ -33,6 +33,14 @@
 //! has no detail, and a member list where no loop types the base is empty:
 //! the CST inference engine answered both until sprint W3.7, deleted since.
 //!
+//! # Parameters to name
+//!
+//! In a file whose language has named arguments (edition 1.1:
+//! `docs/editions/1.1.md`), an argument begun — after the `(` or a `,`, or
+//! one word into it — is offered the callee's parameters no other argument
+//! fills, each as `x:`, ahead of the names in scope
+//! ([`kg_db::Db::label_completions`]).
+//!
 //! The list is complete, never incremental: `is_incomplete` is `false`, so a
 //! client filters what it was given as the user keeps typing instead of asking
 //! again per keystroke.
@@ -67,8 +75,13 @@ pub fn completion(state: &GlobalState, params: &CompletionParams) -> Answer<Opti
             let roots = [snap.file];
             let looped = db.editor_loop_ready(&roots);
             let names = db.interner();
-            db.completions_with(&roots, snap.file, offset, looped.as_ref())
+            // The parameters an argument begun here could name lead the
+            // list: where one is offered, naming it is what the call wants.
+            let labels = db.label_completions(&roots, snap.file, offset, looped.as_ref());
+            let labelled = labels.len();
+            labels
                 .into_iter()
+                .chain(db.completions_with(&roots, snap.file, offset, looped.as_ref()))
                 .enumerate()
                 .map(|(i, c)| {
                     let ir = looped.as_ref().and_then(|l| db.ir_answer_of_completion(&roots, l, &c, &shown));
@@ -105,8 +118,11 @@ pub fn completion(state: &GlobalState, params: &CompletionParams) -> Answer<Opti
                             "end": u32::from(def.range.range.end()),
                         })
                     });
+                    let named = i < labelled;
                     CompletionItem {
-                        label: c.name.clone(),
+                        label: if named { format!("{}:", c.name) } else { c.name.clone() },
+                        insert_text: named.then(|| format!("{}: ", c.name)),
+                        filter_text: named.then(|| c.name.clone()),
                         kind: Some(item_kind(c.kind)),
                         detail,
                         documentation,
@@ -308,6 +324,68 @@ mod tests {
         by_key.sort();
         let labels: Vec<&str> = by_key.iter().map(|(_, l)| l.as_str()).collect();
         assert_eq!(labels, ["zzz", "aaa", "main"]);
+    }
+
+    /// In edition 1.1 an argument begun is offered the parameters left to
+    /// name, as `x:`: not one a positional or another named argument fills,
+    /// not a pipelined function's thread index, none in the thread count's
+    /// place, none on a label already written. A file of edition 1.0 is
+    /// offered none — a label there is a parse error. Red with the filled
+    /// parameters offered, the index offered, or the language not asked.
+    #[test]
+    fn an_argument_begun_is_offered_the_parameters_left_to_name() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "class Main\n{\n    [[pipelined]] void Work(uint32 tid, bool flag, uint8 v)\n    {\n    }\n\n    uint8 sub(uint8 x, uint8 y, uint8 z)\n    {\n        return x;\n    }\n\npublic:\n    uint8 main(bool f)\n    {\n        uint8 a = sub(1, z: 2, );\n        uint8 b = sub(y);\n        Work(4, );\n        Work();\n        Work(flag: f, );\n        return sub(x: 1, y: 2, z: 3);\n    }\n}\n";
+        let files = [("main.k", text)];
+        let (dir, state, src) = lay_out_1_1("complete-labels", &files);
+        let uri = open_one(&state, &src, &files, "main.k");
+        let labels = |line: u32, col: u32| -> Vec<(String, Option<String>, Option<String>)> {
+            match completion(&state, &params(&uri, Position::new(line, col))).expect("open") {
+                Some(CompletionResponse::Array(out)) => out
+                    .into_iter()
+                    .filter(|i| i.label.ends_with(':'))
+                    .map(|i| (i.label, i.insert_text, i.sort_text))
+                    .collect(),
+                other => panic!("expected an array, got {other:?}"),
+            }
+        };
+        let named = |names: &[&str]| -> Vec<String> { names.iter().map(|n| format!("{n}:")).collect() };
+        let shown = |line, col| labels(line, col).into_iter().map(|(l, ..)| l).collect::<Vec<_>>();
+
+        assert_eq!(labels(14, 31), [("y:".to_owned(), Some("y: ".to_owned()), Some("00000".to_owned()))]);
+        assert_eq!(shown(15, 23), named(&["x", "y", "z"]), "one word into the argument");
+        assert_eq!(shown(16, 16), named(&["flag", "v"]), "never `tid`");
+        assert_eq!(shown(17, 13), named(&[]), "the thread count's place");
+        assert_eq!(shown(18, 22), named(&["v"]), "never `tid`, the count unwritten");
+        assert_eq!(shown(19, 20), named(&[]), "on a label already written");
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        let plain = "inline uint8 sub(uint8 x, uint8 y)\n{\n    return x;\n}\n\ninline uint8 main()\n{\n    return sub(1, );\n}\n";
+        let reference: Vec<String> =
+            items(plain, Position::new(7, 18)).into_iter().map(|i| i.label).filter(|l| l.ends_with(':')).collect();
+        assert_eq!(reference, named(&[]), "edition 1.0 has no named arguments");
+    }
+
+    /// A template's argument begun is offered the template's parameters left
+    /// to name, as a call's argument is offered the function's: not one a
+    /// positional or another named argument fills. Red with a template's
+    /// list taken for no argument list, or its labels offered as a call's.
+    #[test]
+    fn a_template_argument_begun_is_offered_the_parameters_left_to_name() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "template <typename T, auto Size = 4, bool Wide = false>\nclass Buffer\n{\npublic:\n    T get(T x) { return x; }\n}\n\nclass Main\n{\n    Buffer<uint8, Wide: true, > _a;\n    Buffer<uint8, S> _b;\n}\n";
+        let files = [("main.k", text)];
+        let (dir, state, src) = lay_out_1_1("complete-template-labels", &files);
+        let uri = open_one(&state, &src, &files, "main.k");
+        let shown = |line: u32, col: u32| -> Vec<String> {
+            match completion(&state, &params(&uri, Position::new(line, col))).expect("open") {
+                Some(CompletionResponse::Array(out)) => out.into_iter().map(|i| i.label).filter(|l| l.ends_with(':')).collect(),
+                other => panic!("expected an array, got {other:?}"),
+            }
+        };
+        assert_eq!(shown(9, 30), ["Size:"]);
+        assert_eq!(shown(10, 19), ["Size:", "Wide:"], "one word into the argument");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// An unopened document is `NoFile`, never an empty list pretending to

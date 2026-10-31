@@ -102,13 +102,27 @@
 //! answer, which a listing may show. A rename, which may neither under- nor
 //! over-report, refuses on each of those outside a template's body
 //! (`super::rename`).
+//!
+//! # A parameter, through its labels
+//!
+//! A named argument (`f(x: 1)`, edition 1.1: `docs/editions/1.1.md`) is a
+//! use of `f`'s parameter `x`, and `definition_at` resolves the label so;
+//! a rename of `x` that left it would break the call. So a parameter of a
+//! function another file can name is searched for like the function
+//! ([`labelled`]) — but only in the files whose language has named
+//! arguments, the only ones a label can be written in. A template's
+//! parameter likewise, through a named template argument (`Buffer<Size:
+//! 8>`), in the files whose language has those. A project of edition 1.0
+//! has none, and searches a parameter in its open buffers, as it did before
+//! editions.
 
 use std::cell::OnceCell;
 
+use kg_base::language::Feature;
 use kg_base::{FileId, FileRange, FxHashSet, TextSize, Utf8Path};
 use kg_db::looped::EditorLoop;
 use kg_db::{Db, Definition};
-use kg_resolve::DefKind;
+use kg_resolve::{DefKind, Item, ItemTree};
 use kg_syntax::{SyntaxKind, SyntaxToken};
 use lsp_types::{Location, MessageType, ReferenceParams};
 
@@ -346,7 +360,9 @@ pub(crate) fn search(db: &Db, buffers: &[FileId], target: &Definition, needle: &
     for (root, files) in &plan {
         walk(db, &[*root], files, Reading::Editor, target, Some(needle), member, &mut found);
     }
-    if !importable(db, target) {
+    let labels_only = !importable(db, target);
+    let labels = labelled(db, target);
+    if labels_only && labels.is_none() {
         return found;
     }
 
@@ -354,6 +370,7 @@ pub(crate) fn search(db: &Db, buffers: &[FileId], target: &Definition, needle: &
     let claimed: FxHashSet<FileId> = plan.iter().flat_map(|(_, files)| files.iter().copied()).collect();
     let spelled: Vec<FileId> = sources::project_sources(db.settings())
         .into_iter()
+        .filter(|path| !labels_only || labels.is_some_and(|f| db.settings().language_of(path).features().has(f)))
         .map(|path| db.file_id(&path))
         .filter(|file| !claimed.contains(file))
         .filter(|&file| db.vfs().read(file).is_some_and(|text| text.text.contains(needle)))
@@ -551,7 +568,26 @@ pub(crate) fn selectable(db: &Db, target: &Definition) -> bool {
 /// importable, and a rename edited the open buffers' programs alone.
 pub(crate) fn importable(db: &Db, target: &Definition) -> bool {
     let tree = db.item_tree(target.def.module);
-    let Some(mut at) = tree.item(target.def.item) else { return true };
+    let Some(at) = tree.item(target.def.item) else { return true };
+    importable_item(&tree, at)
+}
+
+/// Whether a named argument in another file can name `target` — a
+/// parameter of a function, or of a template, another file can name (the
+/// module docs) — and the feature a file's language needs to name it.
+pub(crate) fn labelled(db: &Db, target: &Definition) -> Option<Feature> {
+    let tree = db.item_tree(target.def.module);
+    let param = tree.item(target.def.item)?;
+    let feature = match param.kind {
+        DefKind::FuncParam => Feature::NamedArguments,
+        DefKind::TemplateParam => Feature::NamedTemplateArguments,
+        _ => return None,
+    };
+    let owner = param.parent.and_then(|p| tree.item(p))?;
+    importable_item(&tree, owner).then_some(feature)
+}
+
+fn importable_item<'a>(tree: &'a ItemTree, mut at: &'a Item) -> bool {
     loop {
         if at.kind == DefKind::TemplateParam {
             return false;
@@ -964,11 +1000,24 @@ inline void main()
     /// `src/`, for the reason [`project`] gives — and returns its directory,
     /// a state rooted there, and its `src/`.
     pub(crate) fn lay_out(tag: &str, files: &[(&str, &str)]) -> (std::path::PathBuf, GlobalState, kg_base::Utf8PathBuf) {
+        lay_out_in("", tag, files)
+    }
+
+    /// [`lay_out`], the manifest naming edition 1.1 (`docs/editions/1.1.md`).
+    pub(crate) fn lay_out_1_1(tag: &str, files: &[(&str, &str)]) -> (std::path::PathBuf, GlobalState, kg_base::Utf8PathBuf) {
+        lay_out_in("[package]\nedition = \"1.1\"\n\n", tag, files)
+    }
+
+    fn lay_out_in(
+        package: &str,
+        tag: &str,
+        files: &[(&str, &str)],
+    ) -> (std::path::PathBuf, GlobalState, kg_base::Utf8PathBuf) {
         let dir = std::env::temp_dir().join(format!("kg-lsp-search-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(
             dir.join("kanagawa.toml"),
-            "[project]\nimport-dirs = [\"src\"]\ntarget-device = \"mock\"\nimplicit-base = false\n",
+            format!("{package}[project]\nimport-dirs = [\"src\"]\ntarget-device = \"mock\"\nimplicit-base = false\n"),
         )
         .unwrap();
         for (name, text) in files {

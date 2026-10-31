@@ -335,6 +335,11 @@ fn run(
         pass(Pass::Infer);
         program.infer();
         carry_all(&mut program.modules);
+        // A later edition's named arguments, placed wherever pass 6 typed
+        // the callee — before any pass reads a call's arguments by position
+        // (`crate::named`). Nothing in a reference program.
+        crate::named::named_arguments(&mut program);
+        carry_all(&mut program.modules);
         lap("pass 6");
         // Pass 7: `trimExternClasses`.
         pass(Pass::Trim);
@@ -344,6 +349,9 @@ fn run(
         loop {
             cancel.check();
             crate::profile::set_round(round);
+            // Named arguments in the copies the last round made and typed.
+            crate::named::named_arguments(&mut program);
+            carry_all(&mut program.modules);
             // `addLambdaWrappers`, first to run (`Template.hs:79-80`).
             pass(Pass::Wrappers);
             crate::closures::add_lambda_wrappers(&mut program);
@@ -383,6 +391,11 @@ fn run(
             // `closureCalls` (`Template.hs:74`).
             lap("prefix + infer");
             cancel.check();
+            // … and where the prefix's rewrites and inference typed a callee
+            // since, before `closureCalls` and deduction read arguments by
+            // position.
+            crate::named::named_arguments(&mut program);
+            carry_all(&mut program.modules);
             crate::closures::closure_calls(&mut program);
             carry_all(&mut program.modules);
             // `deduceTemplateArgs`, then `inferType` (`Template.hs:73-74`).
@@ -426,6 +439,11 @@ fn run(
                 report.budget_exhausted = true;
             }
             if decided.is_empty() || round >= max_rounds {
+                // Named arguments no run could place are errors — at the
+                // fixpoint only: a loop cut short might yet have placed them.
+                if decided.is_empty() {
+                    crate::named::unplaced(&mut program.modules, interner);
+                }
                 // `parallel (desugar deduplicateInstances) program'`.
                 for m in program.modules.iter_mut() {
                     kg_hir::rewrite::deduplicate_instances_in_place(&mut m.ir, interner);

@@ -3,7 +3,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use kg_diag::{WarningKind, WarningSet};
 
-use crate::{Fmt, Level, Lsp, Manifest};
+use crate::{Fmt, LanguageMap, Level, Lsp, Manifest};
 
 /// Fully resolved project settings.
 /// `targetDevice = "mock"` (`Parser/Options.hs:47`, `app/Options/CmdArgs.hs:87`).
@@ -40,6 +40,10 @@ pub struct Settings {
     pub backend: BackendOptions,
     /// The port's own verdict switches — [`Verdicts`].
     pub verdicts: Verdicts,
+    /// Which language each file is in ([`LanguageMap`]): the reference
+    /// everywhere unless a package's manifest, or `--edition`, says
+    /// otherwise.
+    pub language: LanguageMap,
 }
 
 /// Switches that change what this compiler decides or emits and are not the
@@ -126,8 +130,8 @@ impl Settings {
     pub fn from_manifest(manifest: &Manifest, manifest_path: &Utf8Path) -> Settings {
         let root = manifest_path.parent().unwrap_or(Utf8Path::new(".")).to_owned();
         let p = &manifest.project;
-
         Settings {
+            language: LanguageMap::new(&root, manifest.language()),
             import_dirs: p.import_dirs.iter().map(|d| join(&root, d)).collect(),
             target_device: p.target_device.clone().unwrap_or_else(|| DEFAULT_TARGET_DEVICE.to_owned()),
             base_library: p.base_library.as_ref().map(|b| join(&root, b)),
@@ -172,8 +176,10 @@ impl Settings {
     /// Defaults for a directory with no manifest, so the language server still
     /// does something useful in a bare checkout.
     pub fn fallback(root: impl Into<Utf8PathBuf>) -> Settings {
+        let root = root.into();
         Settings {
-            root: root.into(),
+            language: LanguageMap::new(&root, kg_base::language::Language::REFERENCE),
+            root,
             import_dirs: Vec::new(),
             target_device: DEFAULT_TARGET_DEVICE.to_owned(),
             base_library: None,
@@ -188,6 +194,11 @@ impl Settings {
             backend: BackendOptions::default(),
             verdicts: Verdicts::default(),
         }
+    }
+
+    /// The language the file at `path` is written in ([`LanguageMap`]).
+    pub fn language_of(&self, path: &Utf8Path) -> kg_base::language::Language {
+        self.language.language_of(path)
     }
 
     /// The import search path, in the exact order the reference searches it.

@@ -20,6 +20,7 @@
 
 use super::{ExprMode, ITEM_RECOVERY, attrs, exprs, paths, stmts, types};
 use crate::{Parser, SyntaxKind, TokenSet};
+use kg_base::language::Feature;
 use SyntaxKind::*;
 
 const PARAM_RECOVERY: TokenSet = TokenSet::new(&[COMMA, R_PAREN, L_CURLY, SEMICOLON]);
@@ -244,7 +245,7 @@ fn enum_decl(p: &mut Parser<'_>) {
                 break;
             }
         }
-        if !p.eat(COMMA) {
+        if !p.eat_list_comma(R_CURLY) {
             break;
         }
     }
@@ -384,7 +385,7 @@ fn template_decl(p: &mut Parser<'_>, ctx: Ctx) {
                 break;
             }
         }
-        if !p.eat(COMMA) {
+        if !p.eat_list_comma(R_ANGLE) {
             break;
         }
     }
@@ -566,7 +567,7 @@ pub(crate) fn param_list(p: &mut Parser<'_>) {
                     break;
                 }
             }
-            if !p.eat(COMMA) {
+            if !p.eat_list_comma(R_PAREN) {
                 break;
             }
         }
@@ -580,5 +581,14 @@ fn param(p: &mut Parser<'_>) {
     attrs::opt_attrs(p, attrs::PARAM_ATTRS);
     types::type_(p);
     paths::name(p);
+    // Edition 1.1's default (`docs/editions/1.1/default-arguments.md`):
+    // `typ identifier` and nothing after it in the reference (`Parser.hs:379`),
+    // so an `=` there is a parse error, and no 1.0 parameter has one — in a
+    // file without the feature, the one that names the edition.
+    if p.at(EQ) {
+        p.gate(Feature::DefaultArguments);
+        p.bump(EQ);
+        exprs::expr(p, ExprMode::Full);
+    }
     m.complete(p, PARAM);
 }

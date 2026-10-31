@@ -148,6 +148,11 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
                 (1, Some(value)) => format!("{name} = {value}"),
                 _ => name,
             };
+            // A parameter's default (edition 1.1), as declared: `uint8 shift = 1`.
+            let name = match (found.len(), parameter_default(db, first)) {
+                (1, Some(default)) => format!("{name} = {default}"),
+                _ => name,
+            };
             let shown = match ir {
                 Some(IrAnswer::Written(ty)) => markdown(&declared, &name, &ty, names),
                 Some(IrAnswer::Copies { types, untyped, budget_exhausted }) => {
@@ -171,6 +176,20 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
         range: kg_db::navigate::identifier_at(&snap.parse.syntax_node(), offset)
             .map(|token| convert::range(snap.line_index(), state.encoding(), token.text_range())),
     }))
+}
+
+/// The default `def` declares, written as it is, where `def` is a parameter
+/// with one.
+fn parameter_default(db: &kg_db::Db, def: &Definition) -> Option<String> {
+    use kg_syntax::AstNode;
+    if def.kind != DefKind::FuncParam || def.range.file == kg_base::FileId::SYNTHETIC {
+        return None;
+    }
+    let root = db.parse(def.range.file).syntax_node();
+    let name = root.token_at_offset(def.range.range.start()).find(|t| t.text_range() == def.range.range)?;
+    let param = name.parent_ancestors().find_map(kg_syntax::ast::Param::cast)?;
+    param.eq_token()?;
+    Some(crate::handlers::signature_help::collapse_whitespace(param.expr()?.syntax()))
 }
 
 /// The tooltip `shown`, and under a rule the documentation, where there is
@@ -772,5 +791,24 @@ class Adder {
         // The caret is on `Aa` in `main.k`; `struct Aa` is declared in `a.k`.
         let out = body(&state, &main, Position::new(4, 5)).expect("the import must resolve");
         assert_eq!(out, "```kanagawa\ntype a::Aa\n```\n\n**struct** `a::Aa`");
+    }
+
+    /// A parameter's default (edition 1.1) is part of what it is, as an enum
+    /// constant's value is: at the declaration and at a label naming it, the
+    /// hover says it as declared; a parameter without one says none. Red with
+    /// the default left out, or read off a parameter that has none.
+    #[test]
+    fn a_parameter_s_default_is_shown_as_declared() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "inline uint8 scale(uint8 value, uint8 shift = 1 + 1)\n{\n    return value << shift;\n}\n\ninline uint8 main()\n{\n    return scale(shift: 3, value: 2);\n}\n";
+        let files = [("hover.k", text)];
+        let (dir, state, src) = lay_out_1_1("hover-default", &files);
+        let uri = open_one(&state, &src, &files, "hover.k");
+        let shift = "```kanagawa\nuint8 shift = 1 + 1\n```\n\n**parameter** `scale::shift`";
+        assert_eq!(body(&state, &uri, Position::new(0, 40)).as_deref(), Some(shift), "at the declaration");
+        assert_eq!(body(&state, &uri, Position::new(7, 18)).as_deref(), Some(shift), "at the label");
+        let value = "```kanagawa\nuint8 value\n```\n\n**parameter** `scale::value`";
+        assert_eq!(body(&state, &uri, Position::new(0, 27)).as_deref(), Some(value), "no default");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

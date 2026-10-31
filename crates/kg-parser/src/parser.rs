@@ -134,6 +134,46 @@ impl<'t> Parser<'t> {
     }
 
     #[inline]
+    /// Whether the file opts into `feature` (`kg_base::language`). Every
+    /// rule beyond the reference begins behind this test.
+    pub fn has(&self, feature: kg_base::language::Feature) -> bool {
+        self.inp.features().has(feature)
+    }
+
+    /// Where the grammar has recognised `feature`'s syntax: in a file whose
+    /// language lacks it, the error naming the edition that has it
+    /// ([`Feature::needed`](kg_base::language::Feature::needed)). The grammar
+    /// then parses the syntax as it would with the feature on, so a 1.0 file
+    /// that uses it gets this one error and not the cascade of a parser that
+    /// had never heard of it. The reference rejects the same text, so the
+    /// program is rejected either way; only what it is told changes.
+    pub fn gate(&mut self, feature: kg_base::language::Feature) {
+        if !self.has(feature) {
+            self.error(feature.needed());
+        }
+    }
+
+    /// Eats the comma that goes on with a list closing at `close`: false at
+    /// the list's end — no comma, or a comma with `close` after it, edition
+    /// 1.1's trailing comma (`docs/editions/1.1/trailing-commas.md`), eaten
+    /// and, in a file without the feature, an error at the comma
+    /// ([`Parser::gate`]). The reference separates every list this is asked
+    /// of with `sepBy` or a `comma >>` recursion (`Parser.hs:289-291,363,
+    /// 377,441,551,697,860,867-871`), which leaves a comma before the closing
+    /// bracket an error, so a list this ends there is one the reference
+    /// rejects.
+    pub fn eat_list_comma(&mut self, close: SyntaxKind) -> bool {
+        if !self.at(COMMA) {
+            return false;
+        }
+        let trailing = if close == R_ANGLE { self.nth_at_angle(1, R_ANGLE) } else { self.nth_at(1, close) };
+        if trailing {
+            self.gate(kg_base::language::Feature::TrailingCommas);
+        }
+        self.bump(COMMA);
+        !trailing
+    }
+
     pub fn at_end(&self) -> bool {
         self.pos >= self.inp.len() || self.stalled.get().is_some()
     }

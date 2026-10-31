@@ -696,6 +696,71 @@ inline void main()
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A parameter of a function another file can name is used there by a
+    /// named argument (edition 1.1): renaming `x` from `helper.k` renames
+    /// the label `x:` in `main.k`, which nobody has open, and leaves `main.k`'s
+    /// own `x`, the argument's value, alone. Red with a parameter searched
+    /// for in its open buffers alone, which leaves `sub(x: …)` naming no
+    /// parameter.
+    #[test]
+    fn a_parameter_is_renamed_in_an_unopened_file_s_labels() {
+        let (dir, state, helper, _main) = project("label");
+        let manifest = "[package]\nedition = \"1.1\"\n\n[project]\nimport-dirs = [\"src\"]\ntarget-device = \"mock\"\nimplicit-base = false\n";
+        std::fs::write(dir.join("kanagawa.toml"), manifest).unwrap();
+        let sub = "inline uint8 sub(uint8 x, uint8 y)\n{\n    return x - y;\n}\n";
+        std::fs::write(dir.join("src").join("helper.k"), sub).unwrap();
+        std::fs::write(
+            dir.join("src").join("main.k"),
+            "import helper\n\ninline uint8 main()\n{\n    uint8 x = 3;\n    return sub(y: 1, x: x);\n}\n",
+        )
+        .unwrap();
+        state.did_open(helper.clone(), sub.to_owned(), 1);
+
+        let edit = rename(&state, &params(&helper, Position::new(0, 23), "a")).unwrap().unwrap();
+        assert_eq!(
+            edits(edit),
+            vec![
+                ("helper.k".to_owned(), 0, 23, "a".to_owned()),
+                ("helper.k".to_owned(), 2, 11, "a".to_owned()),
+                ("main.k".to_owned(), 5, 21, "a".to_owned()),
+            ]
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A template's parameter is used in another file by a named template
+    /// argument (edition 1.1): renaming `Size` in `helper.k` renames the
+    /// label `Size:` in `main.k`, which nobody has open. Red with a template's
+    /// parameter searched for in its open buffers alone, which leaves
+    /// `Buffer<Size: 8>` naming no parameter.
+    #[test]
+    fn a_template_parameter_is_renamed_in_an_unopened_file_s_labels() {
+        let (dir, state, helper, _main) = project("template-label");
+        let manifest = "[package]\nedition = \"1.1\"\n\n[project]\nimport-dirs = [\"src\"]\ntarget-device = \"mock\"\nimplicit-base = false\n";
+        std::fs::write(dir.join("kanagawa.toml"), manifest).unwrap();
+        let buffer = "template <typename T, auto Size = 4>\nclass Buffer\n{\npublic:\n    T get(T x) { return x + Size; }\n}\n";
+        std::fs::write(dir.join("src").join("helper.k"), buffer).unwrap();
+        std::fs::write(
+            dir.join("src").join("main.k"),
+            "import helper\n\nclass Main\n{\n    Buffer<T: uint8, Size: 8> _b;\n}\n",
+        )
+        .unwrap();
+        state.did_open(helper.clone(), buffer.to_owned(), 1);
+
+        let edit = rename(&state, &params(&helper, Position::new(0, 28), "Depth")).unwrap().unwrap();
+        assert_eq!(
+            edits(edit),
+            vec![
+                ("helper.k".to_owned(), 0, 27, "Depth".to_owned()),
+                ("helper.k".to_owned(), 4, 28, "Depth".to_owned()),
+                ("main.k".to_owned(), 4, 21, "Depth".to_owned()),
+            ]
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A `.Go` in a file nobody has open whose receiver no loop types —
     /// `c` is what an undeclared function returns — cannot be placed, and
     /// the rename is refused, naming the file and line, as it is in an

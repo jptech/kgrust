@@ -3224,7 +3224,9 @@ impl<'a, B: Backend> Walker<'a, B> {
                 };
                 self.backend.ParseDeclare(a, b, c, d.unwrap_or(null), flags, &refs)
             }
-            Exp::FuncParam { scope, attr, ty, name } => {
+            // A default never reaches the backend: every call that leans on it has
+            // had the value placed in its argument list by `kg_sem::named`.
+            Exp::FuncParam { scope, attr, ty, name, .. } => {
                 let a = w!(*attr);
                 let b = w!(*ty);
                 let c = w!(*name);
@@ -3290,6 +3292,10 @@ impl<'a, B: Backend> Walker<'a, B> {
             Exp::Error(_) => return Err(Self::decline("error node", &src)),
             Exp::Path(_) => return Err(Self::decline("unsorted path", &src)),
             Exp::Unsupported => return Err(Self::decline("unsupported", &src)),
+            // A later edition's named argument that `kg_sem::named` did not
+            // place: the reference has no such construct to give the
+            // backend, so the walk declines rather than guess an order.
+            Exp::Labelled { .. } => return Err(Self::decline("named argument", &src)),
         };
         self.set_node_type(m, id, result);
         Ok(result)

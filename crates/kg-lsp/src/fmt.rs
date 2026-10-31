@@ -21,6 +21,7 @@
 //! guessed at a half-typed declaration would silently rewrite it; this one
 //! leaves the buffer alone until it parses.
 
+use kg_base::language::Features;
 use kg_base::{LineIndex, TextRange};
 use kg_config::Fmt;
 use lsp_types::TextEdit;
@@ -50,6 +51,7 @@ pub fn format(
     index: &LineIndex,
     enc: PositionEncoding,
     settings: &Fmt,
+    features: Features,
     range: Option<TextRange>,
 ) -> Vec<TextEdit> {
     if !available() {
@@ -59,7 +61,7 @@ pub fn format(
 
     match range {
         // `formatting`: the whole buffer, as one replacement edit.
-        None => match kg_fmt::format_file(text, settings) {
+        None => match kg_fmt::format_file_in(text, settings, features) {
             // An edit that changes nothing is not worth sending. Clients treat a
             // non-empty edit list as a document modification — it marks the file
             // dirty, pushes an undo entry, and can retrigger format-on-save.
@@ -74,7 +76,7 @@ pub fn format(
             }
         },
         // `rangeFormatting`: whole items overlapping the selection, or nothing.
-        Some(range) => kg_fmt::format_range(text, range, settings)
+        Some(range) => kg_fmt::format_range_in(text, range, settings, features)
             .unwrap_or_default()
             .into_iter()
             .map(|e| TextEdit {
@@ -114,7 +116,7 @@ mod tests {
 
     fn edits(text: &str, range: Option<TextRange>) -> Vec<TextEdit> {
         let index = LineIndex::new(text);
-        format(text, &index, PositionEncoding::Utf16, &Fmt::default(), range)
+        format(text, &index, PositionEncoding::Utf16, &Fmt::default(), Features::NONE, range)
     }
 
     /// The capability and the behaviour have to agree in *both* directions:

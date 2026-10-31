@@ -178,6 +178,15 @@ pub struct SourceArgs {
     /// Parse documentation comments.
     #[arg(long)]
     pub parse_docs: bool,
+    /// The project's language edition (`1.0`, the reference, by default),
+    /// over the manifest's `[package] edition`. A dependency's and the
+    /// standard library's stay their own.
+    #[arg(long, value_name = "VERSION")]
+    pub edition: Option<String>,
+    /// A language feature beyond the edition's, as `[language] features`
+    /// names one; repeatable.
+    #[arg(long = "feature", value_name = "NAME")]
+    pub features: Vec<String>,
     /// Warning switch: `all`, `error`, `<name>` or `no-<name>`; repeatable,
     /// applied in order.
     #[arg(short = 'W', value_name = "SWITCH")]
@@ -194,8 +203,23 @@ impl SourceArgs {
             no_implicit_base: self.no_implicit_base,
             target_device: self.target_device.clone(),
             parse_docs: self.parse_docs,
+            edition: self.edition.clone(),
+            features: self.features.clone(),
             warnings: self.warn.clone(),
         }
+    }
+
+    /// The language the flags alone name — for the one-file commands that
+    /// read no manifest.
+    fn language(&self) -> Result<kg_base::language::Language, String> {
+        let mut language = kg_base::language::Language::REFERENCE;
+        if let Some(e) = &self.edition {
+            language.edition = kg_config::parse_edition(e)?;
+        }
+        for f in &self.features {
+            language.extra = language.extra.with(kg_config::parse_feature(f)?);
+        }
+        Ok(language)
     }
 }
 
@@ -668,7 +692,8 @@ fn fmt(
             skipped += 1;
             continue;
         };
-        let formatted = match kg_fmt::format_file(&text, &config) {
+        let features = resolved.settings.language_of(path).features();
+        let formatted = match kg_fmt::format_file_in(&text, &config, features) {
             Ok(formatted) => formatted,
             Err(error) => {
                 let _ = writeln!(err, "{}: {path}: {error}", styles.error("error"));
@@ -919,13 +944,20 @@ fn dump_command(
     // The one-file dumps skip manifest resolution on purpose, so the flag is
     // read straight off the command line: `kg dump cst --parse-docs FILE` is
     // the door through which a user reaches the doc-comment grammar today.
-    let options = kg_syntax::ParseOptions { parse_docs: args.source.parse_docs };
+    let language = match args.source.language() {
+        Ok(language) => language,
+        Err(message) => {
+            let _ = writeln!(err, "kg: {message}");
+            return 2;
+        }
+    };
+    let options = kg_syntax::ParseOptions { parse_docs: args.source.parse_docs, features: language.features() };
     let rendered = match args.what {
         dump::What::Cst => dump::cst(&text, styles, !args.no_trivia, options),
         dump::What::Ast => dump::ast(&text, styles, options),
         dump::What::Tokens => dump::tokens(&text, styles),
-        dump::What::Ir => dump::ir(&text),
-        dump::What::Instances => dump::instances_standalone(&text),
+        dump::What::Ir => dump::ir(&text, options),
+        dump::What::Instances => dump::instances_standalone(&text, language),
     };
     let _ = write!(out, "{rendered}");
     0

@@ -38,8 +38,8 @@ one, [build one yourself](#build-from-source). Unpack it and put its `bin` on
 your `PATH`:
 
 ```sh
-tar -xzf kgrust-0.1.0-aarch64-apple-darwin.tar.gz
-export PATH="$PWD/kgrust-0.1.0-aarch64-apple-darwin/bin:$PATH"
+tar -xzf kgrust-0.2.0-aarch64-apple-darwin.tar.gz
+export PATH="$PWD/kgrust-0.2.0-aarch64-apple-darwin/bin:$PATH"
 kg --version
 ```
 

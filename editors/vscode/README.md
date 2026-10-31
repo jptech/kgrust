@@ -91,6 +91,7 @@ The defaults are `kg` and `["lsp"]`, the shipping `kg lsp` command, found on
 | Semantic tokens | Full document and range |
 | Document highlight | Other occurrences of the word under the cursor |
 | Formatting | `kg-fmt`, whole document and ranges; a file with syntax errors is left alone, and the server says why |
+| Language editions | Each file is read in its package's edition — `[package] edition` and `[language] features` in the nearest `kanagawa.toml` ([`docs/editions/`](../../docs/editions/README.md)) — and a change to the manifest takes effect without a restart; a manifest the server refuses — an unknown edition, a typo — is marked where it is wrong and said once. A 1.1 feature used in a 1.0 file is one error naming the edition that has it. In edition 1.1: a named argument's label (`sub(y: q, x: p)`, `FIFO<uint8, Size: 4>`) goes to, hovers, highlights and renames as its parameter, in files nobody has open too; completion at an argument's start offers the parameters left to name; signature help lights the parameter a label names and shows defaults; an inlay hint shows the defaults a call leaves out, `scale(p⟨, shift: 1⟩)` |
 
 ## The TextMate grammar is a fallback
 

@@ -287,6 +287,27 @@ impl Db {
             return vec![Definition::new(module, item, tree.get(item))];
         }
 
+        // A named argument's label (`f(x: 1)`, edition 1.1:
+        // `docs/editions/1.1.md`) names a parameter of the callee — of each
+        // function the callee's own name reaches, which is the declaration
+        // whose parameters `kg_sem::named` places it by. A callee that is a
+        // value (a closure, a parameter of function type) has its names only
+        // in a type, which declares nothing: no answer.
+        if let Some(callee) = labelled_callee(&token) {
+            return self.parameter_definitions(looped, roots, file, callee, token.text());
+        }
+        // A named template argument's (`Buffer<Size: 8>`) names a parameter of
+        // the template its list follows, which `kg_sem::deduce` places it by.
+        if let Some(template) = labelled_template(&token) {
+            let names = self.interner();
+            return self
+                .definitions_at_through(looped, roots, file, template)
+                .iter()
+                .flat_map(|def| self.template_parameters_of(def))
+                .filter(|p| p.qualified_name.last().is_some_and(|n| names.resolve(n).as_str() == token.text()))
+                .collect();
+        }
+
         // A `.` member access is not a path: `a.b` names `b` *inside the type
         // of `a`* (`tLookupField`, `Type.hs:961-971`; `method`,
         // `Type.hs:1358-1362`), and the reference's symbol map holds no struct
@@ -330,6 +351,68 @@ impl Db {
         let program = self.program(roots);
         let symbols = self.global_symbols(roots, SymbolsConfig::AllSymbols);
         resolve_globally(&program, &symbols, module, &written).into_iter().collect()
+    }
+
+    /// The parameters named `label` of every function the callee's name at
+    /// `callee` reaches.
+    fn parameter_definitions(
+        &self,
+        looped: &dyn Fn() -> Option<crate::looped::EditorLoop>,
+        roots: &[FileId],
+        file: FileId,
+        callee: TextSize,
+        label: &str,
+    ) -> Vec<Definition> {
+        let names = self.interner();
+        self.definitions_at_through(looped, roots, file, callee)
+            .iter()
+            .flat_map(|def| self.parameters_of(def))
+            .filter(|p| p.qualified_name.last().is_some_and(|n| names.resolve(n).as_str() == label))
+            .collect()
+    }
+
+    /// The parameters of the function `def` is, in their order — through a
+    /// `template <…>` to the function it wraps, whose parameters are its own
+    /// items — and none where `def` is no function.
+    pub(crate) fn parameters_of(&self, def: &Definition) -> Vec<Definition> {
+        let tree = self.item_tree(def.def.module);
+        let is_function = |kind: DefKind| matches!(kind, DefKind::Function | DefKind::FunctionDecl);
+        let functions: Vec<ItemId> = match def.kind {
+            k if is_function(k) => vec![def.def.item],
+            DefKind::Template => (0..tree.items.len() as u32)
+                .map(ItemId)
+                .filter(|&i| tree.get(i).parent == Some(def.def.item) && is_function(tree.get(i).kind))
+                .collect(),
+            _ => Vec::new(),
+        };
+        (0..tree.items.len() as u32)
+            .map(ItemId)
+            .filter(|&i| {
+                let item = tree.get(i);
+                item.kind == DefKind::FuncParam && item.parent.is_some_and(|p| functions.contains(&p))
+            })
+            .map(|i| Definition::new(def.def.module, i, tree.get(i)))
+            .collect()
+    }
+
+    /// The parameters of the template `def` is — or wraps, where `def` is the
+    /// class or function a `template <…>` declares — in their order, and none
+    /// where it is no template.
+    pub(crate) fn template_parameters_of(&self, def: &Definition) -> Vec<Definition> {
+        let tree = self.item_tree(def.def.module);
+        let template = match def.kind {
+            DefKind::Template => Some(def.def.item),
+            _ => tree.get(def.def.item).parent.filter(|&p| tree.get(p).kind == DefKind::Template),
+        };
+        let Some(template) = template else { return Vec::new() };
+        (0..tree.items.len() as u32)
+            .map(ItemId)
+            .filter(|&i| {
+                let item = tree.get(i);
+                item.kind == DefKind::TemplateParam && item.parent == Some(template)
+            })
+            .map(|i| Definition::new(def.def.module, i, tree.get(i)))
+            .collect()
     }
 
     /// The loop navigation reads for `roots`' program: the one the
@@ -722,6 +805,47 @@ pub fn identifier_at(root: &SyntaxNode, offset: TextSize) -> Option<SyntaxToken>
     // past.
     let offset = offset.min(root.text_range().end());
     root.token_at_offset(offset).find(|t| t.kind() == SyntaxKind::IDENT)
+}
+
+/// Where the callee of the call whose argument `token` labels is named, or
+/// `None` when `token` is no label.
+fn labelled_callee(token: &SyntaxToken) -> Option<TextSize> {
+    let label = token.parent().filter(|p| p.kind() == SyntaxKind::ARG_LABEL)?;
+    callee_probe(&label.parent()?.parent().and_then(ast::CallExpr::cast)?)
+}
+
+/// Where the template is named whose argument `token` labels — the midpoint
+/// of the name its list follows, in a path's segment (`Buffer<Size: 8>`) or
+/// after a `.` (`o.template f<N: 1>`) — or `None` when `token` is no such
+/// label.
+pub(crate) fn labelled_template(token: &SyntaxToken) -> Option<TextSize> {
+    let label = token.parent().filter(|p| p.kind() == SyntaxKind::ARG_LABEL)?;
+    labelled_template_name(&label.first_token()?)
+}
+
+/// [`labelled_template`] for any token directly in, or in a label of, a
+/// template's argument list: where the template is named.
+pub(crate) fn labelled_template_name(token: &SyntaxToken) -> Option<TextSize> {
+    let list = token.parent_ancestors().find(|p| p.kind() == SyntaxKind::TEMPLATE_ARG_LIST)?;
+    if !token.parent().is_some_and(|p| p == list || p.kind() == SyntaxKind::ARG_LABEL && p.parent().as_ref() == Some(&list)) {
+        return None;
+    }
+    let name = list.parent()?.children().find(|c| c.kind() == SyntaxKind::NAME_REF)?.first_token()?;
+    Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
+}
+
+/// Where `call`'s callee is named: the midpoint of its last identifier, the
+/// token [`Db::definition_at`] resolves for `f(…)`, `a::f(…)` and `o.f(…)`
+/// alike.
+pub(crate) fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
+    let name = call
+        .callee()?
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|t| t.kind() == SyntaxKind::IDENT)
+        .last()?;
+    Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
 }
 
 /// Whether `token` names a member after a `.` — the `f` of `a.f` — which

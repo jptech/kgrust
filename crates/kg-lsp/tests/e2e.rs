@@ -787,6 +787,95 @@ fn a_manifest_edit_reaches_the_open_files_diagnostics() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// A manifest the server refuses is shown the user, not only logged: a
+/// diagnostic on `kanagawa.toml` at the value refused, and a message once —
+/// on the reload that broke it, not the one after. Fixed, its mark goes.
+/// A refused `edition` leaves the files in 1.0, where a 1.1 program's
+/// errors would otherwise be all the user saw.
+#[test]
+fn a_refused_manifest_is_marked_where_it_is_wrong() {
+    let dir = std::env::temp_dir().join(format!("kg-lsp-e2e-refused-{}", std::process::id()));
+    let root = camino::Utf8PathBuf::from_path_buf(dir.clone()).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    let manifest = root.join("kanagawa.toml");
+    let write_manifest = |edition: &str| {
+        let text = format!("[package]\nedition = \"{edition}\"\n\n[project]\nimplicit-base = false\n");
+        std::fs::write(&manifest, text).unwrap();
+    };
+    let manifest_uri = kg_lsp::uri::path_to_uri(&manifest).unwrap();
+    let changed = |client: &Client| {
+        client.notify::<notif::DidChangeWatchedFiles>(lsp_types::DidChangeWatchedFilesParams {
+            changes: vec![lsp_types::FileEvent { uri: manifest_uri.clone(), typ: lsp_types::FileChangeType::CHANGED }],
+        });
+    };
+    let said = |seen: &[Notification]| seen.iter().filter(|n| n.method == notif::ShowMessage::METHOD).count();
+    write_manifest("1.1");
+
+    let mut client = Client::start();
+    let mut seen = Vec::new();
+    let folder = lsp_types::WorkspaceFolder { uri: kg_lsp::uri::path_to_uri(&root).unwrap(), name: "refused".to_owned() };
+    let id = client.request::<req::Initialize>(InitializeParams {
+        workspace_folders: Some(vec![folder]),
+        ..InitializeParams::default()
+    });
+    let _: serde_json::Value = result(client.response(&id, &mut seen));
+    client.notify::<notif::Initialized>(InitializedParams {});
+
+    let main = kg_lsp::uri::path_to_uri(&root.join("main.k")).unwrap();
+    client.notify::<notif::DidOpenTextDocument>(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: main.clone(),
+            language_id: "kanagawa".to_owned(),
+            version: 1,
+            text: "class A {}\n".to_owned(),
+        },
+    });
+    let _ = client.diagnostics_for(&main, &mut seen);
+    assert_eq!(said(&seen), 0, "a manifest that loads says nothing");
+
+    write_manifest("9.9");
+    changed(&client);
+    let marked = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert_eq!(errors(&marked), ["unknown edition `9.9`: this kg knows 1.0, 1.1"]);
+    assert_eq!(marked.diagnostics[0].range, Range::new(Position::new(1, 10), Position::new(1, 15)), "at `\"9.9\"`");
+    // The message follows the mark from the main loop, so it is the next
+    // of the main loop's own; a file's diagnostics, from a worker, may come
+    // between.
+    let message = loop {
+        match client.recv() {
+            Message::Notification(n) if n.method == notif::ShowMessage::METHOD => break n,
+            Message::Notification(n) => seen.push(n),
+            other => panic!("unexpected message while awaiting the message: {other:?}"),
+        }
+    };
+    let message: lsp_types::ShowMessageParams = serde_json::from_value(message.params).unwrap();
+    assert!(message.message.contains("unknown edition `9.9`") && message.message.contains("in edition 1.0"), "{}", message.message);
+
+    // Read again and still broken the same way: marked, not said again. The
+    // fix's reload is behind it on the main loop, so once its mark is taken
+    // off, anything this reload said has arrived.
+    changed(&client);
+    // A request is dispatched after every notification before it, so its
+    // answer means the reload has read the manifest still broken.
+    let id = client.request::<req::DocumentSymbolRequest>(DocumentSymbolParams {
+        text_document: TextDocumentIdentifier { uri: main.clone() },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    let _ = client.response(&id, &mut seen);
+    write_manifest("1.0");
+    changed(&client);
+    let cleared = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert!(cleared.diagnostics.is_empty(), "fixed, its mark goes: {:?}", errors(&cleared));
+    assert_eq!(said(&seen), 0, "said once, not on every reload");
+
+    let id = client.request::<req::Shutdown>(());
+    let _ = client.response(&id, &mut seen);
+    client.notify::<notif::Exit>(());
+    assert_eq!(client.finish(&mut Vec::new()), kg_lsp::ExitCode::Ok);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// A source changed on disk under an open file — a branch switched, a pull
 /// — reaches its diagnostics without a restart: `helper.k`, never opened,
 /// stops exposing `twice`, the client's watcher says so, and `main.k`'s

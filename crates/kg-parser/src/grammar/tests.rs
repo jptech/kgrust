@@ -14,7 +14,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{LexedStr, StepOwned, SyntaxKind, parse_source_file, to_steps};
+use kg_base::language::{Feature, Features};
+
+use crate::{Input, LexedStr, StepOwned, SyntaxKind, parse_input, parse_source_file, to_steps};
 use SyntaxKind::*;
 
 // ---------------------------------------------------------------- harness
@@ -46,8 +48,15 @@ fn is_transparent(kind: SyntaxKind) -> bool {
 }
 
 fn parse(src: &str) -> (Node, Vec<String>) {
+    parse_in(src, Features::NONE)
+}
+
+/// [`parse`] in a language beyond the reference.
+fn parse_in(src: &str, features: Features) -> (Node, Vec<String>) {
     let lexed = LexedStr::new(src);
-    let events = parse_source_file(&lexed);
+    let mut input = Input::from_lexed(&lexed);
+    input.set_features(features);
+    let events = parse_input(&input);
     let steps = to_steps(&lexed, events);
 
     let mut stack: Vec<(SyntaxKind, Vec<Node>)> = Vec::new();
@@ -528,6 +537,30 @@ fn paths_and_calls() {
     assert_eq!(expr("a.b(1)"), "(CALL_EXPR (FIELD_EXPR a . b) (ARG_LIST ( 1 )))");
     assert_eq!(expr("a[i]"), "(INDEX_EXPR a [ i ])");
     assert_eq!(expr("a[i].b[j]"), "(INDEX_EXPR (FIELD_EXPR (INDEX_EXPR a [ i ]) . b) [ j ])");
+}
+
+/// Edition 1.1's named arguments: a label is an `ARG_LABEL` beside the
+/// argument it names, and only in a file whose language has the feature. In
+/// the reference a call's arguments are bare expressions (`Parser.hs:871`),
+/// so `f(x: 1)` is a parse error there — and still is here, without it.
+#[test]
+fn named_arguments_parse_only_where_the_language_has_them() {
+    let named = Features::NONE.with(Feature::NamedArguments);
+    let call = |src: &str| {
+        let (root, errors) = parse_in(&format!("static assert({src});"), named);
+        (sexpr(&root), errors)
+    };
+    let (tree, errors) = call("f(y: 2, x: 1)");
+    assert_eq!(errors, Vec::<String>::new());
+    assert!(tree.contains("(CALL_EXPR f (ARG_LIST ( (ARG_LABEL y :) 2 , (ARG_LABEL x :) 1 )))"), "{tree}");
+    let (tree, errors) = call("a.f(1, y: g(z))");
+    assert_eq!(errors, Vec::<String>::new());
+    assert!(tree.contains("(ARG_LIST ( 1 , (ARG_LABEL y :) (CALL_EXPR g (ARG_LIST ( z ))) ))"), "{tree}");
+    assert_eq!(expr("f(1, 2)"), "(CALL_EXPR f (ARG_LIST ( 1 , 2 )))", "positional calls are unchanged");
+
+    assert!(!parse("static assert(f(y: 2));").1.is_empty(), "the reference has no named arguments");
+    assert_eq!(call("f(x: 1, x: 2)").1, ["22: the argument `x` is named twice"]);
+    assert_eq!(call("f(x: 1, 2)").1, ["22: a positional argument cannot follow a named one"]);
 }
 
 #[test]
@@ -1034,7 +1067,9 @@ fn node_kind_coverage() {
     let mut seen: BTreeSet<SyntaxKind> = BTreeSet::new();
     let mut record = |src: &str| {
         let lexed = LexedStr::new(src);
-        let events = parse_source_file(&lexed);
+        let mut input = Input::from_lexed(&lexed);
+        input.set_features(Features::all());
+        let events = parse_input(&input);
         for step in to_steps(&lexed, events) {
             if let StepOwned::Enter(kind) = step {
                 seen.insert(kind);
@@ -1064,6 +1099,7 @@ fn node_kind_coverage() {
         "class C { public: private: uint8 p(uint8 a); }",
         "inline void f() { static for (const uint8 i : 4) if (a) { } else { } }",
         "enum E : uint2 { A = 1 }",
+        "inline void f() { g(1, y: 2); }",
         "uint8 g;;",
         ")",
     ] {
@@ -1763,4 +1799,100 @@ fn an_attributed_array_takes_one_dimension() {
     assert!(lossless, "the parse is lossless either way");
     assert_eq!(errors.first().map(|(at, _)| *at), Some(31), "the second `[` is the error");
     assert!(parse_errors("using D = [[memory]] uint32[16];\n").0.is_empty());
+}
+
+/// Edition 1.1's trailing commas: one comma before the closing bracket of
+/// every list the reference separates with `sepBy` or a `comma >>` recursion
+/// (`Parser.hs:289-291,363,377,551,697,860,871`), each a parse error there.
+/// Two commas, or a comma alone, are still errors. Red with any one list's
+/// `Parser::eat_list_comma` left out.
+#[test]
+fn a_trailing_comma_closes_a_list_where_the_language_has_them() {
+    let trailing = Features::NONE.with(Feature::TrailingCommas);
+    let lists = [
+        ("call arguments", "static assert(f(1, 2,));"),
+        ("parameters", "inline void f(uint8 x, uint8 y,) {}"),
+        ("template parameters", "template <typename T, auto N,> inline void f() {}"),
+        ("template arguments", "using t = Foo<uint8, 4,>;"),
+        ("function type parameters", "inline void f((uint8, uint8,) -> uint8 g) {}"),
+        ("a positional initializer list", "static assert({1, 2,} == x);"),
+        ("a designated initializer list", "static assert({.a = 1, .b = 2,} == x);"),
+        ("enum constants", "enum E : uint2 { A, B, }"),
+        ("a lambda's captures", "static assert([a, b,]() -> uint8 { return a; }() == x);"),
+        ("an intrinsic's arguments", "static assert(mux(s, a, b,) == concat(a, b,));"),
+    ];
+    for (what, src) in lists {
+        assert_eq!(parse_in(src, trailing).1, Vec::<String>::new(), "{what} with a trailing comma");
+        assert!(!parse(src).1.is_empty(), "the reference rejects {what} with a trailing comma");
+    }
+    assert!(!parse_in("static assert(f(1,,));", trailing).1.is_empty(), "two commas");
+    assert!(!parse_in("static assert(f(,));", trailing).1.is_empty(), "a comma alone");
+    let named = trailing.with(Feature::NamedArguments);
+    assert_eq!(parse_in("static assert(f(1, y: 2,));", named).1, Vec::<String>::new(), "after a named argument");
+}
+
+/// A file without a feature that uses its syntax is told which edition has
+/// it, once, where the syntax begins — and not the cascade of a parser that
+/// had never heard of it — and the tree is the one the feature builds, so
+/// the editor's highlighting and outline hold. The reference rejects each
+/// (the tests above), so this changes only what a rejected program is told.
+/// Red with any one site's `Parser::gate` left out.
+#[test]
+fn a_feature_used_without_it_is_one_error_naming_its_edition() {
+    let cases = [
+        (Feature::NamedArguments, "static assert(f(y: 1, x: 2));", vec![16, 22]),
+        (Feature::TrailingCommas, "static assert(f(1, 2,));", vec![20]),
+        (Feature::DefaultArguments, "inline void f(uint8 x, uint8 y = 1) {}", vec![31]),
+        (Feature::NamedTemplateArguments, "using t = Buffer<uint8, Size: 4>;", vec![24]),
+    ];
+    for (feature, src, at) in cases {
+        let (tree, errors) = parse(src);
+        let needed = feature.needed();
+        assert_eq!(errors, at.iter().map(|at| format!("{at}: {needed}")).collect::<Vec<_>>(), "{feature}");
+        assert_eq!(sexpr(&tree), sexpr(&parse_in(src, Features::NONE.with(feature)).0), "{feature}: the feature's tree");
+    }
+    assert_eq!(
+        Feature::NamedArguments.needed(),
+        "named arguments need edition 1.1: `[package] edition = \"1.1\"` in kanagawa.toml, or the feature `named-arguments` alone"
+    );
+    assert!(Feature::TrailingCommas.needed().starts_with("a trailing comma needs edition 1.1"));
+}
+
+/// Edition 1.1's default arguments: `= e` after a parameter's name, `e` any
+/// expression (`kg_sem::named` judges whether it is a constant), held inside
+/// the `PARAM` the lowering reads it from. The reference's parameter ends at
+/// its name (`Parser.hs:379`), so the `=` is a parse error there. Red with
+/// the feature check left out, or the default parsed outside the `PARAM`.
+#[test]
+fn a_parameter_may_have_a_default_where_the_language_has_them() {
+    let defaults = Features::NONE.with(Feature::DefaultArguments);
+    let src = "inline void f(uint8 x, uint8 y = N + 1, bool z = false) {}";
+    let (root, errors) = parse_in(src, defaults);
+    assert_eq!(errors, Vec::<String>::new());
+    let shape = sexpr(&root);
+    assert!(shape.contains("(PARAM uint8 y = (BIN_EXPR N + 1))"), "{shape}");
+    assert!(shape.contains("(PARAM bool z = false)"), "{shape}");
+    assert!(!parse(src).1.is_empty(), "the reference rejects a default");
+    assert!(!parse_in("inline void f(uint8 x =) {}", defaults).1.is_empty(), "a default with no expression");
+}
+
+/// Edition 1.1's named template arguments: `Name: e` in a template's
+/// argument list, an `ARG_LABEL` before its argument as in a call's, with a
+/// call's two errors — a name given twice, a positional argument after a
+/// named one. `IDENT ':'` begins no reference template argument, so the
+/// reference rejects every one (`Parser.hs:697`). Red with the feature check
+/// left out, or the label not parsed in a template's list.
+#[test]
+fn a_template_argument_may_be_named_where_the_language_has_them() {
+    let named = Features::NONE.with(Feature::NamedTemplateArguments);
+    let src = "using t = Buffer<uint8, Wide: true, Size: N + 1>;";
+    let (root, errors) = parse_in(src, named);
+    assert_eq!(errors, Vec::<String>::new());
+    let shape = sexpr(&root);
+    assert!(shape.contains("(TEMPLATE_ARG_LIST < uint8 , (ARG_LABEL Wide :) true , (ARG_LABEL Size :) (BIN_EXPR N + 1) >)"), "{shape}");
+    assert!(!parse(src).1.is_empty(), "the reference rejects a label");
+    let errors = |src: &str| parse_in(src, named).1;
+    assert_eq!(errors("using t = Buffer<Size: 1, Size: 2>;"), ["26: the argument `Size` is named twice"]);
+    assert_eq!(errors("using t = Buffer<Size: 1, uint8>;"), ["26: a positional argument cannot follow a named one"]);
+    assert_eq!(errors("using t = Buffer<c ? a : b>;"), Vec::<String>::new(), "a ternary's `:` is no label");
 }

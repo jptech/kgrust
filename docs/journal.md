@@ -18338,3 +18338,154 @@ from 6 errors to 4, the four the issue names as correct (`hardware.dsp`
 declared by three device files); `kg_check_loads_a_file_once_however_it_is_
 spelled` covers an absolute, a relative and a symlinked `-I` and a manifest
 found from a relative path, and each of its four mutants is caught.
+
+## Editions, piloted: named arguments in any order — 2026-10-30
+
+At the owner's request, the plan of 2026-10-29 (`plans/editions.md`)
+piloted on the `editions-pilot` branch: editions numbered `MAJOR.MINOR`,
+`1.0` the reference; `1.1`, a preview, adds named arguments; "if we
+support named arguments, then we should support reordering them at call
+sites correctly". What a later reader would otherwise rediscover:
+
+- **The thread count stands where `tid` is declared.** A `[[pipelined]]`
+  function's type keeps every parameter, the thread's index first
+  (`funcType`, `Type.hs:1364-1373`), and a call passes the count in that
+  position. The first build added a slot for the count *before* the
+  parameters, and a pipelined call reported a missing `tid`; the fixture
+  `accept/pipelined.k` is the reason it no longer does.
+- **A faulted call must not be met again.** The pass runs at every round of
+  the loop. An argument it faulted became an error node and the call kept
+  its other labels, so the next round placed the remaining label against an
+  error node sitting in slot 0 and reported "given an argument twice" beside
+  the true error. A faulted call now drops every other label. Pinned by
+  `a_misnamed_argument_is_reported_at_its_label`, red with the labels kept.
+- **The evaluation order is refused, not rewritten.** The backend evaluates
+  a call's arguments in list order (`compiler/cpp/ir.cpp:10912-10919`), so
+  reordering can move one argument's side effect ahead of another's. Calls
+  commute only with pure arguments (literals, the function's own locals and
+  parameters); any other swap is an error naming both arguments. Hoisting
+  the arguments into locals instead was left for later: the rule as built
+  never changes what a program does, and costs only refusals.
+- **The walk sees no new node, and the twins prove it.** `kg build` of
+  `reorder.k` and of its hand-written twin gives the same SystemVerilog,
+  location comments aside (by hand). The first twin crashed the backend
+  (`VerilogCompiler::InstantiateFifoMergers`, `verilog.cpp:5079`) on the
+  twin as much as on the named program: a public method also called from
+  within its class. That is a backend case of its own, not the edition's.
+- **No boundary at an import directory.** The plan stopped a file's
+  manifest search at the import directory that found it. That boundary
+  misses a dependency whose manifest sits beside the `src/` its users
+  import. Since a minor edition only adds, a library read in a later
+  edition than its own reads the same, so the nearest manifest wins.
+
+- **A label made a parameter visible outside its file.** References and
+  rename search past the open buffers only for what another file can name
+  (`kg-lsp`'s `references::importable`), and a parameter never was — until
+  `sub(x: 1)` in an importing file named one. Searching every parameter
+  rename across the project would cost a 1.0 project for nothing, so the
+  search reads, for a parameter, only files whose language has named
+  arguments (`references::labelled`). Pinned by
+  `a_parameter_is_renamed_in_an_unopened_file_s_labels`; the editor resolves
+  a label through the callee's declaration (`Db::definitions_at`), so every
+  feature built on it — hover, highlight, rename — follows at once.
+
+Checked 2026-10-30: `cargo xtask editions` passes in ~6 s (481 reference
+files parse the same with every feature on; 4 claims, 3 twins, 1
+rejection fixture). Each of its four checks went red under a planted
+mutation (`scripts/mutant.sh`), and so did each of the 10 mutants planted
+against the new unit tests. `cargo test --workspace --profile quick`: 1,983
+passed. `scripts/fast.sh --lint loop`: all green, every ratchet +0/-0, with
+`infer-identity` 304/304 and `edit-identity` 87/87 identical. `kg check`
+release A/B against `7c375a6`, interleaved, two rounds of five:
+`risc-v.k` 2.060/2.100 s then 2.083/2.093 s (base/pilot means),
+`float32.k` 0.409/0.413 s then 0.418/0.417 s. Within noise.
+
+## Edition 1.1 finished: trailing commas, defaults, named template arguments — 2026-10-30
+
+The owner chose to complete 1.1's theme, *call sites that say what they
+mean*, before the plan's step 4: trailing commas, default arguments, and
+named template arguments that skip defaults. What a later reader would
+otherwise rediscover:
+
+- **A value inference folds, and a later pass reads, belongs in the
+  type.** A default is folded by inference (`infer::default_of`) and
+  written into the calls that leave it out by `kg_sem::named`. Kept on the
+  HIR alone, an incremental read of another module never saw it; carried
+  in the function's type (`TFuncParam::default`, `kg_ty::TDefault`) it is
+  read through the tracked type as a parameter's name is — left out of
+  `==` and `Hash` like the name, kept in `Ord` and the strict hash.
+- **A type set once must say it is not finished.** An enum default folds a
+  round after the function is first typed; the call kept the first type and
+  was never given the default. `Ty::resolved` is now false while a default
+  is `TDefault::Unfolded`, so the name is typed again once it folds. Pinned
+  by `a_call_is_given_the_defaults_it_leaves_out`, which fails on the
+  mutant that drops the clause.
+- **A twin writes the default as declared, not its value.** `Step + 1`
+  folds to `3` typed `uint9`; a twin writing `3` walks differently from the
+  program that leaves the default out. The rewrite reproduces the folded
+  expression's type, so the twin must spell the expression.
+- **One fault, one report.** A default that never folds is reported at the
+  default; its calls then skip the "no parameters with names" check rather
+  than add a second error. A named template argument at fault becomes an
+  error at its label and every other label is taken off
+  (`deduce::faulted`), so no later round meets the list labelled again. An
+  undeducible function template with a labelled argument already gets the
+  reference's `Could not deduce all arguments` once; no sweep was added.
+- **Named template arguments reuse the reference's hole filling.**
+  `resolveTemplateArgs` (`Type.hs:1405-1428`) fills the parameters past
+  the written prefix with their defaults, each reading the arguments before
+  it. Generalising its input from a prefix to a placed map
+  (`BTreeMap<usize, ExpId>`) gives the holes a labelled list leaves their
+  defaults by the same code, so `Buffer<Size: 8, T: uint16>`'s
+  `Shift = Size + 1` reads the named `Size`.
+- **Fixtures mask each other.** A reject fixture's later errors went
+  unreported behind an earlier one in the same module; the arity case moved
+  to its own file (`default-arguments/reject/missing.k`). Each fixture is
+  also read with its own feature alone, so a trailing comma in a
+  default-arguments fixture is a parse error there.
+
+Checked 2026-10-30 (`cargo xtask editions`: claims 11, twins 6, rejections
+5, 481 reference files the same): see the three commits' messages for each
+feature's gate evidence and mutants.
+
+## An edition the user cannot see is not opted into — 2026-10-31
+
+Asked whether the VS Code extension was ready for editions, the answer was
+yes for the extension (it holds no language; a manifest change reaches the
+server through its watcher, and was checked over stdio switching one buffer
+1.0 → 1.1 → 1.0), and no for two things the server told the user:
+
+- **A refused manifest was only logged.** `edition = "9.9"` made the server
+  read the manifest's files as if it were not there — in 1.0 — and said so
+  in `window/logMessage`, which no one reads. What the user saw was a 1.1
+  program's parse errors. It also said it one reload late:
+  `reload_and_republish` took the store's errors before republishing the
+  open files, and a manifest is read again only when a file asks for its
+  settings, during that republish. Now `ManifestError` carries `toml`'s
+  span and bare message, the store keeps each broken manifest's problem
+  until the next reload (`GlobalState::manifest_problems`), and the main
+  loop marks it on `kanagawa.toml` at the value refused, says it once in
+  `window/showMessage`, and takes the mark off when it loads
+  (`a_refused_manifest_is_marked_where_it_is_wrong`).
+- **A 1.1 feature in a 1.0 file was a cascade.** `return sub(y: q, x: p);`
+  gave 13 parse errors, none naming an edition. Every feature's syntax is
+  one the reference rejects, and the `editions` gate's neutral check proves
+  no reference file holds any, so the parser now recognises it in every
+  file and, where the language lacks it, gives one error naming the edition
+  (`Parser::gate`, `Feature::needed`) and builds the tree the feature would.
+  Accept/reject is the reference's; the message and, for labels and
+  trailing commas, the position one token earlier are not
+  ([`known-divergences.md`](known-divergences.md) #42). A trailing comma's
+  error needed the check before the comma is eaten, so `at_trailing`
+  became `Parser::eat_list_comma`.
+
+On the way, a doc that lied: the trailing-commas page said a lambda's
+captures keep refusing one "where the reference has none to trail". The
+reference reads captures, `mux` and `concat` with the same `sepBy comma` as
+call arguments (`Parser.hs:441,867-871`), and 1.1 had always accepted a
+trailing comma in all three through `comma_list`. The page now lists them,
+and the twin fixture walks them.
+
+Checked 2026-10-31: 15 mutants (8 against the manifest's marking, 7
+against the gate), each caught by its own test; one first "caught" by a
+compile error was planted again until it compiled.

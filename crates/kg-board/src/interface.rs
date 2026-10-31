@@ -395,7 +395,12 @@ fn declared(class: &str, sources: &[(Utf8PathBuf, String)]) -> Result<Declared> 
     let mut found = None;
     let mut decl = Declared::default();
     for (path, text) in sources {
-        let root = kg_syntax::parse_file(text).syntax_node();
+        // Sources the build compiled, each in its own package's language;
+        // with every feature on they parse as they did there, since a
+        // feature never changes the parse of a program the language without
+        // it accepts (`docs/plans/editions.md` §1).
+        let all = kg_syntax::ParseOptions { features: kg_base::language::Features::all(), ..Default::default() };
+        let root = kg_syntax::parse_file_with(text, all).syntax_node();
         let docs = kg_syntax::file_docs(&root);
         for node in root.descendants() {
             match node.kind() {

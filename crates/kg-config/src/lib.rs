@@ -12,10 +12,12 @@
 
 pub mod board;
 mod discover;
+mod language;
 mod resolve;
 
 pub use board::{Board, BoardSpec, BoardTable};
 pub use discover::{ManifestError, discover, load};
+pub use language::{LanguageMap, LanguageTable, parse_edition, parse_feature};
 pub use resolve::{BackendOptions, DEFAULT_TARGET_DEVICE, Settings, Verdicts};
 
 use std::collections::BTreeMap;
@@ -37,6 +39,10 @@ pub struct Manifest {
     pub fmt: Fmt,
     #[serde(default)]
     pub lsp: Lsp,
+    /// Features beyond the edition's (`docs/editions/README.md`). Not in a
+    /// [`Profile`]: a file's language is its source's, not a build's.
+    #[serde(default)]
+    pub language: LanguageTable,
     /// The ~54 backend codegen knobs, kept as an open table so a new upstream
     /// flag does not require a schema change here.
     #[serde(default)]
@@ -54,8 +60,11 @@ pub struct Manifest {
 pub struct Package {
     pub name: Option<String>,
     pub version: Option<String>,
-    /// Reserved for a future language-version selector.
-    pub edition: Option<String>,
+    /// The language edition the package is written in
+    /// (`docs/editions/README.md`): `1.0`, the reference, when absent. One
+    /// this `kg` does not know is refused.
+    #[serde(default, deserialize_with = "language::edition", serialize_with = "language::edition_name")]
+    pub edition: Option<kg_base::language::Edition>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
