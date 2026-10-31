@@ -662,9 +662,10 @@ impl<'a> Lower<'a> {
                 let attr = self.attrs(&attrs, param.syntax());
                 let ty = self.ty_decl_or_unsupported(param.ty(), param.syntax());
                 let name = self.identifier(param.name(), param.syntax());
+                let default = param.eq_token().and(param.expr()).map(|e| self.expr(&e, false));
                 let pid = self.alloc(
                     param.syntax(),
-                    Exp::FuncParam { scope: scope.clone(), attr, ty, name },
+                    Exp::FuncParam { scope: scope.clone(), attr, ty, name, default },
                 );
                 out.push(pid);
                 // `symbol param` (`Parser.hs:378`) — a parameter is a value

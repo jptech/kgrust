@@ -344,7 +344,7 @@ impl Wrappers<'_> {
                 None => Exp::Identifier(self.interner.intern(&format!("$wrapper_param{i}"))),
             };
             let name = m.new_note(e, name);
-            list.push(m.new_note(e, Exp::FuncParam { scope: scope.clone(), attr, ty, name }));
+            list.push(m.new_note(e, Exp::FuncParam { scope: scope.clone(), attr, ty, name, default: None }));
         }
         m.new_note(e, Exp::Seq(list))
     }

@@ -3224,7 +3224,9 @@ impl<'a, B: Backend> Walker<'a, B> {
                 };
                 self.backend.ParseDeclare(a, b, c, d.unwrap_or(null), flags, &refs)
             }
-            Exp::FuncParam { scope, attr, ty, name } => {
+            // A default never reaches the backend: every call that leans on it has
+            // had the value placed in its argument list by `kg_sem::named`.
+            Exp::FuncParam { scope, attr, ty, name, .. } => {
                 let a = w!(*attr);
                 let b = w!(*ty);
                 let c = w!(*name);

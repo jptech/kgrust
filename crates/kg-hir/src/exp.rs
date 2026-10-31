@@ -311,7 +311,10 @@ pub enum Exp {
         init: Option<ExpId>,
         flags: DeclareFlag,
     },
-    FuncParam { scope: QualifiedName, attr: ExpId, ty: ExpId, name: ExpId },
+    /// `default` is edition 1.1's (`docs/editions/1.1/default-arguments.md`):
+    /// the value a call that leaves the parameter out passes, `None` in every
+    /// reference program — the reference's parameter has none (`Parser.hs:379`).
+    FuncParam { scope: QualifiedName, attr: ExpId, ty: ExpId, name: ExpId, default: Option<ExpId> },
     Function {
         scope: QualifiedName,
         kind: FunctionKind,
@@ -481,7 +484,10 @@ impl Exp {
                 out.extend([*attr, *ty, *name]);
                 out.extend(init.iter().copied());
             }
-            Exp::FuncParam { attr, ty, name, .. } => out.extend([*attr, *ty, *name]),
+            Exp::FuncParam { attr, ty, name, default, .. } => {
+                out.extend([*attr, *ty, *name]);
+                out.extend(default.iter().copied());
+            }
             Exp::Function { attr, modifier, ret, name, params, body, .. } => {
                 out.push(*attr);
                 out.extend(modifier.iter().copied());
@@ -649,7 +655,10 @@ impl Exp {
                 out.extend([attr, ty, name]);
                 out.extend(init.iter_mut());
             }
-            Exp::FuncParam { attr, ty, name, .. } => out.extend([attr, ty, name]),
+            Exp::FuncParam { attr, ty, name, default, .. } => {
+                out.extend([attr, ty, name]);
+                out.extend(default.iter_mut());
+            }
             Exp::Function { attr, modifier, ret, name, params, body, .. } => {
                 out.push(attr);
                 out.extend(modifier.iter_mut());

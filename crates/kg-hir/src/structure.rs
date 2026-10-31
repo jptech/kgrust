@@ -532,11 +532,12 @@ impl<'a> Writer<'a> {
                 self.node("name", name, d);
                 self.opt("init", init, d);
             }
-            Exp::FuncParam { scope, attr, ty, name } => {
+            Exp::FuncParam { scope, attr, ty, name, default } => {
                 self.line(label, id, depth, &format!("FuncParam scope={}", self.scope(&scope)));
                 self.node("attr", attr, d);
                 self.node("ty", ty, d);
                 self.node("name", name, d);
+                self.opt("default", default, d);
             }
             Exp::Function { scope, kind, attr, modifier, ret, name, params, body } => {
                 self.line(

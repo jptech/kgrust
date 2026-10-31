@@ -20,6 +20,7 @@
 
 use super::{ExprMode, ITEM_RECOVERY, attrs, exprs, paths, stmts, types};
 use crate::{Parser, SyntaxKind, TokenSet};
+use kg_base::language::Feature;
 use SyntaxKind::*;
 
 const PARAM_RECOVERY: TokenSet = TokenSet::new(&[COMMA, R_PAREN, L_CURLY, SEMICOLON]);
@@ -580,5 +581,11 @@ fn param(p: &mut Parser<'_>) {
     attrs::opt_attrs(p, attrs::PARAM_ATTRS);
     types::type_(p);
     paths::name(p);
+    // Edition 1.1's default (`docs/editions/1.1/default-arguments.md`):
+    // `typ identifier` and nothing after it in the reference (`Parser.hs:379`),
+    // so an `=` there is a parse error, and no 1.0 parameter has one.
+    if p.has(Feature::DefaultArguments) && p.eat(EQ) {
+        exprs::expr(p, ExprMode::Full);
+    }
     m.complete(p, PARAM);
 }

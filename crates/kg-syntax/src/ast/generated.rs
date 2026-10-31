@@ -1182,6 +1182,14 @@ impl Param {
     pub fn name(&self) -> Option<Name> {
         support::child(&self.syntax)
     }
+    #[inline]
+    pub fn eq_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, &[SyntaxKind::EQ])
+    }
+    #[inline]
+    pub fn expr(&self) -> Option<Expr> {
+        support::nth_child(&self.syntax, 1)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

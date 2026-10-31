@@ -159,7 +159,7 @@ fn enclosing_call(root: &SyntaxNode, offset: TextSize) -> Option<(ast::CallExpr,
 /// An offset inside the callee's last name token — the token
 /// [`kg_db::Db::definition_at`] resolves for `f(…)`, `a::f(…)` and `o.f(…)`
 /// alike. Its midpoint, for the reason `handlers::references::probe` gives.
-fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
+pub(crate) fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
     let callee = call.callee()?;
     let name = callee
         .syntax()
@@ -172,7 +172,7 @@ fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
 
 /// The function declaration or prototype whose name token is `name` — the
 /// `FN_DECL`/`FN_PROTO` two levels above the token (`NAME` between).
-fn declaration_at(root: &SyntaxNode, name: kg_base::TextRange) -> Option<SyntaxNode> {
+pub(crate) fn declaration_at(root: &SyntaxNode, name: kg_base::TextRange) -> Option<SyntaxNode> {
     root.token_at_offset(name.start())
         .find(|t| t.text_range() == name)
         .and_then(|t| t.parent())
@@ -271,7 +271,7 @@ fn utf16_len(s: &str) -> u32 {
 
 /// The node's text with every run of whitespace — and every comment — reduced
 /// to one space, so a parameter declared across lines reads on one.
-fn collapse_whitespace(node: &SyntaxNode) -> String {
+pub(crate) fn collapse_whitespace(node: &SyntaxNode) -> String {
     let mut out = String::new();
     let mut pending_space = false;
     for token in node.descendants_with_tokens().filter_map(|e| e.into_token()) {

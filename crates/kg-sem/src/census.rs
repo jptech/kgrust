@@ -535,7 +535,7 @@ impl Cx<'_> {
                         continue;
                     }
                     let attrs = self.kind_attrs(home, scope, *attr, bind, true);
-                    ps.push(kg_ty::TFuncParam { attrs, ty: kg_ty::TyRef::new(t), name: None });
+                    ps.push(kg_ty::TFuncParam { attrs, ty: kg_ty::TyRef::new(t), name: None, default: None });
                 }
                 let ret = self.kind_type(home, scope, *ret, bind)?;
                 Ty::Function {

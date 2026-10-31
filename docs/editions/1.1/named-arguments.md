@@ -57,8 +57,9 @@ the labels, so the backend is given the 1.0 call (`crates/kg-sem/src/named.rs`).
   (`Type.hs:1364-1373`; `compiler/cpp/ir.cpp:10932`). The count is written
   first, by position; the parameters after it may be named:
   `Work(4, v: 3, flag: f)`. The index is no argument's to name.
-- **Every parameter gets exactly one argument.** Kanagawa has no default
-  arguments, so a call must still give them all.
+- **Every parameter gets exactly one argument** — written, or its default
+  where it has one ([default arguments](default-arguments.md)): naming
+  the arguments after a parameter with a default skips it.
 
 ### Order of evaluation
 
@@ -104,7 +105,7 @@ pin each message.
 | `` `f` has no parameter named `z` `` | a label names no parameter of the callee |
 | `` the parameter `x` is given an argument twice `` | a named argument fills a parameter a positional one or another named one already filled |
 | `` `f` takes N arguments `` | more positional arguments than parameters |
-| `` `f` is missing an argument for `x` `` | a parameter no argument fills (`the thread count`, for a pipelined call) |
+| `` `f` is missing an argument for `x` `` | a parameter no argument fills and that has no default (`the thread count`, for a pipelined call) |
 | `` in `f`'s parameter order `x` would be evaluated before `y`, which is written first, and one of them calls a function: … `` | the order-of-evaluation rule above |
 | `` `tid` is the thread's index in pipelined `f`, which no call passes: … `` | a label names a pipelined function's first parameter |
 | `` `p` is not a function whose parameters have names `` | a labelled call whose callee is not a function |

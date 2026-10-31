@@ -55,8 +55,13 @@ pub const DEDUCES: Flags = 1 << 8;
 /// subtree of a reference file holds one.
 pub const LABELLED: Flags = 1 << 9;
 
+/// A later edition's default argument, on a parameter — what makes every
+/// call a call `kg_sem::named` may give an argument; no subtree of a
+/// reference file holds one.
+pub const DEFAULTED: Flags = 1 << 10;
+
 /// Every flag: a subtree whose facts are not kept is taken to hold all.
-pub const ALL: Flags = (1 << 10) - 1;
+pub const ALL: Flags = (1 << 11) - 1;
 
 const KNOWN: Flags = 1 << 15;
 const NO_PARENT: u32 = u32::MAX;
@@ -79,6 +84,7 @@ fn own(nodes: &[NodeData], index: usize) -> Flags {
         Exp::Template { .. } => TEMPLATE,
         Exp::Lambda { .. } => LAMBDA,
         Exp::Labelled { .. } => LABELLED,
+        Exp::FuncParam { default: Some(_), .. } => DEFAULTED,
         Exp::Seq(items) => {
             let mut f = 0;
             if items.iter().any(|&i| matches!(kind(i), Exp::Seq(_))) {

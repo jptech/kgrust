@@ -13,12 +13,14 @@ Notable changes to kgrust, newest first. The format follows
   under `[language] features`, and `--edition` / `--feature` for one run.
   A file is read in its own package's language; the standard library and
   everything the `kanagawa` binary compiles are always `1.0`. Edition
-  `1.1` (a preview) adds trailing commas, `f(1, 2,)`, and named
-  arguments, `f(y: 2, x: 1)`, in any order,
-  through `kg check`, `kg build`, `kg fmt` and the language server —
-  where a label navigates to its parameter, renames with it, lights it in
-  signature help and is offered as a completion
-  ([`docs/editions/`](docs/editions/README.md)). Graded by a new gate,
+  `1.1` (a preview) adds trailing commas, `f(1, 2,)`; named
+  arguments, `f(y: 2, x: 1)`, in any order; and default arguments,
+  `uint8 f(uint8 x, uint8 shift = 1)`, which a call may leave out —
+  through `kg check`, `kg build`, `kg fmt`, `kg doc` and the language
+  server, where a label navigates to its parameter, renames with it,
+  lights it in signature help and is offered as a completion, hover shows
+  a parameter's default, and an inlay hint shows the defaults a call is
+  given ([`docs/editions/`](docs/editions/README.md)). Graded by a new gate,
   `cargo xtask editions`.
 
 - `cargo xtask install`: the release archive's tree under a prefix

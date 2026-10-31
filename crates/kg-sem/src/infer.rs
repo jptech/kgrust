@@ -23,7 +23,7 @@
 use kg_base::{FxHashMap, Interner, Symbol, SymbolPath};
 use kg_const::{BinOp, ConstInt, ConstValue, UnOp};
 use kg_hir::{Exp, ExpArena, ExpId, ModuleIr};
-use kg_ty::{FunctionKind, TAttr, TAttrSet, TFuncParam, Ty, TyRef};
+use kg_ty::{FunctionKind, TAttr, TAttrSet, TDefault, TFuncParam, Ty, TyRef};
 
 use crate::reads::Asked;
 use crate::symbols::{Decl, Symbols, declared_name};
@@ -529,7 +529,7 @@ impl<'i> Program<'i> {
                 kind: FunctionKind::FreeFunction,
                 attrs: TAttrSet::new(),
                 ret: TyRef::new(ret),
-                params: params.into_iter().map(|t| TFuncParam { attrs: TAttrSet::new(), ty: TyRef::new(t), name: None }).collect(),
+                params: params.into_iter().map(|t| TFuncParam { attrs: TAttrSet::new(), ty: TyRef::new(t), name: None, default: None }).collect(),
             };
             let ty = match &*interner.resolve(only) {
                 "__print" => f(Ty::Void, vec![Ty::Str]),
@@ -1768,14 +1768,39 @@ impl Cx<'_> {
                     if t == Ty::Void {
                         return None;
                     }
-                    Some(TFuncParam { attrs: self.flags(*attr), ty: TyRef::new(t), name: name.and_then(|n| self.name_of(n)) })
+                    Some(TFuncParam {
+                        attrs: self.flags(*attr),
+                        ty: TyRef::new(t),
+                        name: name.and_then(|n| self.name_of(n)),
+                        default: None,
+                    })
                 }
-                Exp::FuncParam { attr, name, .. } => {
-                    Some(TFuncParam { attrs: self.flags(*attr), ty: TyRef::new(self.ty(p)), name: self.name_of(*name) })
-                }
+                Exp::FuncParam { attr, name, default, .. } => Some(TFuncParam {
+                    attrs: self.flags(*attr),
+                    ty: TyRef::new(self.ty(p)),
+                    name: self.name_of(*name),
+                    default: default.map(|d| self.default_of(d)),
+                }),
                 _ => None,
             })
             .collect()
+    }
+
+    /// Edition 1.1's default argument as the parameter's type carries it:
+    /// the value its expression has folded to — an enum's constant named,
+    /// so a call is given the constant and not its number — or
+    /// [`TDefault::Unfolded`] while it is none a call could be given.
+    fn default_of(&self, d: ExpId) -> TDefault {
+        let value = match self.exp(d) {
+            Exp::EnumValue { ty, .. } => match self.node_value(d) {
+                Some(ConstValue::Int { value, .. }) => {
+                    Some(ConstValue::Enum { name: SymbolPath::new(kg_hir::sort::spine_qualname(self.arena, *ty)), value })
+                }
+                _ => None,
+            },
+            _ => self.node_value(d).filter(|v| Self::literal_exp(v).is_some()),
+        };
+        value.map_or(TDefault::Unfolded, TDefault::Value)
     }
 
     /// `fields` (`Type.hs:1343-1348`) of a body in this module's tree.

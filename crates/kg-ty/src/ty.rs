@@ -186,6 +186,24 @@ pub struct TFuncParam {
     pub attrs: TAttrSet,
     pub ty: TyRef,
     pub name: Option<Name>,
+    /// Edition 1.1's default argument (`docs/editions/1.1/default-arguments.md`),
+    /// carried in the type as a parameter's name is, so a call in another
+    /// module reads it where it reads the parameters. No reference
+    /// parameter has one. Like the name, left out of `==` and `Hash`, kept
+    /// in `Ord` and [`hash_strict`].
+    pub default: Option<TDefault>,
+}
+
+/// A parameter's default argument, as inference has it.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum TDefault {
+    /// Declared, but not (yet) a constant a call could be given: inference
+    /// may fold it in a later round, and one still unfolded at the fixpoint
+    /// is an error at the declaration.
+    Unfolded,
+    /// The folded value: an integer, a `bool`, a `float`, or an enum's
+    /// constant ([`ConstValue::Enum`](kg_const::ConstValue::Enum), named).
+    Value(kg_const::ConstValue),
 }
 
 impl PartialEq for TFuncParam {
@@ -205,6 +223,7 @@ impl std::hash::Hash for TFuncParam {
         self.ty.hash(state);
         if STRICT.with(std::cell::Cell::get) {
             self.name.hash(state);
+            self.default.hash(state);
         }
     }
 }
@@ -240,6 +259,7 @@ impl Ord for TFuncParam {
             .cmp(&other.attrs)
             .then_with(|| self.ty.cmp(&other.ty))
             .then_with(|| self.name.cmp(&other.name))
+            .then_with(|| self.default.cmp(&other.default))
     }
 }
 
@@ -582,8 +602,12 @@ impl Ty {
             Ty::Array { attrs, elem, dims } => {
                 elem.resolved() && !dims.is_empty() && attrs.iter().all(TAttr::resolved)
             }
+            // A default not yet folded leaves the type to be inferred again,
+            // as an unresolved parameter's type does: a node is typed once
+            // its type resolves, and one typed early would carry
+            // `Unfolded` for good. No reference parameter has a default.
             Ty::Function { ret, params, .. } => {
-                ret.resolved() && params.iter().all(|p| p.ty.resolved())
+                ret.resolved() && params.iter().all(|p| p.ty.resolved() && p.default != Some(TDefault::Unfolded))
             }
             Ty::Closure { func_ty, capture, .. } => func_ty.resolved() && capture.resolved(),
             Ty::Enum(_, x) => x.resolved(),
@@ -875,8 +899,8 @@ mod tests {
     fn eq_on_a_func_param_ignores_the_name() {
         // Type.hs:126-129.
         let i = Interner::new();
-        let a = TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: Some(i.intern("x")) };
-        let b = TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: Some(i.intern("y")) };
+        let a = TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: Some(i.intern("x")), default: None };
+        let b = TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: Some(i.intern("y")), default: None };
         assert_eq!(a, b);
         // ... while Ord does not (Type.hs:123).
         assert_ne!(a.cmp(&b), std::cmp::Ordering::Equal);
@@ -893,7 +917,7 @@ mod tests {
             kind: FunctionKind::FreeFunction,
             attrs: TAttrSet::new(),
             ret: r(Ty::Void),
-            params: vec![TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: Some(i.intern(n)) }],
+            params: vec![TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: Some(i.intern(n)), default: None }],
         };
         let plain = |t: &Ty| {
             let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -912,6 +936,37 @@ mod tests {
         assert_eq!(plain(&x), plain(&y), "the flag is off after a strict hash");
     }
 
+    /// A default argument is the type's as a parameter's name is: left out
+    /// of `==` and `Hash`, so a function with one is the type of its
+    /// declaration's mentions, and kept by `Ord` and the strict hash, so the
+    /// loop's read door sees a default change. Red with the default in
+    /// `==`, or out of `Ord` or the strict hash.
+    #[test]
+    fn a_default_is_kept_as_a_name_is() {
+        use std::hash::{Hash, Hasher};
+        let mk = |default: Option<TDefault>| Ty::Function {
+            kind: FunctionKind::FreeFunction,
+            attrs: TAttrSet::new(),
+            ret: r(Ty::Void),
+            params: vec![TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: None, default }],
+        };
+        let hash = |t: &Ty, strict: bool| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            if strict { hash_strict(t, &mut h) } else { t.hash(&mut h) }
+            h.finish()
+        };
+        let zero = mk(Some(TDefault::Value(kg_const::ConstValue::untyped_int(0u64))));
+        let one = mk(Some(TDefault::Value(kg_const::ConstValue::untyped_int(1u64))));
+        let none = mk(None);
+        assert_eq!(zero, one);
+        assert_eq!(zero, none);
+        assert_eq!(hash(&zero, false), hash(&none, false));
+        assert_ne!(zero.cmp(&one), std::cmp::Ordering::Equal);
+        assert_ne!(zero.cmp(&none), std::cmp::Ordering::Equal);
+        assert_ne!(hash(&zero, true), hash(&one, true));
+        assert_ne!(hash(&zero, true), hash(&none, true));
+    }
+
     #[test]
     fn equal_function_types_keep_their_parameter_names() {
         // Why an interner keyed on `Eq` would lose `y`: the two compare equal
@@ -927,6 +982,7 @@ mod tests {
                     attrs: TAttrSet::new(),
                     ty: r(Ty::Unsigned(8)),
                     name: Some(i.intern(n)),
+                    default: None,
                 }],
             })
         };

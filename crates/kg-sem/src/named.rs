@@ -1,11 +1,15 @@
-//! Edition 1.1's named arguments (`docs/editions/1.1.md`): a call's
-//! labelled arguments put in its parameters' order, so that what the loop's
-//! later passes and the backend walk see is the call written positionally —
-//! the reference program the edition's call stands for.
+//! Edition 1.1's named and default arguments (`docs/editions/1.1.md`): a
+//! call's labelled arguments put in its parameters' order, and the default
+//! of each parameter it gives no argument written in, so that what the
+//! loop's later passes and the backend walk see is the call written
+//! positionally and whole — the reference program the edition's call
+//! stands for.
 //!
 //! No construct of the reference's; nothing here runs on a module without
 //! an [`Exp::Labelled`], which only a file of a later edition lowers to
-//! (`kg_hir::facts::LABELLED`).
+//! (`kg_hir::facts::LABELLED`), unless some module of the program declares
+//! a default (`kg_hir::facts::DEFAULTED`): a call of any edition's file may
+//! lean on one, the callee's file being the one that opted in.
 //!
 //! # Where the parameters come from
 //!
@@ -13,6 +17,7 @@
 //! function type carries its parameters' names (`TFuncParam::name`), a
 //! method's and a closure's included. So the pass reads nothing across a
 //! module boundary that inference did not already read ([`crate::reads`]).
+//! A default travels the same way, folded (`kg_ty::TDefault`).
 //! A callee not yet typed — a method of an instance the loop has still to
 //! make, a function template whose arguments are still to be deduced
 //! (`crate::deduce` matches labels to the template's own parameters) — is
@@ -34,7 +39,8 @@
 use kg_base::{FxHashMap, Interner, Symbol};
 use kg_hir::rewrite::{desugar_within, get_name, Rewriter};
 use kg_hir::{ErrorNote, Exp, ExpArena, ExpId};
-use kg_ty::{QualifiedName, Ty};
+use kg_const::ConstValue;
+use kg_ty::{QualifiedName, TDefault, Ty};
 
 use crate::infer::Program;
 use crate::types::TypeMap;
@@ -49,23 +55,26 @@ fn sync(rw: &mut Rewriter<'_>, types: &mut TypeMap) {
     }
 }
 
-/// Every call whose callee is typed, its labelled arguments placed, over
-/// every module that holds one.
+/// Every call whose callee is typed, its labelled arguments placed and its
+/// defaults given, over every module that holds one: a labelled argument,
+/// or — where any module declares a default — a call.
 pub fn named_arguments(program: &mut Program<'_>) {
     let interner = program.interner();
     let cancel = program.cancel_token();
+    let defaults = program.modules.iter_mut().any(|m| m.ir.arena.holds(m.ir.root) & kg_hir::facts::DEFAULTED != 0);
+    let needs = kg_hir::facts::LABELLED | if defaults { kg_hir::facts::FUNCTION_CALL } else { 0 };
     for module in &mut program.modules {
         cancel.check();
         let root = module.ir.root;
-        if module.ir.arena.holds(root) & kg_hir::facts::LABELLED == 0 {
+        if module.ir.arena.holds(root) & needs == 0 {
             continue;
         }
         let locals = Locals::of(&module.ir.arena);
         let mut rw = Rewriter::new(&mut module.ir.arena, interner);
         let types = &mut module.types;
-        let next = desugar_within(&mut rw, root, kg_hir::facts::LABELLED, &mut |rw, _id, exp| {
+        let next = desugar_within(&mut rw, root, needs, &mut |rw, _id, exp| {
             sync(rw, types);
-            let cx = Cx { interner, locals: &locals };
+            let cx = Cx { interner, locals: &locals, defaults };
             match cx.place(rw, types, exp) {
                 Placed::Call(e) | Placed::Waiting(e) => e,
             }
@@ -77,48 +86,81 @@ pub fn named_arguments(program: &mut Program<'_>) {
 
 /// After the loop's fixpoint: a call whose labels no run of the pass could
 /// place is an error — its callee was never typed as a function, or names
-/// no parameters. Outside a template's own body only, which the reference
-/// checks nowhere it is not instantiated; never after a truncated loop,
-/// whose next round might have placed them.
+/// no parameters — and so is a default that never folded to a constant a
+/// call could be given, at the default. Outside a template's own body only,
+/// which the reference checks nowhere it is not instantiated; never after a
+/// truncated loop, whose next round might have placed them.
 pub fn unplaced(modules: &mut [crate::infer::Module], interner: &Interner) {
-    for module in modules {
+    let mut found = Vec::new();
+    for (m, module) in modules.iter_mut().enumerate() {
         let root = module.ir.root;
-        if module.ir.arena.holds(root) & kg_hir::facts::LABELLED == 0 {
+        if module.ir.arena.holds(root) & (kg_hir::facts::LABELLED | kg_hir::facts::DEFAULTED) == 0 {
             continue;
         }
-        let mut calls = Vec::new();
+        let arena = &module.ir.arena;
         let mut stack = vec![root];
         let mut kids = Vec::new();
         while let Some(id) = stack.pop() {
-            let exp = &module.ir.arena[id].exp;
+            let exp = &arena[id].exp;
             match exp {
                 Exp::Template { params, .. } => {
                     stack.extend(params.iter().copied());
                     continue;
                 }
-                Exp::FunctionCall { args, .. } if has_labels(&module.ir.arena, *args) => calls.push(id),
+                Exp::FunctionCall { args, .. } if has_labels(arena, *args) => found.push((m, id, None)),
+                Exp::FuncParam { name, default: Some(d), .. } if !folded(arena, *d) => found.push((m, *d, Some(*name))),
                 _ => {}
             }
             kids.clear();
             exp.children(&mut kids);
             stack.extend(kids.iter().copied());
         }
-        for call in calls {
-            let Exp::FunctionCall { function, .. } = module.ir.arena[call].exp.clone() else { continue };
-            let t = module.types.get(function);
-            // An undefined or mistyped callee is reported for what it is
-            // (pass 9, inference); a second error here would say less.
-            if t.is_undefined() || t.is_error() {
-                continue;
-            }
-            let name = callee_name(&module.ir.arena, function, interner);
-            let message = match t.function_params() {
-                Some([]) => format!("{name} takes no parameters to name"),
-                Some(_) => format!("cannot tell which of {name}'s parameters these arguments name"),
-                None => format!("{name} is not a function whose parameters have names"),
-            };
-            module.ir.arena.node_mut(call).exp = Exp::Error(ErrorNote::new(message));
+    }
+    // A function whose default never folded keeps a type that never
+    // resolves (`Ty::resolved`), and so does every name of it: a call of one
+    // is not reported again for what the default's error already says.
+    let unfolded = found.iter().any(|(_, _, name)| name.is_some());
+    for (m, id, name) in found {
+        let module = &mut modules[m];
+        if let Some(name) = name {
+            let name = get_name(&module.ir.arena, name).map_or_else(String::new, |n| format!(" of `{}`", interner.resolve(n)));
+            let message = format!(
+                "the default{name} is not a constant a call can be given: a default is a constant integer, `bool`, `float` or enum value"
+            );
+            module.ir.arena.node_mut(id).exp = Exp::Error(ErrorNote::new(message));
+            continue;
         }
+        let Exp::FunctionCall { function, .. } = module.ir.arena[id].exp.clone() else { continue };
+        let t = module.types.get(function);
+        // An undefined or mistyped callee is reported for what it is (pass
+        // 9, inference); a second error here would say less.
+        if t.is_undefined() || t.is_error() || (unfolded && !t.resolved()) {
+            continue;
+        }
+        let name = callee_name(&module.ir.arena, function, interner);
+        let message = match t.function_params() {
+            Some([]) => format!("{name} takes no parameters to name"),
+            Some(_) => format!("cannot tell which of {name}'s parameters these arguments name"),
+            None => format!("{name} is not a function whose parameters have names"),
+        };
+        module.ir.arena.node_mut(id).exp = Exp::Error(ErrorNote::new(message));
+    }
+}
+
+/// Whether a default has folded to what [`crate::infer`] carries in the
+/// type (`kg_ty::TDefault::Value`).
+fn folded(arena: &ExpArena, id: ExpId) -> bool {
+    match &arena[id].exp {
+        Exp::IntLiteral { .. } | Exp::BoolLiteral(_) | Exp::FloatLiteral(_) => true,
+        // An enum's constant naming another's (`G = F`) nests.
+        Exp::EnumValue { value, .. } => {
+            let mut inner = *value;
+            while let Exp::EnumValue { value, .. } = &arena[inner].exp {
+                inner = *value;
+            }
+            matches!(arena[inner].exp, Exp::IntLiteral { .. })
+        }
+        _ => false,
     }
 }
 
@@ -138,6 +180,33 @@ fn callee_name(arena: &ExpArena, function: ExpId, interner: &Interner) -> String
     }
 }
 
+/// A default as the argument a call written whole would pass: its literal,
+/// or an enum's constant by its name — the enum's own, from the parameter's
+/// type, so that the name finds the constant from wherever the call stands
+/// — which inference folds as it folds a written one. Made at the call's
+/// arguments, so an error in it is reported at the call.
+fn default_argument(rw: &mut Rewriter<'_>, args: ExpId, function: ExpId, v: &ConstValue, ty: &Ty) -> Option<ExpId> {
+    let exp = match v {
+        ConstValue::Int { ty, value } => Exp::IntLiteral { ty: *ty, value: value.clone() },
+        ConstValue::Bool(b) => Exp::BoolLiteral(*b),
+        ConstValue::Float(f) => Exp::FloatLiteral(*f),
+        ConstValue::Enum { name, .. } => {
+            let Ty::Enum(enum_name, _) = &ty.un_const() else { return None };
+            let constant = *name.segments().last()?;
+            let scope = crate::deduce::Cx::scope_of(rw.arena, function)?;
+            let mut chain = None;
+            for &segment in enum_name.segments().iter().chain([&constant]) {
+                let ident = rw.donate(args, Exp::Identifier(segment));
+                chain = Some(rw.donate(args, Exp::ScopedName { scope: scope.clone(), prefix: chain, ident }));
+            }
+            let q = rw.donate(args, Exp::QualifiedIdentifier(chain?));
+            Exp::NamedValue(q)
+        }
+        ConstValue::Str(_) | ConstValue::Aggregate(_) => return None,
+    };
+    Some(rw.donate(args, exp))
+}
+
 enum Placed {
     /// The call, its arguments in their parameters' order — or an error.
     Call(Exp),
@@ -148,14 +217,17 @@ enum Placed {
 struct Cx<'a> {
     interner: &'a Interner,
     locals: &'a Locals,
+    /// Whether any module declares a default, so that a call with no label
+    /// may still be short of one.
+    defaults: bool,
 }
 
-/// One argument as written: where it was, the parameter it fills, and its
-/// value with any label taken off.
+/// One argument: where it was written — `None` for a default the call is
+/// given — and its value with any label taken off.
 struct Arg {
     item: ExpId,
     value: ExpId,
-    written: usize,
+    written: Option<usize>,
 }
 
 impl Cx<'_> {
@@ -163,7 +235,8 @@ impl Cx<'_> {
         let Exp::FunctionCall { attr, function, args } = e else { return Placed::Call(e) };
         let unchanged = Exp::FunctionCall { attr, function, args };
         let Exp::Seq(items) = rw.arena[args].exp.clone() else { return Placed::Call(unchanged) };
-        if !items.iter().any(|&i| matches!(rw.arena[i].exp, Exp::Labelled { .. })) {
+        let labelled = items.iter().any(|&i| matches!(rw.arena[i].exp, Exp::Labelled { .. }));
+        if !labelled && !self.defaults {
             return Placed::Call(unchanged);
         }
         if !types.is_set(function) {
@@ -180,6 +253,16 @@ impl Cx<'_> {
         // type will have them.
         if params.is_empty() {
             return Placed::Waiting(unchanged);
+        }
+        // A call written by position is ours only where it is short of
+        // arguments and every one it lacks has a default: one that lacks a
+        // parameter with none is the reference's error, its count reported
+        // as the reference reports it (`TypeCheck.hs`'s argument count).
+        if !labelled {
+            let lacking = params.get(items.len()..).unwrap_or_default();
+            if lacking.is_empty() || lacking.iter().any(|p| p.default.is_none()) {
+                return Placed::Call(unchanged);
+            }
         }
         let name = callee_name(rw.arena, function, self.interner);
         // A `[[pipelined]]` function's type keeps every parameter it
@@ -217,7 +300,7 @@ impl Cx<'_> {
             match filled.get_mut(slot) {
                 None => faults.push((item, format!("{name} takes {} argument{}", slots, if slots == 1 { "" } else { "s" }))),
                 Some(Some(_)) => faults.push((item, format!("the parameter `{}` is given an argument twice", self.param(&params, slot)))),
-                Some(s @ None) => *s = Some(Arg { item, value, written }),
+                Some(s @ None) => *s = Some(Arg { item, value, written: Some(written) }),
             }
         }
         if !faults.is_empty() {
@@ -226,13 +309,31 @@ impl Cx<'_> {
         let missing: Vec<String> = filled
             .iter()
             .enumerate()
-            .filter(|(_, a)| a.is_none())
+            .filter(|&(slot, a)| a.is_none() && params[slot].default.is_none())
             .map(|(slot, _)| if pipelined && slot == 0 { "the thread count".to_owned() } else { format!("`{}`", self.param(&params, slot)) })
             .collect();
         if !missing.is_empty() {
             return Placed::Call(Exp::Error(ErrorNote::new(format!("{name} is missing an argument for {}", missing.join(", ")))));
         }
-        let filled: Vec<Arg> = filled.into_iter().map(|a| a.expect("every slot is filled")).collect();
+        // A default not yet folded may fold in a later round; one that never
+        // does is an error at its declaration ([`unplaced`]).
+        if filled.iter().zip(&params).any(|(a, p)| a.is_none() && p.default == Some(TDefault::Unfolded)) {
+            return Placed::Waiting(unchanged);
+        }
+        let mut given = Vec::with_capacity(slots);
+        for (slot, a) in filled.into_iter().enumerate() {
+            given.push(match a {
+                Some(a) => a,
+                None => {
+                    let Some(TDefault::Value(v)) = &params[slot].default else { unreachable!("a slot left empty has a default") };
+                    let Some(value) = default_argument(rw, args, function, v, &params[slot].ty) else {
+                        return Placed::Waiting(unchanged);
+                    };
+                    Arg { item: value, value, written: None }
+                }
+            });
+        }
+        let filled = given;
         if let Some((early, late)) = self.reordered_effects(rw.arena, &filled) {
             // `early` is the parameter first in order and the argument
             // written after `late`'s: placed, it would be evaluated first.
@@ -299,11 +400,13 @@ impl Cx<'_> {
 
     /// The first pair of arguments the reordering swaps that could tell it
     /// did — `(i, j)`, parameter positions, `i` written after `j` — if any.
+    /// A default is a constant, and is in no written order to keep.
     fn reordered_effects(&self, arena: &ExpArena, filled: &[Arg]) -> Option<(usize, usize)> {
         let effects: Vec<Effect> = filled.iter().map(|a| self.effect(arena, a.value)).collect();
         for i in 0..filled.len() {
             for j in i + 1..filled.len() {
-                if filled[i].written > filled[j].written && !effects[i].commutes(effects[j]) {
+                let (Some(wi), Some(wj)) = (filled[i].written, filled[j].written) else { continue };
+                if wi > wj && !effects[i].commutes(effects[j]) {
                     return Some((i, j));
                 }
             }

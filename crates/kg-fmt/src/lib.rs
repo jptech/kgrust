@@ -381,6 +381,18 @@ mod tests {
         assert_eq!(format_file_in(&once, &Fmt::default(), trailing).unwrap(), once, "a broken list is a fixpoint too");
     }
 
+    /// Edition 1.1's default arguments are spaced as an initializer is,
+    /// `uint8 shift = Step + 1`, and the layout is a fixpoint.
+    #[test]
+    fn a_default_argument_is_spaced_as_an_initializer() {
+        use kg_base::language::Feature;
+        let defaults = Features::NONE.with(Feature::DefaultArguments);
+        let text = "inline uint8 scale(uint8 value,uint8 shift=Step+1,bool round   =  false)\n{\n    return value;\n}\n";
+        let once = format_file_in(text, &Fmt::default(), defaults).unwrap();
+        assert!(once.contains("inline uint8 scale(uint8 value, uint8 shift = Step + 1, bool round = false)"), "{once}");
+        assert_eq!(format_file_in(&once, &Fmt::default(), defaults).unwrap(), once, "a fixpoint");
+    }
+
     #[test]
     fn an_empty_file_is_left_empty() {
         assert_eq!(fmt(""), "");

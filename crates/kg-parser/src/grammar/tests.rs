@@ -1828,3 +1828,21 @@ fn a_trailing_comma_closes_a_list_where_the_language_has_them() {
     let named = trailing.with(Feature::NamedArguments);
     assert_eq!(parse_in("static assert(f(1, y: 2,));", named).1, Vec::<String>::new(), "after a named argument");
 }
+
+/// Edition 1.1's default arguments: `= e` after a parameter's name, `e` any
+/// expression (`kg_sem::named` judges whether it is a constant), held inside
+/// the `PARAM` the lowering reads it from. The reference's parameter ends at
+/// its name (`Parser.hs:379`), so the `=` is a parse error there. Red with
+/// the feature check left out, or the default parsed outside the `PARAM`.
+#[test]
+fn a_parameter_may_have_a_default_where_the_language_has_them() {
+    let defaults = Features::NONE.with(Feature::DefaultArguments);
+    let src = "inline void f(uint8 x, uint8 y = N + 1, bool z = false) {}";
+    let (root, errors) = parse_in(src, defaults);
+    assert_eq!(errors, Vec::<String>::new());
+    let shape = sexpr(&root);
+    assert!(shape.contains("(PARAM uint8 y = (BIN_EXPR N + 1))"), "{shape}");
+    assert!(shape.contains("(PARAM bool z = false)"), "{shape}");
+    assert!(!parse(src).1.is_empty(), "the reference rejects a default");
+    assert!(!parse_in("inline void f(uint8 x =) {}", defaults).1.is_empty(), "a default with no expression");
+}

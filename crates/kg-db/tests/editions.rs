@@ -134,3 +134,44 @@ fn a_label_that_names_no_parameter_lands_nowhere() {
     assert_eq!(lands(&db, file, text, "z: z", 0), None);
     assert_eq!(lands(&db, file, text, "z)", 0).as_deref(), Some("8:11"));
 }
+
+/// A call short of arguments is given each default it leaves out, in the
+/// parameter's place, whether the arguments it gives are positional or
+/// named, and to a function or a method; every parameter is a type no other
+/// default converts to, so a default in another's place is an error. An
+/// enum's constant folds after the function is first typed: the type is
+/// typed again once it has. A parameter with no default is still owed an
+/// argument — by name where a call names any, else by the reference's count.
+/// Red with the defaults placed by position past a label, the function's
+/// type kept from before its default folded, or a missing parameter's
+/// default not checked for.
+#[test]
+fn a_call_is_given_the_defaults_it_leaves_out() {
+    let text = "enum Mode : uint2\n{\n    Idle,\n    Run,\n}\n\nclass C\n{\n    uint8 pick(uint8 value, bool flip = false, Mode mode = Mode::Run, uint4 shift = 3)\n    {\n        return flip && mode == Mode::Run ? value << shift : value;\n    }\n\npublic:\n    uint8 run(uint8 p)\n    {\n        uint8 a = pick(p);\n        uint8 b = pick(shift: 2, value: p);\n        uint8 c = pick(p, mode: Mode::Idle);\n        uint8 d = pick(p, true, shift: 1);\n        return a + b + c + d;\n    }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(errors_of(&db, file, text), Vec::<String>::new());
+
+    let short = text.replace("uint8 d = pick(p, true, shift: 1);", "uint8 d = pick(flip: true);");
+    let file = write(&mut db, &short);
+    assert_eq!(errors_of(&db, file, &short), ["20:19: `pick` is missing an argument for `value`"]);
+
+    let positional = text.replace("bool flip = false", "bool flip").replace("pick(shift: 2, value: p)", "pick(p, true)").replace("pick(p, mode: Mode::Idle)", "pick(p, false)").replace("pick(p, true, shift: 1)", "pick(p, true, Mode::Idle, 1)");
+    let file = write(&mut db, &positional);
+    assert_eq!(errors_of(&db, file, &positional), ["17:24: Invalid number of arguments, expected 4"]);
+}
+
+/// A default is a constant a call can be given; one that is not is reported
+/// at the default, once, and the calls that lean on it, named or not, are
+/// not reported again. Red with the default's error left out, or a call of
+/// the function reported as well.
+#[test]
+fn a_default_that_is_no_constant_is_reported_at_it() {
+    let text = "class C\n{\n    uint8 _base = 1;\n\n    uint8 scale(uint8 value, uint8 shift = _base)\n    {\n        return value << shift;\n    }\n\npublic:\n    uint8 run(uint8 p)\n    {\n        return scale(p) + scale(value: p);\n    }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(
+        errors_of(&db, file, text),
+        ["5:44: the default of `shift` is not a constant a call can be given: a default is a constant integer, `bool`, `float` or enum value"]
+    );
+}
