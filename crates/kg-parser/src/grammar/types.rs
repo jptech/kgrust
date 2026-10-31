@@ -350,7 +350,7 @@ fn fn_type_rest(p: &mut Parser<'_>, m: crate::Marker) -> CompletedMarker {
                     break;
                 }
             }
-            if !p.eat(COMMA) || p.at_trailing(R_PAREN) {
+            if !p.eat_list_comma(R_PAREN) {
                 break;
             }
         }

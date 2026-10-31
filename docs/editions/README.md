@@ -33,15 +33,24 @@ features = ["named-arguments"]   # single features, beside the edition
   `named-arguments`, `trailing-commas`, `default-arguments`,
   `named-template-arguments`.
 - **An edition or a feature this `kg` does not know is an error**, never
-  ignored: `unknown edition `2.0`: this kg knows 1.0, 1.1`. An older tool
-  must not compile a newer program as something else.
+  ignored: `` unknown edition `2.0`: this kg knows 1.0, 1.1 ``. An older
+  tool must not compile a newer program as something else. In the editor
+  it is marked in `kanagawa.toml` itself, at the value refused, and said
+  once in a message: the files under a refused manifest are read as if it
+  were not there, in edition 1.0.
+- **A feature used without it is one error naming the edition**: `f(x: 1)`
+  in a 1.0 file is `` named arguments need edition 1.1: `[package] edition
+  = "1.1"` in kanagawa.toml, or the feature `named-arguments` alone ``, and
+  not the parse errors of a language without labels. The program is
+  rejected exactly where the reference rejects it; only what it is told
+  changes ([`known-divergences.md`](../known-divergences.md) #42).
 - **On the command line**, `--edition <VERSION>` and `--feature <NAME>`
   (repeatable) replace the project's edition and add to its features, for
   one run: `kg check --edition 1.1 file.k`. They change the project's own
   files and nothing else (below).
 - **The `kanagawa` binary never opts in.** It reads no manifest and has no
   such flag: it is the reference's interface, and it rejects every
-  edition's syntax exactly as the reference does.
+  edition's syntax wherever the reference does (with the error above).
 
 ## What a version means
 

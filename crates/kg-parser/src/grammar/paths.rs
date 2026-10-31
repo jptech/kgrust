@@ -93,15 +93,13 @@ pub(crate) fn template_arg_list(p: &mut Parser<'_>) {
     p.bump(L_ANGLE);
     // Edition 1.1's named template arguments: `IDENT ':'` begins no
     // reference template argument (`::` is one token, and a ternary's `:`
-    // follows its `?`), so a label is a parse error in 1.0.
-    let named = p.has(kg_base::language::Feature::NamedTemplateArguments);
+    // follows its `?`), so a label is a parse error in 1.0 — the one
+    // `arg_label` gives there, naming the edition.
     let mut labels = Vec::new();
     if !p.at_angle(R_ANGLE) {
         loop {
             let pos = p.token_pos();
-            if named {
-                exprs::arg_label(p, &mut labels, R_ANGLE);
-            }
+            exprs::arg_label(p, &mut labels, R_ANGLE, kg_base::language::Feature::NamedTemplateArguments);
             exprs::expr(p, ExprMode::TemplateArg);
             if p.token_pos() == pos {
                 p.err_recover("expected a template argument", TEMPLATE_ARG_RECOVERY);
@@ -109,7 +107,7 @@ pub(crate) fn template_arg_list(p: &mut Parser<'_>) {
                     break;
                 }
             }
-            if !p.eat(COMMA) || p.at_trailing(R_ANGLE) {
+            if !p.eat_list_comma(R_ANGLE) {
                 break;
             }
         }

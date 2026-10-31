@@ -18447,3 +18447,45 @@ otherwise rediscover:
 Checked 2026-10-30 (`cargo xtask editions`: claims 11, twins 6, rejections
 5, 481 reference files the same): see the three commits' messages for each
 feature's gate evidence and mutants.
+
+## An edition the user cannot see is not opted into — 2026-10-31
+
+Asked whether the VS Code extension was ready for editions, the answer was
+yes for the extension (it holds no language; a manifest change reaches the
+server through its watcher, and was checked over stdio switching one buffer
+1.0 → 1.1 → 1.0), and no for two things the server told the user:
+
+- **A refused manifest was only logged.** `edition = "9.9"` made the server
+  read the manifest's files as if it were not there — in 1.0 — and said so
+  in `window/logMessage`, which no one reads. What the user saw was a 1.1
+  program's parse errors. It also said it one reload late:
+  `reload_and_republish` took the store's errors before republishing the
+  open files, and a manifest is read again only when a file asks for its
+  settings, during that republish. Now `ManifestError` carries `toml`'s
+  span and bare message, the store keeps each broken manifest's problem
+  until the next reload (`GlobalState::manifest_problems`), and the main
+  loop marks it on `kanagawa.toml` at the value refused, says it once in
+  `window/showMessage`, and takes the mark off when it loads
+  (`a_refused_manifest_is_marked_where_it_is_wrong`).
+- **A 1.1 feature in a 1.0 file was a cascade.** `return sub(y: q, x: p);`
+  gave 13 parse errors, none naming an edition. Every feature's syntax is
+  one the reference rejects, and the `editions` gate's neutral check proves
+  no reference file holds any, so the parser now recognises it in every
+  file and, where the language lacks it, gives one error naming the edition
+  (`Parser::gate`, `Feature::needed`) and builds the tree the feature would.
+  Accept/reject is the reference's; the message and, for labels and
+  trailing commas, the position one token earlier are not
+  ([`known-divergences.md`](known-divergences.md) #42). A trailing comma's
+  error needed the check before the comma is eaten, so `at_trailing`
+  became `Parser::eat_list_comma`.
+
+On the way, a doc that lied: the trailing-commas page said a lambda's
+captures keep refusing one "where the reference has none to trail". The
+reference reads captures, `mux` and `concat` with the same `sepBy comma` as
+call arguments (`Parser.hs:441,867-871`), and 1.1 had always accepted a
+trailing comma in all three through `comma_list`. The page now lists them,
+and the twin fixture walks them.
+
+Checked 2026-10-31: 15 mutants (8 against the manifest's marking, 7
+against the gate), each caught by its own test; one first "caught" by a
+compile error was planted again until it compiled.

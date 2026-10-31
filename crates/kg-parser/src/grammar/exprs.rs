@@ -294,13 +294,7 @@ fn postfix_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 fn arg_list(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump(L_PAREN);
-    if p.has(Feature::NamedArguments) {
-        named_args(p);
-    } else {
-        comma_list(p, R_PAREN, |p| {
-            expr(p, ExprMode::Full);
-        });
-    }
+    named_args(p);
     p.expect(R_PAREN);
     m.complete(p, ARG_LIST);
 }
@@ -314,10 +308,12 @@ fn arg_list(p: &mut Parser<'_>) {
 /// `IDENT ':'` cannot begin a reference argument — `::` is one token, and a
 /// ternary's `:` follows its `?` — which is why the reference rejects every
 /// call this accepts (`kg-oracle --errors`: "unexpected ':'", 2026-10-29).
+/// So the label is recognised in every file, and in one without the feature
+/// is that error ([`Parser::gate`]).
 fn named_args(p: &mut Parser<'_>) {
     let mut labels: Vec<String> = Vec::new();
     comma_list(p, R_PAREN, |p| {
-        arg_label(p, &mut labels, R_PAREN);
+        arg_label(p, &mut labels, R_PAREN, Feature::NamedArguments);
         expr(p, ExprMode::Full);
     });
 }
@@ -326,9 +322,11 @@ fn named_args(p: &mut Parser<'_>) {
 /// [`ARG_LABEL`] — and the errors of a label given twice, or of no label
 /// after one: shared by a call's arguments and a template's (edition 1.1's
 /// named template arguments, `paths::template_arg_list`), whose list closes
-/// at `close`. `labels` holds the list's labels so far.
-pub(crate) fn arg_label(p: &mut Parser<'_>, labels: &mut Vec<String>, close: SyntaxKind) {
+/// at `close`. `labels` holds the list's labels so far; `feature` is the
+/// one a label needs.
+pub(crate) fn arg_label(p: &mut Parser<'_>, labels: &mut Vec<String>, close: SyntaxKind, feature: Feature) {
     if p.at(IDENT) && p.nth_at(1, COLON) {
+        p.gate(feature);
         let text = p.token_text();
         if labels.iter().any(|l| l == text) {
             p.error(format!("the argument `{text}` is named twice"));
@@ -359,7 +357,7 @@ fn comma_list(p: &mut Parser<'_>, close: SyntaxKind, mut elem: impl FnMut(&mut P
                 break;
             }
         }
-        if !p.eat(COMMA) || p.at_trailing(close) {
+        if !p.eat_list_comma(close) {
             break;
         }
     }
@@ -595,7 +593,7 @@ fn angle_bracketed(p: &mut Parser<'_>, inner: impl FnOnce(&mut Parser<'_>)) {
 ///
 /// Trailing commas are not allowed in either shape, for that same reason
 /// (`Parser.hs:860`) — but in edition 1.1, which allows one before the `}`
-/// (`Parser::at_trailing`).
+/// (`Parser::eat_list_comma`).
 fn init_list(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump(L_CURLY);

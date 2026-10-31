@@ -105,6 +105,7 @@ pin each message.
 
 | Error | When |
 |---|---|
+| `` named arguments need edition 1.1: `[package] edition = "1.1"` in kanagawa.toml, or the feature `named-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
 | `` `f` has no parameter named `z` `` | a label names no parameter of the callee |
 | `` the parameter `x` is given an argument twice `` | a named argument fills a parameter a positional one or another named one already filled |
 | `` `f` takes N arguments `` | more positional arguments than parameters |

@@ -82,6 +82,7 @@ uint8 c = scale(p, mode: Mode::Idle);     // scale(p, Step + 1, false, Mode::Idl
 
 | Error | When |
 |---|---|
+| `` default arguments need edition 1.1: `[package] edition = "1.1"` in kanagawa.toml, or the feature `default-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
 | `` the default of `x` is not a constant a call can be given: … `` | a default that never folds to a constant integer, `bool`, `float` or enum value — reported once, at the default, and at no call of the function |
 | `` `f` is missing an argument for `x` `` | a call that names its arguments leaves out a parameter with no default |
 | `Invalid number of arguments, expected N` | a call by position leaves out a parameter with no default: the reference's own error |

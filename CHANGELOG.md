@@ -31,7 +31,14 @@ install`.
   lights it in signature help and is offered as a completion, hover shows
   a parameter's default, and an inlay hint shows the defaults a call is
   given ([`docs/editions/`](docs/editions/README.md)). Graded by a new gate,
-  `cargo xtask editions`.
+  `cargo xtask editions`. A file that uses a feature its edition lacks is
+  told, once a use, which edition has it and how to ask for it, where the
+  reference's cascade of parse errors said nothing of editions.
+- The language server marks a `kanagawa.toml` it refuses — an unknown
+  edition or feature, a syntax error, a misnamed key — at the value at
+  fault, and says so once in a message; it had only logged it, so a
+  mistyped edition left its files in 1.0 with nothing on screen saying
+  why. The message also reached the log one reload late.
 
 - `cargo xtask install`: the release archive's tree under a prefix
   (`~/.local/share/kgrust`) with `kg` and `kanagawa` linked into

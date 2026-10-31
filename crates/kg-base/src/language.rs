@@ -49,6 +49,32 @@ impl Feature {
         Feature::ALL.into_iter().find(|f| f.name() == name)
     }
 
+    /// What the feature lets a program write, as an error names it, and
+    /// whether that is one thing (`a trailing comma needs`) or many
+    /// (`named arguments need`).
+    fn what(self) -> (&'static str, bool) {
+        match self {
+            Feature::NamedArguments => ("named arguments", false),
+            Feature::TrailingCommas => ("a trailing comma", true),
+            Feature::DefaultArguments => ("default arguments", false),
+            Feature::NamedTemplateArguments => ("named template arguments", false),
+        }
+    }
+
+    /// The error for the feature's syntax in a file whose language lacks it:
+    /// which edition has it, and how a package asks for it. The reference
+    /// rejects the same text, so this replaces its parse errors rather than
+    /// adding to what a program is rejected for.
+    pub fn needed(self) -> String {
+        let (what, one) = self.what();
+        let edition = Edition::first_with(self);
+        format!(
+            "{what} need{} edition {edition}: `[package] edition = \"{edition}\"` in kanagawa.toml, or the feature `{}` alone",
+            if one { "s" } else { "" },
+            self.name(),
+        )
+    }
+
     fn bit(self) -> u32 {
         1 << self as u32
     }
@@ -155,6 +181,11 @@ impl Edition {
             .into_iter()
             .collect(),
         }
+    }
+
+    /// The first edition with `feature`: the one an error asks for.
+    pub fn first_with(feature: Feature) -> Edition {
+        Edition::ALL.into_iter().find(|e| e.features().has(feature)).unwrap_or(Edition::LATEST)
     }
 
     /// Whether the edition may still change: one no release has frozen.

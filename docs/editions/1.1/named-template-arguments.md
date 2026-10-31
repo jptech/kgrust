@@ -83,6 +83,7 @@ Buffer<uint8, 3, Shift: 1> _c;           // Buffer<uint8, 3, false, 1>
 
 | Error | When |
 |---|---|
+| `` named template arguments need edition 1.1: `[package] edition = "1.1"` in kanagawa.toml, or the feature `named-template-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
 | `` `Buffer` has no template parameter named `Depth` `` | a label names no parameter of the template |
 | `` the template parameter `T` is given an argument twice `` | a named argument fills a parameter a positional or another named one already filled |
 | `` `Buffer` takes 3 template arguments `` | more positional arguments than parameters, in a list that names any |

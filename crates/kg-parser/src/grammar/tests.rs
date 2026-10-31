@@ -1805,7 +1805,7 @@ fn an_attributed_array_takes_one_dimension() {
 /// every list the reference separates with `sepBy` or a `comma >>` recursion
 /// (`Parser.hs:289-291,363,377,551,697,860,871`), each a parse error there.
 /// Two commas, or a comma alone, are still errors. Red with any one list's
-/// `Parser::at_trailing` left out.
+/// `Parser::eat_list_comma` left out.
 #[test]
 fn a_trailing_comma_closes_a_list_where_the_language_has_them() {
     let trailing = Features::NONE.with(Feature::TrailingCommas);
@@ -1818,6 +1818,8 @@ fn a_trailing_comma_closes_a_list_where_the_language_has_them() {
         ("a positional initializer list", "static assert({1, 2,} == x);"),
         ("a designated initializer list", "static assert({.a = 1, .b = 2,} == x);"),
         ("enum constants", "enum E : uint2 { A, B, }"),
+        ("a lambda's captures", "static assert([a, b,]() -> uint8 { return a; }() == x);"),
+        ("an intrinsic's arguments", "static assert(mux(s, a, b,) == concat(a, b,));"),
     ];
     for (what, src) in lists {
         assert_eq!(parse_in(src, trailing).1, Vec::<String>::new(), "{what} with a trailing comma");
@@ -1827,6 +1829,33 @@ fn a_trailing_comma_closes_a_list_where_the_language_has_them() {
     assert!(!parse_in("static assert(f(,));", trailing).1.is_empty(), "a comma alone");
     let named = trailing.with(Feature::NamedArguments);
     assert_eq!(parse_in("static assert(f(1, y: 2,));", named).1, Vec::<String>::new(), "after a named argument");
+}
+
+/// A file without a feature that uses its syntax is told which edition has
+/// it, once, where the syntax begins — and not the cascade of a parser that
+/// had never heard of it — and the tree is the one the feature builds, so
+/// the editor's highlighting and outline hold. The reference rejects each
+/// (the tests above), so this changes only what a rejected program is told.
+/// Red with any one site's `Parser::gate` left out.
+#[test]
+fn a_feature_used_without_it_is_one_error_naming_its_edition() {
+    let cases = [
+        (Feature::NamedArguments, "static assert(f(y: 1, x: 2));", vec![16, 22]),
+        (Feature::TrailingCommas, "static assert(f(1, 2,));", vec![20]),
+        (Feature::DefaultArguments, "inline void f(uint8 x, uint8 y = 1) {}", vec![31]),
+        (Feature::NamedTemplateArguments, "using t = Buffer<uint8, Size: 4>;", vec![24]),
+    ];
+    for (feature, src, at) in cases {
+        let (tree, errors) = parse(src);
+        let needed = feature.needed();
+        assert_eq!(errors, at.iter().map(|at| format!("{at}: {needed}")).collect::<Vec<_>>(), "{feature}");
+        assert_eq!(sexpr(&tree), sexpr(&parse_in(src, Features::NONE.with(feature)).0), "{feature}: the feature's tree");
+    }
+    assert_eq!(
+        Feature::NamedArguments.needed(),
+        "named arguments need edition 1.1: `[package] edition = \"1.1\"` in kanagawa.toml, or the feature `named-arguments` alone"
+    );
+    assert!(Feature::TrailingCommas.needed().starts_with("a trailing comma needs edition 1.1"));
 }
 
 /// Edition 1.1's default arguments: `= e` after a parameter's name, `e` any

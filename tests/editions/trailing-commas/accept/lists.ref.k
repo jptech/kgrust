@@ -66,7 +66,20 @@ public:
             [](uint8 x, uint8 y) -> uint8 { return x + y; },
             a
         );
-        return m == Mode::Run ? b : xs[2];
+        uint8 c = mux(
+            cast<uint1>(p),
+            a,
+            b
+        );
+        uint16 d = concat(
+            a,
+            c
+        );
+        auto shift = [
+            p,
+            c
+        ](uint8 y) -> uint8 { return (p + c) >> y; };
+        return m == Mode::Run ? shift(cast<uint8>(d)) : xs[2];
     }
 }
 
