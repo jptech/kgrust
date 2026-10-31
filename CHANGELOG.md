@@ -6,6 +6,14 @@ Notable changes to kgrust, newest first. The format follows
 
 ## [Unreleased]
 
+## 0.2.0 — language editions, 2026-10-31
+
+The first release since the published state. Its headline is language
+editions: a package may opt into edition `1.1`, a preview of call sites
+that say what they mean, while every program that does not opt in reads
+exactly as the reference reads it. Also new: `kg board` and `cargo xtask
+install`.
+
 ### Added
 
 - Language editions, opt-in per package: `[package] edition` in
