@@ -18399,3 +18399,51 @@ passed. `scripts/fast.sh --lint loop`: all green, every ratchet +0/-0, with
 release A/B against `7c375a6`, interleaved, two rounds of five:
 `risc-v.k` 2.060/2.100 s then 2.083/2.093 s (base/pilot means),
 `float32.k` 0.409/0.413 s then 0.418/0.417 s. Within noise.
+
+## Edition 1.1 finished: trailing commas, defaults, named template arguments — 2026-10-30
+
+The owner chose to complete 1.1's theme, *call sites that say what they
+mean*, before the plan's step 4: trailing commas, default arguments, and
+named template arguments that skip defaults. What a later reader would
+otherwise rediscover:
+
+- **A value inference folds, and a later pass reads, belongs in the
+  type.** A default is folded by inference (`infer::default_of`) and
+  written into the calls that leave it out by `kg_sem::named`. Kept on the
+  HIR alone, an incremental read of another module never saw it; carried
+  in the function's type (`TFuncParam::default`, `kg_ty::TDefault`) it is
+  read through the tracked type as a parameter's name is — left out of
+  `==` and `Hash` like the name, kept in `Ord` and the strict hash.
+- **A type set once must say it is not finished.** An enum default folds a
+  round after the function is first typed; the call kept the first type and
+  was never given the default. `Ty::resolved` is now false while a default
+  is `TDefault::Unfolded`, so the name is typed again once it folds. Pinned
+  by `a_call_is_given_the_defaults_it_leaves_out`, which fails on the
+  mutant that drops the clause.
+- **A twin writes the default as declared, not its value.** `Step + 1`
+  folds to `3` typed `uint9`; a twin writing `3` walks differently from the
+  program that leaves the default out. The rewrite reproduces the folded
+  expression's type, so the twin must spell the expression.
+- **One fault, one report.** A default that never folds is reported at the
+  default; its calls then skip the "no parameters with names" check rather
+  than add a second error. A named template argument at fault becomes an
+  error at its label and every other label is taken off
+  (`deduce::faulted`), so no later round meets the list labelled again. An
+  undeducible function template with a labelled argument already gets the
+  reference's `Could not deduce all arguments` once; no sweep was added.
+- **Named template arguments reuse the reference's hole filling.**
+  `resolveTemplateArgs` (`Type.hs:1405-1428`) fills the parameters past
+  the written prefix with their defaults, each reading the arguments before
+  it. Generalising its input from a prefix to a placed map
+  (`BTreeMap<usize, ExpId>`) gives the holes a labelled list leaves their
+  defaults by the same code, so `Buffer<Size: 8, T: uint16>`'s
+  `Shift = Size + 1` reads the named `Size`.
+- **Fixtures mask each other.** A reject fixture's later errors went
+  unreported behind an earlier one in the same module; the arity case moved
+  to its own file (`default-arguments/reject/missing.k`). Each fixture is
+  also read with its own feature alone, so a trailing comma in a
+  default-arguments fixture is a parse error there.
+
+Checked 2026-10-30 (`cargo xtask editions`: claims 11, twins 6, rejections
+5, 481 reference files the same): see the three commits' messages for each
+feature's gate evidence and mutants.

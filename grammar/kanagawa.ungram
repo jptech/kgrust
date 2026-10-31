@@ -548,8 +548,12 @@ PathSegment =
 //
 // `>` is always a single token: `Foo<Bar<T>>` closes with two independent
 // `rangle`s (`Lexer.hs:268-273`), so no maximal-munch fixup is needed.
+//
+// In edition 1.1 an argument may be named by its parameter, as a call's may
+// (`docs/editions/1.1/named-template-arguments.md`), and the list may end in
+// a comma.
 TemplateArgList =
-  '<' (Expr (',' Expr)*)? '>'
+  '<' (ArgLabel? Expr (',' ArgLabel? Expr)* ','?)? '>'
 
 // A name being introduced by a declaration.
 Name =

@@ -91,9 +91,17 @@ pub(crate) fn at_template_qualifier(p: &Parser<'_>) -> bool {
 pub(crate) fn template_arg_list(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump(L_ANGLE);
+    // Edition 1.1's named template arguments: `IDENT ':'` begins no
+    // reference template argument (`::` is one token, and a ternary's `:`
+    // follows its `?`), so a label is a parse error in 1.0.
+    let named = p.has(kg_base::language::Feature::NamedTemplateArguments);
+    let mut labels = Vec::new();
     if !p.at_angle(R_ANGLE) {
         loop {
             let pos = p.token_pos();
+            if named {
+                exprs::arg_label(p, &mut labels, R_ANGLE);
+            }
             exprs::expr(p, ExprMode::TemplateArg);
             if p.token_pos() == pos {
                 p.err_recover("expected a template argument", TEMPLATE_ARG_RECOVERY);

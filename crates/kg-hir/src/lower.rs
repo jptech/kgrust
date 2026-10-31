@@ -1978,13 +1978,21 @@ impl<'a> Lower<'a> {
     /// parameter's place; a reference file has none, and lowers exactly
     /// the expressions [`ast::ArgList::exprs`] yields.
     fn args(&mut self, list: &ast::ArgList) -> Vec<ExpId> {
+        self.labelled_items(list.syntax(), |this, e| this.expr(e, false))
+    }
+
+    /// The items of an argument list — a call's, or a template's, whose
+    /// labels (edition 1.1's named template arguments) `kg_sem::deduce`
+    /// places — each lowered by `arg`, one a label names wrapped in an
+    /// [`Exp::Labelled`] at the label.
+    fn labelled_items(&mut self, list: &SyntaxNode, mut arg: impl FnMut(&mut Self, &ast::Expr) -> ExpId) -> Vec<ExpId> {
         let mut out = Vec::new();
         let mut label: Option<ast::ArgLabel> = None;
-        for child in list.syntax().children() {
+        for child in list.children() {
             if let Some(l) = ast::ArgLabel::cast(child.clone()) {
                 label = Some(l);
             } else if let Some(e) = ast::Expr::cast(child) {
-                let value = self.expr(&e, false);
+                let value = arg(self, &e);
                 let named = label.take().and_then(|l| Some((l.ident_token()?, l)));
                 out.push(match named {
                     Some((ident, l)) => {
@@ -2178,7 +2186,7 @@ impl<'a> Lower<'a> {
             .map(|t| self.interner.intern(t.text()))
             .unwrap_or_else(|| self.interner.intern(""));
         let args = seg.template_arg_list().map(|list| {
-            let items: Vec<ExpId> = list.exprs().map(|e| self.expr(&e, false)).collect();
+            let items = self.labelled_items(list.syntax(), |this, e| this.expr(e, false));
             self.alloc(list.syntax(), Exp::Seq(items))
         });
         PathSeg { template_kw: seg.template_kw_token().is_some(), name, args }
@@ -2872,10 +2880,7 @@ impl<'a> Lower<'a> {
     ) -> Result<ExpId, UnsortedReason> {
         match &seg.args {
             Some(list) => {
-                let items: Vec<ExpId> = list
-                    .exprs()
-                    .map(|e| self.template_arg(&e))
-                    .collect();
+                let items = self.labelled_items(list.syntax(), Self::template_arg);
                 let args = self.alloc(list.syntax(), Exp::Seq(items));
                 Ok(self.synth(&seg.donor, Exp::TemplateInstance { base, args }))
             }

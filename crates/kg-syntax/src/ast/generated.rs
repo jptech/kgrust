@@ -3243,6 +3243,10 @@ impl TemplateArgList {
         support::token(&self.syntax, &[SyntaxKind::L_ANGLE])
     }
     #[inline]
+    pub fn arg_labels(&self) -> impl Iterator<Item = ArgLabel> + use<> {
+        support::children(&self.syntax)
+    }
+    #[inline]
     pub fn exprs(&self) -> impl Iterator<Item = Expr> + use<> {
         support::children(&self.syntax)
     }

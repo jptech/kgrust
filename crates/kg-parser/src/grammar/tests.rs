@@ -1846,3 +1846,24 @@ fn a_parameter_may_have_a_default_where_the_language_has_them() {
     assert!(!parse(src).1.is_empty(), "the reference rejects a default");
     assert!(!parse_in("inline void f(uint8 x =) {}", defaults).1.is_empty(), "a default with no expression");
 }
+
+/// Edition 1.1's named template arguments: `Name: e` in a template's
+/// argument list, an `ARG_LABEL` before its argument as in a call's, with a
+/// call's two errors — a name given twice, a positional argument after a
+/// named one. `IDENT ':'` begins no reference template argument, so the
+/// reference rejects every one (`Parser.hs:697`). Red with the feature check
+/// left out, or the label not parsed in a template's list.
+#[test]
+fn a_template_argument_may_be_named_where_the_language_has_them() {
+    let named = Features::NONE.with(Feature::NamedTemplateArguments);
+    let src = "using t = Buffer<uint8, Wide: true, Size: N + 1>;";
+    let (root, errors) = parse_in(src, named);
+    assert_eq!(errors, Vec::<String>::new());
+    let shape = sexpr(&root);
+    assert!(shape.contains("(TEMPLATE_ARG_LIST < uint8 , (ARG_LABEL Wide :) true , (ARG_LABEL Size :) (BIN_EXPR N + 1) >)"), "{shape}");
+    assert!(!parse(src).1.is_empty(), "the reference rejects a label");
+    let errors = |src: &str| parse_in(src, named).1;
+    assert_eq!(errors("using t = Buffer<Size: 1, Size: 2>;"), ["26: the argument `Size` is named twice"]);
+    assert_eq!(errors("using t = Buffer<Size: 1, uint8>;"), ["26: a positional argument cannot follow a named one"]);
+    assert_eq!(errors("using t = Buffer<c ? a : b>;"), Vec::<String>::new(), "a ternary's `:` is no label");
+}

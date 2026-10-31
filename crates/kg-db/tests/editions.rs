@@ -175,3 +175,50 @@ fn a_default_that_is_no_constant_is_reported_at_it() {
         ["5:44: the default of `shift` is not a constant a call can be given: a default is a constant integer, `bool`, `float` or enum value"]
     );
 }
+
+const TEMPLATES: &str = "template <typename T, auto Size = 4, bool Wide = false>\nclass Buffer\n{\npublic:\n    T get(T x)\n    {\n        return Wide ? x : x + Size;\n    }\n}\n\ntemplate <typename T, auto N = 2>\ninline T scaled(T x)\n{\n    return x * N;\n}\n\nclass Main\n{\n    Buffer<uint8, Wide: true> _a;\n    Buffer<Size: 8, T: uint16> _b;\n\npublic:\n    uint32 run(uint8 p)\n    {\n        const auto Size = 2;\n        return _a.get(p) + _b.get(p) + scaled<N: Size>(p);\n    }\n}\n";
+
+/// What a template's named arguments can get wrong, each reported once at
+/// the argument it is about, or — a parameter with no default left out —
+/// at the instance; a function template's as a class template's. Red with
+/// any fault unreported, or reported again on a later round of the loop.
+#[test]
+fn a_misnamed_template_argument_is_reported_at_its_label() {
+    let mut db = db(NAMED);
+    let file = write(&mut db, TEMPLATES);
+    assert_eq!(errors_of(&db, file, TEMPLATES), Vec::<String>::new());
+    let bad = TEMPLATES
+        .replace("Buffer<uint8, Wide: true> _a;", "Buffer<uint8, Depth: 3> _a;\n    Buffer<uint8, 1, true, 4, Wide: false> _c;")
+        .replace("Buffer<Size: 8, T: uint16> _b;", "Buffer<uint8, T: uint4> _b;\n    Buffer<Size: 8> _d;")
+        .replace("scaled<N: Size>(p)", "scaled<M: 3>(p) + scaled<uint8, T: uint8>(p)");
+    let file = write(&mut db, &bad);
+    assert_eq!(
+        errors_of(&db, file, &bad),
+        [
+            "19:19: `Buffer` has no template parameter named `Depth`",
+            "20:28: `Buffer` takes 3 template arguments",
+            "21:19: the template parameter `T` is given an argument twice",
+            "22:5: `Buffer` is missing a template argument for `T`",
+            "28:47: `scaled` has no template parameter named `M`",
+            "28:72: the template parameter `T` is given an argument twice",
+        ]
+    );
+}
+
+/// A template argument's label names the template's parameter — a class
+/// template's, a function template's — and never what its spelling names
+/// where it is written: `N: Size` is `scaled`'s `N`, then the local. Red
+/// with a template's labels resolved as the names they are spelled as.
+#[test]
+fn a_template_argument_s_label_is_its_parameter() {
+    let mut db = db(NAMED);
+    let file = write(&mut db, TEMPLATES);
+    assert_eq!(lands(&db, file, TEMPLATES, "Wide: true", 0).as_deref(), Some("1:43"), "`Buffer`'s `Wide`");
+    assert_eq!(lands(&db, file, TEMPLATES, "Size: 8", 0).as_deref(), Some("1:28"));
+    assert_eq!(lands(&db, file, TEMPLATES, "T: uint16", 0).as_deref(), Some("1:20"));
+    assert_eq!(lands(&db, file, TEMPLATES, "N: Size", 0).as_deref(), Some("11:28"), "`scaled`'s `N`");
+    assert_eq!(lands(&db, file, TEMPLATES, "Size>(p)", 0).as_deref(), Some("25:20"), "the value is the local");
+    let unknown = TEMPLATES.replace("Wide: true", "Deep: true");
+    let file = write(&mut db, &unknown);
+    assert_eq!(lands(&db, file, &unknown, "Deep: true", 0), None, "a name no parameter has lands nowhere");
+}

@@ -131,8 +131,9 @@ adds. Per package, so a library and its users each keep their own; every
 extension desugars inside the frontend to reference Kanagawa, so the
 ParseTree walk and the backend never change, and `kg expand` can print the
 reference program at any time. Planned in [`plans/editions.md`](plans/editions.md);
-**piloted on the `editions-pilot` branch** (2026-10-30): edition `1.1`,
-named arguments, behind the `editions` gate — the user's pages are
+**piloted on the `editions-pilot` branch** (2026-10-30): edition `1.1`
+— named arguments, trailing commas, default arguments and named template
+arguments — behind the `editions` gate — the user's pages are
 [`editions/`](editions/README.md). Whether it merges is the open question
 below.
 
@@ -140,7 +141,8 @@ below.
 
 - **Named arguments**, `f(x: 1, y: 2)`, reordered to positional — the
   smallest, and the pilot: edition `1.1` on `editions-pilot`
-  ([`editions/1.1.md`](editions/1.1.md)).
+  ([`editions/1.1.md`](editions/1.1.md)), with trailing commas, default
+  arguments and named template arguments beside it.
 - **Tagged enums and `match`**: an enum, a union and a struct, and a
   `switch`, with an exhaustiveness check — decoders and instruction sets.
 - **Arithmetic that says what it does**: wrapping and saturating operators
@@ -211,7 +213,7 @@ Each blocks only its own item; the work assumes the first answer meanwhile.
 | Whether the reference's round order binds after parity (it decides whether a demand-driven elaboration, possibly on salsa, is open) | it binds | [`plans/loop-across-edits.md`](plans/loop-across-edits.md) §8 |
 | The query layer's substrate: hand-rolled, or salsa | hand-rolled | [`plans/loop-across-edits.md`](plans/loop-across-edits.md) §8 |
 | Rename in a project with no manifest: refuse, or scan the declaring file's directories | searches the open buffers' programs | [`history/handoff-2026-10-11.md`](history/handoff-2026-10-11.md) |
-| Whether kgrust extends the language at all, behind editions (a direction beyond parity) | piloted on `editions-pilot` (edition `1.1`, named arguments), unmerged; `main` has no extension | [`plans/editions.md`](plans/editions.md), [`editions/`](editions/README.md) |
+| Whether kgrust extends the language at all, behind editions (a direction beyond parity) | piloted on `editions-pilot` (edition `1.1`: named arguments, trailing commas, default arguments, named template arguments), unmerged; `main` has no extension | [`plans/editions.md`](plans/editions.md), [`editions/`](editions/README.md) |
 | Lints beyond the reference's six warnings (width surprises) | none | [`plans/developer-tooling.md`](plans/developer-tooling.md) §2.5 |
 | The VS Code extension's publisher and display name (distinct from upstream's own extension) | unset | [`plans/developer-tooling.md`](plans/developer-tooling.md) §2.1 |
 | Where the platform layer lives (here, or a repository of its own) and whether the release archive carries it | here, in `platform/`; shipped since 2026-10-17, so that an installed `kg board` works (two lines of `xtask/src/dist.rs`) | [`plans/platform-layer.md`](plans/platform-layer.md) §8 |

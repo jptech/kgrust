@@ -30,7 +30,8 @@ features = ["named-arguments"]   # single features, beside the edition
 - **`[language] features`** turns on single features on top of the
   edition: a way to try one before the edition that holds it, or to stay
   on an older edition and take one feature. Known features:
-  `named-arguments`, `trailing-commas`, `default-arguments`.
+  `named-arguments`, `trailing-commas`, `default-arguments`,
+  `named-template-arguments`.
 - **An edition or a feature this `kg` does not know is an error**, never
   ignored: `unknown edition `2.0`: this kg knows 1.0, 1.1`. An older tool
   must not compile a newer program as something else.

@@ -296,6 +296,17 @@ impl Db {
         if let Some(callee) = labelled_callee(&token) {
             return self.parameter_definitions(looped, roots, file, callee, token.text());
         }
+        // A named template argument's (`Buffer<Size: 8>`) names a parameter of
+        // the template its list follows, which `kg_sem::deduce` places it by.
+        if let Some(template) = labelled_template(&token) {
+            let names = self.interner();
+            return self
+                .definitions_at_through(looped, roots, file, template)
+                .iter()
+                .flat_map(|def| self.template_parameters_of(def))
+                .filter(|p| p.qualified_name.last().is_some_and(|n| names.resolve(n).as_str() == token.text()))
+                .collect();
+        }
 
         // A `.` member access is not a path: `a.b` names `b` *inside the type
         // of `a`* (`tLookupField`, `Type.hs:961-971`; `method`,
@@ -379,6 +390,26 @@ impl Db {
             .filter(|&i| {
                 let item = tree.get(i);
                 item.kind == DefKind::FuncParam && item.parent.is_some_and(|p| functions.contains(&p))
+            })
+            .map(|i| Definition::new(def.def.module, i, tree.get(i)))
+            .collect()
+    }
+
+    /// The parameters of the template `def` is — or wraps, where `def` is the
+    /// class or function a `template <…>` declares — in their order, and none
+    /// where it is no template.
+    pub(crate) fn template_parameters_of(&self, def: &Definition) -> Vec<Definition> {
+        let tree = self.item_tree(def.def.module);
+        let template = match def.kind {
+            DefKind::Template => Some(def.def.item),
+            _ => tree.get(def.def.item).parent.filter(|&p| tree.get(p).kind == DefKind::Template),
+        };
+        let Some(template) = template else { return Vec::new() };
+        (0..tree.items.len() as u32)
+            .map(ItemId)
+            .filter(|&i| {
+                let item = tree.get(i);
+                item.kind == DefKind::TemplateParam && item.parent == Some(template)
             })
             .map(|i| Definition::new(def.def.module, i, tree.get(i)))
             .collect()
@@ -781,6 +812,26 @@ pub fn identifier_at(root: &SyntaxNode, offset: TextSize) -> Option<SyntaxToken>
 fn labelled_callee(token: &SyntaxToken) -> Option<TextSize> {
     let label = token.parent().filter(|p| p.kind() == SyntaxKind::ARG_LABEL)?;
     callee_probe(&label.parent()?.parent().and_then(ast::CallExpr::cast)?)
+}
+
+/// Where the template is named whose argument `token` labels — the midpoint
+/// of the name its list follows, in a path's segment (`Buffer<Size: 8>`) or
+/// after a `.` (`o.template f<N: 1>`) — or `None` when `token` is no such
+/// label.
+pub(crate) fn labelled_template(token: &SyntaxToken) -> Option<TextSize> {
+    let label = token.parent().filter(|p| p.kind() == SyntaxKind::ARG_LABEL)?;
+    labelled_template_name(&label.first_token()?)
+}
+
+/// [`labelled_template`] for any token directly in, or in a label of, a
+/// template's argument list: where the template is named.
+pub(crate) fn labelled_template_name(token: &SyntaxToken) -> Option<TextSize> {
+    let list = token.parent_ancestors().find(|p| p.kind() == SyntaxKind::TEMPLATE_ARG_LIST)?;
+    if !token.parent().is_some_and(|p| p == list || p.kind() == SyntaxKind::ARG_LABEL && p.parent().as_ref() == Some(&list)) {
+        return None;
+    }
+    let name = list.parent()?.children().find(|c| c.kind() == SyntaxKind::NAME_REF)?.first_token()?;
+    Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
 }
 
 /// Where `call`'s callee is named: the midpoint of its last identifier, the

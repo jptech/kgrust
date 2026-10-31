@@ -131,7 +131,9 @@ impl Db {
     /// parameter is the thread's index, which no call names
     /// (`Type.hs:1364-1373`). Empty where the callee's name reaches no
     /// single function; resolved through `looped` alone, as a member list
-    /// is, so a keystroke never runs a loop.
+    /// is, so a keystroke never runs a loop. A template's arguments likewise
+    /// (edition 1.1's named template arguments): the parameters of the
+    /// template the list follows.
     pub fn label_completions(
         &self,
         roots: &[FileId],
@@ -139,22 +141,31 @@ impl Db {
         offset: TextSize,
         looped: Option<&EditorLoop>,
     ) -> Vec<Completion> {
+        use kg_base::language::Feature;
         let parse = self.parse(file);
-        if !parse.features().has(kg_base::language::Feature::NamedArguments) {
-            return Vec::new();
-        }
         let root = parse.syntax_node();
         let Some(anchor) = token_left_of(&root, offset) else { return Vec::new() };
         let Some(list) = argument_start(&anchor, offset) else { return Vec::new() };
-        let Some(call) = list.syntax().parent().and_then(ast::CallExpr::cast) else { return Vec::new() };
-        let Some(probe) = crate::navigate::callee_probe(&call) else { return Vec::new() };
+        let template = list.kind() == SyntaxKind::TEMPLATE_ARG_LIST;
+        let feature = if template { Feature::NamedTemplateArguments } else { Feature::NamedArguments };
+        if !parse.features().has(feature) {
+            return Vec::new();
+        }
+        let probe = if template {
+            list.first_child_or_token()
+                .and_then(|open| open.into_token())
+                .and_then(|open| crate::navigate::labelled_template_name(&open))
+        } else {
+            list.parent().and_then(ast::CallExpr::cast).and_then(|call| crate::navigate::callee_probe(&call))
+        };
+        let Some(probe) = probe else { return Vec::new() };
         let callees = self.definitions_at_through(&|| looped.cloned(), roots, file, probe);
         let [callee] = callees.as_slice() else { return Vec::new() };
 
         // Each argument's label, one per comma-separated slot; the caret's
         // slot is the one it is past as many commas as.
         let mut labels: Vec<Option<String>> = vec![None];
-        for element in list.syntax().children_with_tokens() {
+        for element in list.children_with_tokens() {
             match element {
                 kg_syntax::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => labels.push(None),
                 kg_syntax::NodeOrToken::Node(n) => {
@@ -165,14 +176,17 @@ impl Db {
                 kg_syntax::NodeOrToken::Token(_) => {}
             }
         }
-        let at = list.comma_tokens().filter(|c| c.text_range().end() <= offset).count();
+        let at = list
+            .children_with_tokens()
+            .filter(|e| e.kind() == SyntaxKind::COMMA && e.text_range().end() <= offset)
+            .count();
         let positional = labels.iter().take(at).take_while(|l| l.is_none()).count();
         let named: FxHashSet<&str> =
             labels.iter().enumerate().filter(|&(i, _)| i != at).filter_map(|(_, l)| l.as_deref()).collect();
 
         let names = self.interner();
-        let params = self.parameters_of(callee);
-        let pipelined = self.is_pipelined(callee);
+        let params = if template { self.template_parameters_of(callee) } else { self.parameters_of(callee) };
+        let pipelined = !template && self.is_pipelined(callee);
         if pipelined && at == 0 {
             return Vec::new(); // the thread count's place, written by position
         }
@@ -522,22 +536,23 @@ pub(crate) fn is_aggregate(ty: &Ty) -> bool {
 /// `,`, or the one identifier an argument holds so far, the caret past its
 /// first character — and not a label already written, whose name the caret
 /// is on.
-fn argument_start(anchor: &SyntaxToken, offset: TextSize) -> Option<ast::ArgList> {
+fn argument_start(anchor: &SyntaxToken, offset: TextSize) -> Option<SyntaxNode> {
+    let is_list = |k: SyntaxKind| matches!(k, SyntaxKind::ARG_LIST | SyntaxKind::TEMPLATE_ARG_LIST);
     let parent = anchor.parent()?;
-    if matches!(anchor.kind(), SyntaxKind::L_PAREN | SyntaxKind::COMMA) {
-        return ast::ArgList::cast(parent);
+    if matches!(anchor.kind(), SyntaxKind::L_PAREN | SyntaxKind::L_ANGLE | SyntaxKind::COMMA) {
+        return is_list(parent.kind()).then_some(parent);
     }
     if anchor.kind() != SyntaxKind::IDENT || anchor.text_range().start() >= offset {
         return None;
     }
-    let argument = anchor.parent_ancestors().find(|n| n.parent().is_some_and(|p| p.kind() == SyntaxKind::ARG_LIST))?;
+    let argument = anchor.parent_ancestors().find(|n| n.parent().is_some_and(|p| is_list(p.kind())))?;
     // A label written ends in its `:`, so the caret on its name is never on
     // an argument alone.
     let alone = argument.first_token().as_ref() == Some(anchor) && argument.last_token().as_ref() == Some(anchor);
     if !alone {
         return None;
     }
-    ast::ArgList::cast(argument.parent()?)
+    argument.parent()
 }
 
 /// The non-trivia token immediately left of the caret, or the identifier the

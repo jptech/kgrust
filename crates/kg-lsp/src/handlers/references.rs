@@ -110,9 +110,11 @@
 //! a rename of `x` that left it would break the call. So a parameter of a
 //! function another file can name is searched for like the function
 //! ([`labelled`]) — but only in the files whose language has named
-//! arguments, the only ones a label can be written in. A project of
-//! edition 1.0 has none, and searches a parameter in its open buffers, as
-//! it did before editions.
+//! arguments, the only ones a label can be written in. A template's
+//! parameter likewise, through a named template argument (`Buffer<Size:
+//! 8>`), in the files whose language has those. A project of edition 1.0
+//! has none, and searches a parameter in its open buffers, as it did before
+//! editions.
 
 use std::cell::OnceCell;
 
@@ -359,7 +361,8 @@ pub(crate) fn search(db: &Db, buffers: &[FileId], target: &Definition, needle: &
         walk(db, &[*root], files, Reading::Editor, target, Some(needle), member, &mut found);
     }
     let labels_only = !importable(db, target);
-    if labels_only && !labelled(db, target) {
+    let labels = labelled(db, target);
+    if labels_only && labels.is_none() {
         return found;
     }
 
@@ -367,7 +370,7 @@ pub(crate) fn search(db: &Db, buffers: &[FileId], target: &Definition, needle: &
     let claimed: FxHashSet<FileId> = plan.iter().flat_map(|(_, files)| files.iter().copied()).collect();
     let spelled: Vec<FileId> = sources::project_sources(db.settings())
         .into_iter()
-        .filter(|path| !labels_only || db.settings().language_of(path).features().has(Feature::NamedArguments))
+        .filter(|path| !labels_only || labels.is_some_and(|f| db.settings().language_of(path).features().has(f)))
         .map(|path| db.file_id(&path))
         .filter(|file| !claimed.contains(file))
         .filter(|&file| db.vfs().read(file).is_some_and(|text| text.text.contains(needle)))
@@ -569,12 +572,19 @@ pub(crate) fn importable(db: &Db, target: &Definition) -> bool {
     importable_item(&tree, at)
 }
 
-/// Whether a named argument in another file can name `target`: a parameter
-/// of a function another file can name (the module docs).
-pub(crate) fn labelled(db: &Db, target: &Definition) -> bool {
+/// Whether a named argument in another file can name `target` — a
+/// parameter of a function, or of a template, another file can name (the
+/// module docs) — and the feature a file's language needs to name it.
+pub(crate) fn labelled(db: &Db, target: &Definition) -> Option<Feature> {
     let tree = db.item_tree(target.def.module);
-    let Some(param) = tree.item(target.def.item).filter(|i| i.kind == DefKind::FuncParam) else { return false };
-    param.parent.and_then(|p| tree.item(p)).is_some_and(|function| importable_item(&tree, function))
+    let param = tree.item(target.def.item)?;
+    let feature = match param.kind {
+        DefKind::FuncParam => Feature::NamedArguments,
+        DefKind::TemplateParam => Feature::NamedTemplateArguments,
+        _ => return None,
+    };
+    let owner = param.parent.and_then(|p| tree.item(p))?;
+    importable_item(&tree, owner).then_some(feature)
 }
 
 fn importable_item<'a>(tree: &'a ItemTree, mut at: &'a Item) -> bool {

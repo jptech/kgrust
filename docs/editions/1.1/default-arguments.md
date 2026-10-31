@@ -38,7 +38,9 @@ parameter = attributes type identifier [ "=" expression ]
 - **Any parameter may have one**, not only the last: a call gives the
   ones before it by position, or skips them by naming the ones after
   ([named arguments](named-arguments.md)). Template parameters have the
-  same freedom (`Type.hs:1405-1428`).
+  same freedom (`Type.hs:1405-1428`), and
+  [named template arguments](named-template-arguments.md) skip them the
+  same way.
 - `kg fmt` spaces the `=` as an initializer's: `uint8 shift = 1`.
 
 ## Meaning

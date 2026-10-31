@@ -366,6 +366,28 @@ mod tests {
         assert_eq!(reference, named(&[]), "edition 1.0 has no named arguments");
     }
 
+    /// A template's argument begun is offered the template's parameters left
+    /// to name, as a call's argument is offered the function's: not one a
+    /// positional or another named argument fills. Red with a template's
+    /// list taken for no argument list, or its labels offered as a call's.
+    #[test]
+    fn a_template_argument_begun_is_offered_the_parameters_left_to_name() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "template <typename T, auto Size = 4, bool Wide = false>\nclass Buffer\n{\npublic:\n    T get(T x) { return x; }\n}\n\nclass Main\n{\n    Buffer<uint8, Wide: true, > _a;\n    Buffer<uint8, S> _b;\n}\n";
+        let files = [("main.k", text)];
+        let (dir, state, src) = lay_out_1_1("complete-template-labels", &files);
+        let uri = open_one(&state, &src, &files, "main.k");
+        let shown = |line: u32, col: u32| -> Vec<String> {
+            match completion(&state, &params(&uri, Position::new(line, col))).expect("open") {
+                Some(CompletionResponse::Array(out)) => out.into_iter().map(|i| i.label).filter(|l| l.ends_with(':')).collect(),
+                other => panic!("expected an array, got {other:?}"),
+            }
+        };
+        assert_eq!(shown(9, 30), ["Size:"]);
+        assert_eq!(shown(10, 19), ["Size:", "Wide:"], "one word into the argument");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// An unopened document is `NoFile`, never an empty list pretending to
     /// have looked.
     #[test]

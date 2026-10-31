@@ -317,21 +317,30 @@ fn arg_list(p: &mut Parser<'_>) {
 fn named_args(p: &mut Parser<'_>) {
     let mut labels: Vec<String> = Vec::new();
     comma_list(p, R_PAREN, |p| {
-        if p.at(IDENT) && p.nth_at(1, COLON) {
-            let text = p.token_text();
-            if labels.iter().any(|l| l == text) {
-                p.error(format!("the argument `{text}` is named twice"));
-            }
-            labels.push(text.to_owned());
-            let l = p.start();
-            p.bump(IDENT);
-            p.bump(COLON);
-            l.complete(p, ARG_LABEL);
-        } else if !labels.is_empty() && !p.at(R_PAREN) {
-            p.error("a positional argument cannot follow a named one");
-        }
+        arg_label(p, &mut labels, R_PAREN);
         expr(p, ExprMode::Full);
     });
+}
+
+/// The label of the argument the parser is at, if it has one — `x:`, an
+/// [`ARG_LABEL`] — and the errors of a label given twice, or of no label
+/// after one: shared by a call's arguments and a template's (edition 1.1's
+/// named template arguments, `paths::template_arg_list`), whose list closes
+/// at `close`. `labels` holds the list's labels so far.
+pub(crate) fn arg_label(p: &mut Parser<'_>, labels: &mut Vec<String>, close: SyntaxKind) {
+    if p.at(IDENT) && p.nth_at(1, COLON) {
+        let text = p.token_text();
+        if labels.iter().any(|l| l == text) {
+            p.error(format!("the argument `{text}` is named twice"));
+        }
+        labels.push(text.to_owned());
+        let l = p.start();
+        p.bump(IDENT);
+        p.bump(COLON);
+        l.complete(p, ARG_LABEL);
+    } else if !labels.is_empty() && !(if close == R_ANGLE { p.at_angle(R_ANGLE) } else { p.at(close) }) {
+        p.error("a positional argument cannot follow a named one");
+    }
 }
 
 /// Parses `elem ("," elem)*` up to `close`, guaranteeing forward progress.

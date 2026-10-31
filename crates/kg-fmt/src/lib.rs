@@ -381,6 +381,19 @@ mod tests {
         assert_eq!(format_file_in(&once, &Fmt::default(), trailing).unwrap(), once, "a broken list is a fixpoint too");
     }
 
+    /// Edition 1.1's named template arguments are spaced as a call's named
+    /// arguments are, `Buffer<Size: 8, T: uint16>`, and the layout is a
+    /// fixpoint.
+    #[test]
+    fn a_named_template_argument_is_spaced_as_a_named_argument() {
+        use kg_base::language::Feature;
+        let named = Features::NONE.with(Feature::NamedTemplateArguments);
+        let text = "class Main\n{\n    Buffer<Size:8,T :uint16> _b;\n    Buffer< uint8 , Wide : true > _a;\n}\n";
+        let once = format_file_in(text, &Fmt::default(), named).unwrap();
+        assert!(once.contains("    Buffer<Size: 8, T: uint16> _b;\n    Buffer<uint8, Wide: true> _a;"), "{once}");
+        assert_eq!(format_file_in(&once, &Fmt::default(), named).unwrap(), once, "a fixpoint");
+    }
+
     /// Edition 1.1's default arguments are spaced as an initializer is,
     /// `uint8 shift = Step + 1`, and the layout is a fixpoint.
     #[test]

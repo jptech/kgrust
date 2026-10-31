@@ -51,7 +51,10 @@ the labels, so the backend is given the 1.0 call (`crates/kg-sem/src/named.rs`).
   its template arguments are known: deduction matches each named argument
   to its parameter by name (`deduceFromFuncParam`'s pairing, `Type.hs:1477`,
   made by name instead of position), and so `pick(first: true, b: q, a: p)`
-  deduces `pick`'s `auto` parameters from `p` and `q`.
+  deduces `pick`'s `auto` parameters from `p` and `q`. Its template
+  arguments may be named too
+  ([named template arguments](named-template-arguments.md)):
+  `pick<T: uint8>(…)`.
 - **Pipelined functions.** A `[[pipelined]]` function's first parameter
   is the thread's index, and a call passes the thread count in its place
   (`Type.hs:1364-1373`; `compiler/cpp/ir.cpp:10932`). The count is written

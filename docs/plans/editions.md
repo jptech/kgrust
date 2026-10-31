@@ -298,6 +298,19 @@ diagnostic that needs resolution — while its desugaring is nothing at all:
 **Step 4 — the next feature**, chosen with the pilot's lessons: wrapping
 and saturating operators (lowering-local) or tagged enums and `match`
 (lowering and an HIR rewrite, with a declaration other modules import).
+*As built (2026-10-30), the owner chose to finish 1.1's theme first — call
+sites that say what they mean — with three features beside named
+arguments: trailing commas (parser alone, the comma dropped from the
+tree's lists); default arguments (`Param = … Name ('=' Expr)?`, the
+default folded by inference and carried in the function's type,
+`kg_ty::TDefault`, so an incremental read sees it, and written into the
+calls that leave it out by `named.rs`); and named template arguments
+(`ArgLabel` in `TemplateArgList`, placed by parameter name in
+`crates/kg-sem/src/deduce.rs`, the holes given their defaults as
+`resolveTemplateArgs` gives those past the last argument,
+`Type.hs:1405-1428`). Each is a page under
+[`../editions/1.1/`](../editions/1.1.md), alone a feature name. Operators
+and tagged enums remain the candidates for the edition after.*
 
 **Step 5 — the first edition**, once some features have been used long
 enough to freeze: the bundle named, `kg fix --edition` to migrate a

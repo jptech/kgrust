@@ -24,11 +24,16 @@ pub enum Feature {
     /// `uint8 f(uint8 x, uint8 shift = 0)`: a parameter's default, which a
     /// call may then leave out (`docs/editions/1.1.md`).
     DefaultArguments,
+    /// `FIFO<uint8, Size: 4, DequeueBlocking: false>`: template arguments
+    /// named by their parameters, skipping those with defaults
+    /// (`docs/editions/1.1.md`).
+    NamedTemplateArguments,
 }
 
 impl Feature {
     /// Every feature, in the order they were added.
-    pub const ALL: [Feature; 3] = [Feature::NamedArguments, Feature::TrailingCommas, Feature::DefaultArguments];
+    pub const ALL: [Feature; 4] =
+        [Feature::NamedArguments, Feature::TrailingCommas, Feature::DefaultArguments, Feature::NamedTemplateArguments];
 
     /// The spelling a manifest's `[language] features` and `--feature` use.
     pub fn name(self) -> &'static str {
@@ -36,6 +41,7 @@ impl Feature {
             Feature::NamedArguments => "named-arguments",
             Feature::TrailingCommas => "trailing-commas",
             Feature::DefaultArguments => "default-arguments",
+            Feature::NamedTemplateArguments => "named-template-arguments",
         }
     }
 
@@ -113,7 +119,8 @@ pub enum Edition {
     #[default]
     V1_0,
     /// `1.0` and call sites that say what they mean: named arguments,
-    /// trailing commas and default arguments (`docs/editions/1.1.md`). A preview until a release freezes it.
+    /// trailing commas, default arguments and named template arguments
+    /// (`docs/editions/1.1.md`). A preview until a release freezes it.
     V1_1,
 }
 
@@ -139,7 +146,12 @@ impl Edition {
     pub fn features(self) -> Features {
         match self {
             Edition::V1_0 => Features::NONE,
-            Edition::V1_1 => [Feature::NamedArguments, Feature::TrailingCommas, Feature::DefaultArguments]
+            Edition::V1_1 => [
+                Feature::NamedArguments,
+                Feature::TrailingCommas,
+                Feature::DefaultArguments,
+                Feature::NamedTemplateArguments,
+            ]
             .into_iter()
             .collect(),
         }
