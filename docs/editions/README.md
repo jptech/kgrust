@@ -12,7 +12,7 @@ checks, diagnoses and builds exactly as it did before editions existed.
 | Edition | Status | Adds | The difference, in full |
 |---|---|---|---|
 | `1.0` | the default; follows `reference.lock`'s pin | — | [`1.0.md`](1.0.md) |
-| `1.1` | **preview**: may still change | named arguments, in any order | [`1.1.md`](1.1.md) |
+| `1.1` | **preview**: may still change | call sites that say what they mean: named arguments, trailing commas | [`1.1.md`](1.1.md) |
 
 ## Opting in
 
@@ -30,7 +30,7 @@ features = ["named-arguments"]   # single features, beside the edition
 - **`[language] features`** turns on single features on top of the
   edition: a way to try one before the edition that holds it, or to stay
   on an older edition and take one feature. Known features:
-  `named-arguments`.
+  `named-arguments`, `trailing-commas`.
 - **An edition or a feature this `kg` does not know is an error**, never
   ignored: `unknown edition `2.0`: this kg knows 1.0, 1.1`. An older tool
   must not compile a newer program as something else.

@@ -244,7 +244,7 @@ fn enum_decl(p: &mut Parser<'_>) {
                 break;
             }
         }
-        if !p.eat(COMMA) {
+        if !p.eat(COMMA) || p.at_trailing(R_CURLY) {
             break;
         }
     }
@@ -384,7 +384,7 @@ fn template_decl(p: &mut Parser<'_>, ctx: Ctx) {
                 break;
             }
         }
-        if !p.eat(COMMA) {
+        if !p.eat(COMMA) || p.at_trailing(R_ANGLE) {
             break;
         }
     }
@@ -566,7 +566,7 @@ pub(crate) fn param_list(p: &mut Parser<'_>) {
                     break;
                 }
             }
-            if !p.eat(COMMA) {
+            if !p.eat(COMMA) || p.at_trailing(R_PAREN) {
                 break;
             }
         }

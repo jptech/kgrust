@@ -13,7 +13,8 @@ Notable changes to kgrust, newest first. The format follows
   under `[language] features`, and `--edition` / `--feature` for one run.
   A file is read in its own package's language; the standard library and
   everything the `kanagawa` binary compiles are always `1.0`. Edition
-  `1.1` (a preview) adds named arguments, `f(y: 2, x: 1)`, in any order,
+  `1.1` (a preview) adds trailing commas, `f(1, 2,)`, and named
+  arguments, `f(y: 2, x: 1)`, in any order,
   through `kg check`, `kg build`, `kg fmt` and the language server —
   where a label navigates to its parameter, renames with it, lights it in
   signature help and is offered as a completion

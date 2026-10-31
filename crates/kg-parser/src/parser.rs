@@ -140,6 +140,17 @@ impl<'t> Parser<'t> {
         self.inp.features().has(feature)
     }
 
+    /// Whether the comma just eaten ends its list: edition 1.1's trailing
+    /// comma (`docs/editions/1.1.md`), the list's `close` next. The reference
+    /// separates every list with `sepBy` or a `comma >>` recursion
+    /// (`Parser.hs:289-291,363,377,551,697,860,871`), which leaves a comma
+    /// before the closing bracket an error, so a list this ends is one the
+    /// reference rejects.
+    pub fn at_trailing(&self, close: SyntaxKind) -> bool {
+        self.has(kg_base::language::Feature::TrailingCommas)
+            && if close == R_ANGLE { self.at_angle(R_ANGLE) } else { self.at(close) }
+    }
+
     pub fn at_end(&self) -> bool {
         self.pos >= self.inp.len() || self.stalled.get().is_some()
     }

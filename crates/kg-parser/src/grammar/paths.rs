@@ -101,7 +101,7 @@ pub(crate) fn template_arg_list(p: &mut Parser<'_>) {
                     break;
                 }
             }
-            if !p.eat(COMMA) {
+            if !p.eat(COMMA) || p.at_trailing(R_ANGLE) {
                 break;
             }
         }

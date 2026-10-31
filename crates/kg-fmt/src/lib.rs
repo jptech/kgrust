@@ -364,6 +364,23 @@ mod tests {
         assert!(matches!(format_file(text, &Fmt::default()), Err(FormatError::Unparseable { .. })));
     }
 
+    /// Edition 1.1's trailing commas are kept, a list that holds one laid
+    /// out as any other — inline where it fits, one element a line where it
+    /// does not — and the layout is a fixpoint.
+    #[test]
+    fn a_trailing_comma_is_kept() {
+        use kg_base::language::Feature;
+        let trailing = Features::NONE.with(Feature::TrailingCommas);
+        let text = "enum E : uint2 { A, B, }\n\ninline void f(uint8 x,uint8 y ,)\n{\n    g( 1,2 , );\n}\n";
+        let once = format_file_in(text, &Fmt::default(), trailing).unwrap();
+        assert!(once.contains("g(1, 2,);"), "{once}");
+        assert!(once.contains("inline void f(uint8 x, uint8 y,)"), "{once}");
+        assert_eq!(format_file_in(&once, &Fmt::default(), trailing).unwrap(), once, "a fixpoint");
+        let long = format!("inline void f()\n{{\n    g({});\n}}\n", (0..30).map(|i| format!("argument_{i},")).collect::<String>());
+        let once = format_file_in(&long, &Fmt::default(), trailing).unwrap();
+        assert_eq!(format_file_in(&once, &Fmt::default(), trailing).unwrap(), once, "a broken list is a fixpoint too");
+    }
+
     #[test]
     fn an_empty_file_is_left_empty() {
         assert_eq!(fmt(""), "");

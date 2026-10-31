@@ -18,16 +18,20 @@ pub enum Feature {
     /// `f(x: 1, y: 2)`: arguments named by their parameters, in any order
     /// (`docs/editions/1.1.md`).
     NamedArguments,
+    /// `f(a, b,)`: a comma before the closing bracket of an argument,
+    /// parameter, template or initializer list (`docs/editions/1.1.md`).
+    TrailingCommas,
 }
 
 impl Feature {
     /// Every feature, in the order they were added.
-    pub const ALL: [Feature; 1] = [Feature::NamedArguments];
+    pub const ALL: [Feature; 2] = [Feature::NamedArguments, Feature::TrailingCommas];
 
     /// The spelling a manifest's `[language] features` and `--feature` use.
     pub fn name(self) -> &'static str {
         match self {
             Feature::NamedArguments => "named-arguments",
+            Feature::TrailingCommas => "trailing-commas",
         }
     }
 
@@ -104,8 +108,8 @@ pub enum Edition {
     /// Upstream Kanagawa at `reference.lock`'s pin.
     #[default]
     V1_0,
-    /// `1.0` and named arguments (`docs/editions/1.1.md`). A preview until
-    /// a release freezes it.
+    /// `1.0` and call sites that say what they mean: named arguments and
+    /// trailing commas (`docs/editions/1.1.md`). A preview until a release freezes it.
     V1_1,
 }
 
@@ -131,7 +135,9 @@ impl Edition {
     pub fn features(self) -> Features {
         match self {
             Edition::V1_0 => Features::NONE,
-            Edition::V1_1 => Features::NONE.with(Feature::NamedArguments),
+            Edition::V1_1 => [Feature::NamedArguments, Feature::TrailingCommas]
+            .into_iter()
+            .collect(),
         }
     }
 

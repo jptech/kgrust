@@ -1800,3 +1800,31 @@ fn an_attributed_array_takes_one_dimension() {
     assert_eq!(errors.first().map(|(at, _)| *at), Some(31), "the second `[` is the error");
     assert!(parse_errors("using D = [[memory]] uint32[16];\n").0.is_empty());
 }
+
+/// Edition 1.1's trailing commas: one comma before the closing bracket of
+/// every list the reference separates with `sepBy` or a `comma >>` recursion
+/// (`Parser.hs:289-291,363,377,551,697,860,871`), each a parse error there.
+/// Two commas, or a comma alone, are still errors. Red with any one list's
+/// `Parser::at_trailing` left out.
+#[test]
+fn a_trailing_comma_closes_a_list_where_the_language_has_them() {
+    let trailing = Features::NONE.with(Feature::TrailingCommas);
+    let lists = [
+        ("call arguments", "static assert(f(1, 2,));"),
+        ("parameters", "inline void f(uint8 x, uint8 y,) {}"),
+        ("template parameters", "template <typename T, auto N,> inline void f() {}"),
+        ("template arguments", "using t = Foo<uint8, 4,>;"),
+        ("function type parameters", "inline void f((uint8, uint8,) -> uint8 g) {}"),
+        ("a positional initializer list", "static assert({1, 2,} == x);"),
+        ("a designated initializer list", "static assert({.a = 1, .b = 2,} == x);"),
+        ("enum constants", "enum E : uint2 { A, B, }"),
+    ];
+    for (what, src) in lists {
+        assert_eq!(parse_in(src, trailing).1, Vec::<String>::new(), "{what} with a trailing comma");
+        assert!(!parse(src).1.is_empty(), "the reference rejects {what} with a trailing comma");
+    }
+    assert!(!parse_in("static assert(f(1,,));", trailing).1.is_empty(), "two commas");
+    assert!(!parse_in("static assert(f(,));", trailing).1.is_empty(), "a comma alone");
+    let named = trailing.with(Feature::NamedArguments);
+    assert_eq!(parse_in("static assert(f(1, y: 2,));", named).1, Vec::<String>::new(), "after a named argument");
+}

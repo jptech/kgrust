@@ -350,7 +350,7 @@ fn comma_list(p: &mut Parser<'_>, close: SyntaxKind, mut elem: impl FnMut(&mut P
                 break;
             }
         }
-        if !p.eat(COMMA) {
+        if !p.eat(COMMA) || p.at_trailing(close) {
             break;
         }
     }
@@ -585,7 +585,8 @@ fn angle_bracketed(p: &mut Parser<'_>, inner: impl FnOnce(&mut Parser<'_>)) {
 /// stray `,`.
 ///
 /// Trailing commas are not allowed in either shape, for that same reason
-/// (`Parser.hs:860`).
+/// (`Parser.hs:860`) — but in edition 1.1, which allows one before the `}`
+/// (`Parser::at_trailing`).
 fn init_list(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump(L_CURLY);
