@@ -265,6 +265,17 @@ impl GlobalState {
         lock(&self.inner.config).take_errors()
     }
 
+    /// Every manifest found broken since the last reload, and what is wrong
+    /// with it: unlike [`take_config_errors`](Self::take_config_errors), kept
+    /// until the manifest is read again, so the editor can mark it for as
+    /// long as it stays broken.
+    pub fn manifest_problems(&self) -> Vec<(Utf8PathBuf, ManifestProblem)> {
+        let config = lock(&self.inner.config);
+        let mut problems: Vec<_> = config.problems.iter().map(|(p, m)| (p.clone(), m.clone())).collect();
+        problems.sort_by(|a, b| a.0.cmp(&b.0));
+        problems
+    }
+
     // ------------------------------------------------------------- lifecycle
 
     /// `textDocument/didOpen`.
@@ -546,6 +557,19 @@ impl GlobalState {
     }
 }
 
+/// What is wrong with a `kanagawa.toml`, as the editor shows it: on the
+/// manifest, where `toml` places it, and once in a message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManifestProblem {
+    pub message: String,
+    /// The byte range at fault, and the text it indexes, where known.
+    pub span: Option<(std::ops::Range<usize>, Arc<str>)>,
+    /// Whether the manifest was refused whole, so that its files are read
+    /// as if it were not there — in edition 1.0, with none of its import
+    /// directories — and not only one of its tables (a `[board]` not found).
+    pub refused: bool,
+}
+
 /// `kanagawa.toml` discovery, cached by manifest path.
 ///
 /// Risk #13 of the project plan is an LSP with no config to read: without
@@ -561,6 +585,9 @@ struct ConfigStore {
     /// keystroke is worse than the original problem.
     errors: Vec<String>,
     reported: Vec<Utf8PathBuf>,
+    /// The manifests whose load failed since the last reload, kept for the
+    /// editor to mark ([`GlobalState::manifest_problems`]).
+    problems: FxHashMap<Utf8PathBuf, ManifestProblem>,
     fallback: Option<Arc<Settings>>,
     /// Whether a file with no manifest above it has been reported: its
     /// settings have no import directories, so the base library is not
@@ -584,6 +611,7 @@ impl ConfigStore {
             by_manifest: FxHashMap::default(),
             errors: Vec::new(),
             reported: Vec::new(),
+            problems: FxHashMap::default(),
             fallback: None,
             said_unmanaged: false,
             verdicts: kg_config::Verdicts::read(|name| std::env::var_os(name)),
@@ -599,6 +627,7 @@ impl ConfigStore {
     fn clear(&mut self) {
         self.by_manifest.clear();
         self.reported.clear();
+        self.problems.clear();
         self.fallback = None;
     }
 
@@ -643,6 +672,8 @@ impl ConfigStore {
                     {
                         self.reported.push(manifest.clone());
                         self.errors.push(format!("{manifest}: {err}"));
+                        let problem = ManifestProblem { message: err.to_string(), span: None, refused: false };
+                        self.problems.insert(manifest.clone(), problem);
                     }
                 }
                 let settings = Arc::new(settings);
@@ -653,6 +684,10 @@ impl ConfigStore {
                 if !self.reported.contains(&manifest) {
                     self.reported.push(manifest.clone());
                     self.errors.push(format!("{err}"));
+                    // The text `toml` refused, read again for the span to
+                    // index: a manifest is small, and this runs once a load.
+                    let span = err.span().zip(std::fs::read_to_string(&manifest).ok()).map(|(s, t)| (s, Arc::from(t)));
+                    self.problems.insert(manifest.clone(), ManifestProblem { message: err.message(), span, refused: true });
                 }
                 self.fallback(start.as_deref())
             }

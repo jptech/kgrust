@@ -247,6 +247,16 @@ mod tests {
         assert_eq!(crate::discover::parse("", path).unwrap().language(), Language::REFERENCE);
     }
 
+    /// The language server marks a refused edition where it is written, so
+    /// the error carries the value's place and its message bare.
+    #[test]
+    fn an_unknown_edition_is_placed_at_its_value() {
+        let text = "[package]\nname = \"p\"\nedition = \"9.9\"\n";
+        let err = crate::discover::parse(text, Utf8Path::new("kanagawa.toml")).unwrap_err();
+        assert_eq!(err.span().map(|s| &text[s]), Some("\"9.9\""));
+        assert_eq!(err.message(), "unknown edition `9.9`: this kg knows 1.0, 1.1");
+    }
+
     /// A directory removed when dropped; the crate has no temp-dir
     /// dependency, and these tests need only this much of one.
     mod tempdir {

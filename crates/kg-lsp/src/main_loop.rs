@@ -25,7 +25,7 @@ use lsp_types::request::Request as _;
 use lsp_types::{MessageType, Uri, notification as notif, request as req};
 
 use crate::capabilities;
-use crate::global_state::GlobalState;
+use crate::global_state::{GlobalState, ManifestProblem};
 use crate::handlers;
 use crate::sync::lock;
 
@@ -111,6 +111,10 @@ struct Server<'a> {
     /// newest ([`Published`]).
     diagnostics: TaskPool,
     published: Arc<Published>,
+    /// The broken manifests the editor was last told of, and what it was
+    /// told: a problem is marked and said once, and its mark is taken off
+    /// when the manifest loads again ([`report_config_errors`]).
+    manifests_shown: Mutex<FxHashMap<camino::Utf8PathBuf, ManifestProblem>>,
 }
 
 fn main_loop(connection: &Connection, state: GlobalState) -> ExitCode {
@@ -120,6 +124,7 @@ fn main_loop(connection: &Connection, state: GlobalState) -> ExitCode {
         pool: TaskPool::new(connection.sender.clone(), default_threads()),
         diagnostics: TaskPool::new(connection.sender.clone(), 1),
         published: Arc::new(Published::new(connection.sender.clone())),
+        manifests_shown: Mutex::new(FxHashMap::default()),
     };
     let mut shutdown_requested = false;
 
@@ -284,7 +289,7 @@ fn handle_notification(server: &Server<'_>, mut notification: Notification) {
         // After `publish`, which resolves the file's settings: a manifest
         // that fails to load, or none at all, is known only then.
         publish(server, doc.uri, Trigger::Edit);
-        report_config_errors(state);
+        report_config_errors(server);
     });
 
     on_notification!(notif::DidChangeTextDocument, |params| {
@@ -370,10 +375,12 @@ enum Trigger {
 /// each open file again under the new settings.
 fn reload_and_republish(server: &Server<'_>) {
     server.state.reload_config();
-    report_config_errors(&server.state);
     for uri in server.state.open_documents().into_iter().map(|d| d.uri) {
         publish(server, uri, Trigger::Edit);
     }
+    // After the files, as at `didOpen`: a manifest is read again only when a
+    // file under it asks for its settings, so a broken one is known only now.
+    report_config_errors(server);
 }
 
 /// Publishes diagnostics for `uri`, honouring `[lsp] diagnostics` from
@@ -440,10 +447,62 @@ fn publish(server: &Server<'_>, uri: Uri, trigger: Trigger) {
     });
 }
 
-fn report_config_errors(state: &GlobalState) {
+/// Logs each manifest error once, and shows the user each broken manifest:
+/// a diagnostic on the manifest, at the value `toml` refused, and a message
+/// once. A log alone was not enough: a manifest refused whole leaves its
+/// files on the defaults, so `edition = "9.9"` read as edition 1.0, and the
+/// user saw only the parse errors of a 1.1 program with nothing naming why.
+fn report_config_errors(server: &Server<'_>) {
+    let state = &server.state;
     for message in state.take_config_errors() {
         crate::log(MessageType::WARNING, format!("kanagawa.toml: {message}"));
     }
+    let problems: FxHashMap<_, _> = state.manifest_problems().into_iter().collect();
+    let mut shown = lock(&server.manifests_shown);
+    for path in shown.keys().filter(|p| !problems.contains_key(*p)) {
+        if let Some(uri) = crate::uri::path_to_uri(path) {
+            send_diagnostics(&server.connection.sender, handlers::cleared_diagnostics(&uri));
+        }
+    }
+    for (path, problem) in &problems {
+        if shown.get(path) == Some(problem) {
+            continue;
+        }
+        let Some(uri) = crate::uri::path_to_uri(path) else { continue };
+        let range = problem.span.as_ref().map_or_else(lsp_types::Range::default, |(span, text)| {
+            let index = kg_base::LineIndex::new(text);
+            let span = kg_base::TextRange::new(
+                kg_base::TextSize::new(span.start as u32),
+                kg_base::TextSize::new(span.end as u32),
+            );
+            crate::convert::range(&index, state.encoding(), span)
+        });
+        let diagnostic = lsp_types::Diagnostic {
+            range,
+            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+            source: Some("kg".to_owned()),
+            message: problem.message.clone(),
+            ..lsp_types::Diagnostic::default()
+        };
+        send_diagnostics(
+            &server.connection.sender,
+            lsp_types::PublishDiagnosticsParams { uri, diagnostics: vec![diagnostic], version: None },
+        );
+        let consequence = if problem.refused {
+            " Until it is fixed, the files under it are read as if it were not there, in edition 1.0."
+        } else {
+            ""
+        };
+        let params = lsp_types::ShowMessageParams {
+            typ: MessageType::WARNING,
+            message: format!("{path}: {}.{consequence}", problem.message.trim_end_matches('.')),
+        };
+        let _ = server.connection.sender.send(Message::Notification(Notification::new(
+            notif::ShowMessage::METHOD.to_owned(),
+            params,
+        )));
+    }
+    *shown = problems;
 }
 
 /// The order `publishDiagnostics` reaches the client in.
