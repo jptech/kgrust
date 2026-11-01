@@ -6,6 +6,12 @@ Notable changes to kgrust, newest first. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Inference walks again only the declarations that read what a rebuilt
+  symbol map moved: `kg check` of `risc-v.k` 1.97 → 1.78 s, 43% fewer
+  nodes visited, with identical results.
+
 ## 0.2.0 — language editions, 2026-10-31
 
 The first release since the published state. Its headline is language
