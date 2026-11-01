@@ -332,6 +332,14 @@ pub fn desugar_shallow(rw: &mut Rewriter, root: ExpId, pass: &mut impl ShallowRe
 /// children in `Exp::children` order. The ids go through the rewriter's
 /// one stack, and the slots are written only when an answer differs.
 fn rebuild(rw: &mut Rewriter, root: ExpId, each: &mut dyn FnMut(&mut Rewriter, ExpId) -> ExpId) -> Exp {
+    let (base, changed) = answer_kids(rw, root, each);
+    assemble(rw, root, base, changed)
+}
+
+/// [`rebuild`]'s first half: `each`'s answer for every child of `root`,
+/// stacked on the rewriter's stack from the returned base, and whether any
+/// answer differs from its child.
+fn answer_kids(rw: &mut Rewriter, root: ExpId, each: &mut dyn FnMut(&mut Rewriter, ExpId) -> ExpId) -> (usize, bool) {
     let base = rw.kids.len();
     rw.arena[root].exp.children(&mut rw.kids);
     let mut changed = false;
@@ -343,6 +351,12 @@ fn rebuild(rw: &mut Rewriter, root: ExpId, each: &mut dyn FnMut(&mut Rewriter, E
             changed = true;
         }
     }
+    (base, changed)
+}
+
+/// [`rebuild`]'s second half: `root`'s expression with the answers stacked
+/// from `base` in its slots, and the stack back at `base`.
+fn assemble(rw: &mut Rewriter, root: ExpId, base: usize, changed: bool) -> Exp {
     let mut rebuilt = rw.arena[root].exp.clone();
     if changed {
         let slots = rebuilt.children_mut();
@@ -364,6 +378,33 @@ pub fn desugar(
 ) -> ExpId {
     kg_base::cancel::checkpoint_strided();
     let rebuilt = rebuild(rw, root, &mut |rw, kid| desugar(rw, kid, f));
+    let out = f(rw, root, rebuilt);
+    if out == rw.arena[root].exp {
+        return root;
+    }
+    rw.replace(root, out)
+}
+
+/// [`desugar`] for an algebra that hands back, as it came and doing nothing
+/// else, every node whose expression `touches` declines: such a node whose
+/// children all came back as they were is the cata's identity, and is
+/// passed on without the clone, the call and the comparison [`desugar`]
+/// pays at every node. Where [`desugar_within`] passes over a subtree that
+/// holds none of a few shapes, this passes over each node that is not one
+/// of them — for an algebra over a shape every subtree holds, a name.
+pub fn desugar_touching(
+    rw: &mut Rewriter,
+    root: ExpId,
+    touches: &impl Fn(&Exp) -> bool,
+    f: &mut impl FnMut(&mut Rewriter, ExpId, Exp) -> Exp,
+) -> ExpId {
+    kg_base::cancel::checkpoint_strided();
+    let (base, changed) = answer_kids(rw, root, &mut |rw, kid| desugar_touching(rw, kid, touches, f));
+    if !changed && !touches(&rw.arena[root].exp) {
+        rw.kids.truncate(base);
+        return root;
+    }
+    let rebuilt = assemble(rw, root, base, changed);
     let out = f(rw, root, rebuilt);
     if out == rw.arena[root].exp {
         return root;
@@ -781,4 +822,69 @@ pub fn pipeline_tail_in_place(ir: &mut ModuleIr, interner: &Interner) {
     let root = lambdas::apply(&mut rw, root);
     let root = desugar_shallow(&mut rw, root, &mut AbbreviatedFunctionTemplate::default());
     ir.root = desugar_shallow(&mut rw, root, &mut MoveFunctions::new(interner));
+}
+
+#[cfg(test)]
+mod tests {
+    use kg_base::{FileId, Interner};
+    use kg_syntax::{AstNode, ast};
+
+    use super::{Rewriter, desugar, desugar_touching};
+    use crate::exp::Exp;
+    use crate::lower_sorted;
+    use crate::sort::NoImports;
+
+    /// An algebra over a shape every subtree holds — here an identifier,
+    /// renamed — mints through [`desugar_touching`] what it mints through
+    /// [`desugar`], node for node and in the same order, and is asked at
+    /// fewer nodes: the ones it touches, and those above a change. Red
+    /// with a node above a change passed over as it came: its rebuilt
+    /// children are lost.
+    #[test]
+    fn a_cata_over_the_shapes_it_touches_mints_what_the_whole_cata_mints() {
+        let interner = Interner::new();
+        let parse = kg_syntax::parse_file(
+            "inline uint8 f(uint8 x, uint8 y)\n{\n    uint8 z = x + y;\n    if (z > x)\n    {\n        z = z - x;\n    }\n    return z + 1;\n}\n",
+        );
+        let file = ast::SourceFile::cast(parse.syntax_node()).expect("root");
+        let lowered = lower_sorted(&file, FileId(0), &interner, &NoImports);
+        let (x, renamed) = (interner.intern("x"), interner.intern("renamed"));
+        let run = |touching: bool| {
+            let mut ir = lowered.fork();
+            let mut asked = 0;
+            let mut rename = |_: &mut Rewriter, _, e: Exp| {
+                asked += 1;
+                match e {
+                    Exp::Identifier(s) if s == x => Exp::Identifier(renamed),
+                    e => e,
+                }
+            };
+            let mut rw = Rewriter::new(&mut ir.arena, &interner);
+            ir.root = if touching {
+                desugar_touching(&mut rw, ir.root, &|e| matches!(e, Exp::Identifier(_)), &mut rename)
+            } else {
+                desugar(&mut rw, ir.root, &mut rename)
+            };
+            // Each fork's ids carry its own stamp: the two are compared by
+            // index.
+            let unstamped = |e: &Exp| {
+                let shown = format!("{e:?}");
+                let mut out = String::new();
+                let mut rest = shown.as_str();
+                while let Some(at) = rest.find("stamp: ") {
+                    out.push_str(&rest[..at]);
+                    rest = rest[at + "stamp: ".len()..].trim_start_matches(|c: char| c.is_ascii_digit());
+                    rest = rest.strip_prefix(", ").unwrap_or(rest);
+                }
+                out + rest
+            };
+            let minted: Vec<String> = ir.arena.iter().skip(lowered.arena.len()).map(|(_, n)| unstamped(&n.exp)).collect();
+            (ir.root.index(), minted, asked)
+        };
+        let (whole_root, whole, asked_whole) = run(false);
+        let (touched_root, touched, asked_touching) = run(true);
+        assert!(!whole.is_empty(), "the rename mints nodes");
+        assert_eq!((touched_root, &touched), (whole_root, &whole));
+        assert!(asked_touching < asked_whole, "asked {asked_touching} of {asked_whole}");
+    }
 }
