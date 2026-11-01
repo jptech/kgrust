@@ -601,7 +601,7 @@ fn kg_doc_check_points_into_the_documentation_and_writes_nothing() {
     assert_eq!(run.stdout.lines().count(), 1, "one object, no verdicts or summary: {}", run.stdout);
     assert!(run.stdout.contains("\"file\":\"guide.md\",\"line\":50,\"column\":15"), "{}", run.stdout);
 
-    scratch.file("good.md", "```\ninline void fine() {}\n```\n");
+    scratch.file("good.md", "```kanagawa\ninline void fine() {}\n```\n");
     let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "good.md"]);
     assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
     assert!(run.stdout.contains("checked 1 code block in 1 file: no problems found"), "{}", run.stdout);
@@ -613,6 +613,18 @@ fn kg_doc_check_points_into_the_documentation_and_writes_nothing() {
         "{}",
         run.stdout
     );
+
+    // An untagged block is not read, and is said not to be: a check of nothing
+    // must not pass for a clean one. `--all-blocks` reads it.
+    scratch.file("untagged.md", "```\nnot Kanagawa at all\n```\n");
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "untagged.md"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("checked 0 code blocks in 1 file"), "{}", run.stdout);
+    assert!(run.stdout.contains("note: 1 untagged code block not checked"), "{}", run.stdout);
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "--all-blocks", "untagged.md"]);
+    assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
+    assert!(!run.stdout.contains("not checked"), "{}", run.stdout);
+    std::fs::remove_file(scratch.path().join("untagged.md")).expect("remove");
 
     // `--all-blocks` is `chkdoc`'s selection: `sandcastle.md`'s `cpp` blocks are Kanagawa.
     scratch.file("cpp.md", "```cpp\ninline void c() {\n```\n");

@@ -18794,14 +18794,19 @@ Checked 2026-11-01: `scripts/identity.sh 094fefc`, 304 roots identical;
 `kg doc --check` ports upstream's `chkdoc` (`spec/cli.md` §8.9). Four things
 about it look arbitrary until you have run it.
 
-**Untagged means Kanagawa in a document, and nothing in a doc comment.**
+**Only the tag says a block is Kanagawa, unless you ask for `chkdoc`'s rule.**
 `chkdoc` compiles everything but `C++`, `bash` and `md`, which is right only
 for its four documents: `sandcastle.md`'s `cpp` blocks are Kanagawa, and
 `BUILDING.md`'s seven untagged shell blocks would be 265 errors if it were ever
-in the list. So the default takes untagged and `kanagawa`, and `--all-blocks`
-is `chkdoc`'s rule. In doc comments the library's two untagged fences are an
-import line (`data/vector.k:9-11`) and a hex key (`data/random/toeplitz.k:18-27`),
-so only the tag opts a block in. The library has no tagged block today, so a
+in the list. Untagged-means-Kanagawa was the first default, since all of
+upstream's checked blocks are untagged; the owner turned it down the same day
+as a dangerous default for ordinary READMEs. So the default takes `kanagawa`
+alone, `--all-blocks` is `chkdoc`'s rule, and an untagged block passed over is
+counted and said, so that a check of nothing does not pass for a clean one: over
+upstream's four documents the default checks 0 and says 319 were passed over. In
+doc comments the library's two untagged fences are an import line
+(`data/vector.k:9-11`) and a hex key (`data/random/toeplitz.k:18-27`), so there
+the tag is needed even under `--all-blocks`. The library has no tagged block today, so a
 walk of `library/` checks no doc comment: 128 files, 10 blocks checked, all
 from `processor/risc_v/user-guide.md`. That walk also exits 1 on
 `processor/risc_v/verification.md`, which is not UTF-8 and holds no fence.

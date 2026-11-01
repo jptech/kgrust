@@ -9,9 +9,9 @@ Notable changes to kgrust, newest first. The format follows
 ### Added
 
 - `kg doc --check [PATH]...` checks the Kanagawa code blocks in your
-  documentation and writes nothing. It reads fenced blocks in Markdown files,
-  untagged or tagged `kanagawa`, and blocks tagged `kanagawa` in the doc
-  comments `kg doc` renders. A block may be a whole file or the body of a
+  documentation and writes nothing. It reads fenced blocks tagged `kanagawa`,
+  in Markdown files and in the doc comments `kg doc` renders; untagged blocks
+  are passed over and counted, or read too with `--all-blocks`. A block may be a whole file or the body of a
   function. `<!-- invalid -->` on the line before the fence skips it, and
   `module a.b` on its first line lets later blocks import it. Errors point at
   the block's own line in the file that holds it, in `kg check`'s formats, and

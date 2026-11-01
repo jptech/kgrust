@@ -143,10 +143,10 @@ own to link into it too.
 
 `--check` writes nothing: it checks the Kanagawa code blocks in the
 documentation with the frontend, as the reference's `chkdoc` compiles its own
-docs', and exits 1 if one fails. In a Markdown file a fenced block is Kanagawa
-when it is untagged or tagged `kanagawa` (`--all-blocks`: every block but
-`C++`, `bash` and `md`, chkdoc's rule); in a source's doc comments, when it is
-tagged `kanagawa`. A block passes if it compiles as a whole file or as the body
+docs', and exits 1 if one fails. A fenced block is Kanagawa when it is tagged
+`kanagawa`, in a Markdown file or a source's doc comments; untagged blocks are
+passed over and counted. With `--all-blocks`, in Markdown, every block is
+Kanagawa but those tagged `C++`, `bash` or `md`, chkdoc's rule. A block passes if it compiles as a whole file or as the body
 of a function, against the base library or the library's `mini-base.k`.
 `<!-- invalid -->` on the line before the fence skips a block, `<!-- name.k -->`
 checks it in that file beside the document, at its `***` line; a block whose
@@ -268,7 +268,8 @@ pub struct DocArgs {
     #[arg(long, conflicts_with_all = ["out", "title", "open"])]
     pub check: bool,
     /// With `--check`: in Markdown, every fenced block but those tagged
-    /// `C++`, `bash` or `md` is Kanagawa, as the reference's `chkdoc` has it.
+    /// `C++`, `bash` or `md` is Kanagawa, untagged ones included, as the
+    /// reference's `chkdoc` has it.
     #[arg(long, requires = "check")]
     pub all_blocks: bool,
     #[command(flatten)]
@@ -495,12 +496,14 @@ fn doc_check(global: &GlobalArgs, args: &DocArgs, styles: &Styles, out: &mut dyn
     let mut checker = kg_doc::check::Checker::new(resolved.settings.clone(), select);
     let here = canonical(&cwd());
     let (mut passed, mut failed, mut skipped, mut unreadable, mut errors) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let mut untagged = 0usize;
     for path in &files {
         let Some(report) = checker.check_file(&canonical(path)) else {
             let _ = writeln!(err, "kg: cannot read {path}");
             unreadable += 1;
             continue;
         };
+        untagged += report.untagged;
         let vfs = checker.vfs();
         let name = vfs.path(report.file).map_or_else(|| path.to_string(), |p| shown(&p, &here));
         for block in &report.blocks {
@@ -549,6 +552,14 @@ fn doc_check(global: &GlobalArgs, args: &DocArgs, styles: &Styles, out: &mut dyn
                 parts.push(styles.error(&format!("{unreadable} unreadable")));
             }
             let _ = writeln!(out, "checked {head}: {}", parts.join(", "));
+        }
+        if untagged > 0 {
+            let _ = writeln!(
+                out,
+                "{}: {untagged} untagged code block{} not checked: tag the Kanagawa ones `kanagawa`, or pass `--all-blocks`",
+                styles.warning("note"),
+                plural(untagged),
+            );
         }
     }
     if refused > 0 {

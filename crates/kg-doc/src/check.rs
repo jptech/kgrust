@@ -6,15 +6,16 @@
 //! fenced block it takes through the whole compiler. This takes the same
 //! blocks by the same conventions, and checks them with the frontend:
 //!
-//! - **Which blocks.** In a Markdown file, a fenced block with no info
-//!   string, or tagged `kanagawa`. `chkdoc` compiles every fence but those
-//!   tagged `C++`, `bash` or `md` (`chkdoc.cpp:326-333`), so its docs'
+//! - **Which blocks.** A fenced block tagged `kanagawa`, in a Markdown file
+//!   or a doc comment. An untagged fence may hold anything, shell as readily
+//!   as code, so it is passed over and counted, and the command says how many
+//!   ([`FileReport::untagged`]). `chkdoc` instead compiles every fence but
+//!   those tagged `C++`, `bash` or `md` (`chkdoc.cpp:326-333`), so its docs'
 //!   untagged blocks are Kanagawa and so are `sandcastle.md`'s `cpp` ones;
-//!   [`Select::Chkdoc`] is that rule, for upstream's documents. In a doc
-//!   comment only a block tagged `kanagawa` is checked — this port's own
-//!   convention, opt-in by the tag: the reference checks no doc comment,
-//!   and its library's untagged fences hold other things, a hex key in
-//!   `library/data/random/toeplitz.k:18-27`.
+//!   [`Select::Chkdoc`] is that rule, for documents written to it, and in a
+//!   doc comment the tag alone still counts: the reference checks no doc
+//!   comment, and its library's untagged fences hold other things, a hex key
+//!   in `library/data/random/toeplitz.k:18-27`.
 //! - **Opting out.** `<!-- invalid -->` on the line before the fence
 //!   (`chkdoc.cpp:185-188`).
 //! - **Snippets.** A block is checked as a whole file, then as the body of
@@ -51,7 +52,7 @@ use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 /// Which fenced blocks of a Markdown file are Kanagawa.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum Select {
-    /// Untagged, or tagged `kanagawa`.
+    /// Tagged `kanagawa`.
     #[default]
     Kanagawa,
     /// Every block but those tagged `C++`, `bash` or `md`, by the info
@@ -62,10 +63,7 @@ pub enum Select {
 impl Select {
     fn takes(self, info: &str) -> bool {
         match self {
-            Select::Kanagawa => {
-                let language = language(info);
-                language.is_empty() || language.eq_ignore_ascii_case("kanagawa")
-            }
+            Select::Kanagawa => language(info).eq_ignore_ascii_case("kanagawa"),
             Select::Chkdoc => !["C++", "bash", "md"].iter().any(|other| info.starts_with(other)),
         }
     }
@@ -152,6 +150,14 @@ pub fn markdown_blocks(text: &str, select: Select) -> Vec<Block> {
     blocks_in(text, &|info| select.takes(info), &|at| TextSize::from(at as u32))
 }
 
+/// How many fenced blocks of a Markdown file's `text` have no tag, and so
+/// are Kanagawa only by [`Select::Chkdoc`].
+fn untagged_blocks(text: &str) -> usize {
+    Parser::new_ext(text, crate::markdown::options())
+        .filter(|event| matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) if language(info).is_empty()))
+        .count()
+}
+
 /// The `kanagawa` blocks in the doc comments of the file `root` parses,
 /// in order: every documented element's documentation, as `kg doc` renders
 /// it ([`crate::markdown::to_html`]).
@@ -174,7 +180,7 @@ pub fn doc_comment_blocks(root: &kg_syntax::SyntaxNode) -> Vec<Block> {
                 None => starts[..(pos.line as usize).min(starts.len())].iter().rev().flatten().next().copied().unwrap_or(first),
             }
         };
-        out.extend(blocks_in(&markdown, &|info| language(info).eq_ignore_ascii_case("kanagawa"), &host));
+        out.extend(blocks_in(&markdown, &|info| Select::Kanagawa.takes(info), &host));
     }
     out
 }
@@ -360,6 +366,9 @@ pub struct Checked {
 pub struct FileReport {
     pub file: FileId,
     pub blocks: Vec<Checked>,
+    /// Fenced blocks of a Markdown file passed over for having no tag. A check
+    /// that reads none of a document's code must not look like a clean one.
+    pub untagged: usize,
 }
 
 /// Checks code blocks with the frontend: one database over the project's
@@ -402,10 +411,11 @@ impl Checker {
     pub fn check_file(&mut self, path: &Utf8Path) -> Option<FileReport> {
         let host = self.vfs.intern(path);
         let text = self.vfs.read(host)?;
-        let blocks = if path.extension() == Some("k") {
-            doc_comment_blocks(&self.full.parse(host).syntax_node())
+        let (blocks, untagged) = if path.extension() == Some("k") {
+            (doc_comment_blocks(&self.full.parse(host).syntax_node()), 0)
         } else {
-            markdown_blocks(&text.text, self.select)
+            let untagged = if self.select == Select::Kanagawa { untagged_blocks(&text.text) } else { 0 };
+            (markdown_blocks(&text.text, self.select), untagged)
         };
         let dir = path.parent().map(Utf8Path::to_owned).unwrap_or_default();
         let root = self.vfs.intern(&dir.join(format!("{}.block.k", path.file_name().unwrap_or("doc"))));
@@ -466,7 +476,7 @@ impl Checker {
         if let Some(mini) = &self.mini {
             mini.forget_roots(&[root]);
         }
-        Some(FileReport { file: host, blocks: checked })
+        Some(FileReport { file: host, blocks: checked, untagged })
     }
 
     /// Tries `block` in each of `tries` until one compiles; failing all, the
@@ -539,7 +549,7 @@ impl Checker {
         if let Some(first) = diagnostics.first_mut() {
             first.notes.push(format!("the code block at line {line}, checked {how}"));
             if block.info.is_empty() {
-                first.notes.push("an untagged block is read as Kanagawa: tag it with its language, or put `<!-- invalid -->` on the line before it".to_owned());
+                first.notes.push("`--all-blocks` reads an untagged block as Kanagawa: tag it with its language, or put `<!-- invalid -->` on the line before it".to_owned());
             }
         }
         Checked { line, verdict: Verdict::Failed, diagnostics }

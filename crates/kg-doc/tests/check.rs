@@ -52,9 +52,10 @@ fn the_guide_passes_but_for_its_mistake() {
             (41, passed("emptyfunction.k")),
             (47, Verdict::Failed),
         ],
-        "the `sh` block is not Kanagawa"
+        "neither the `sh` block nor the untagged one is Kanagawa"
     );
     assert_eq!(failures(&report, &text), [(50, 15, "Symbol name not in scope: `undefined_name`".to_owned())]);
+    assert_eq!(report.untagged, 1);
 }
 
 #[test]

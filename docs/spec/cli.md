@@ -1404,10 +1404,11 @@ warning switches and 27 (28) of the 90 other flags are exercised; 7 warning swit
 >   frontend, as §8.9's `chkdoc` compiles upstream's, and refuses `-o`,
 >   `--title` and `--open`. With no paths it reads `project.sources`; a
 >   directory yields its `.k` and `.md` files; a named file that is not `.k`
->   is read as Markdown. A Markdown block is Kanagawa when it is untagged or
->   tagged `kanagawa`; `--all-blocks` takes `chkdoc`'s set instead, every
->   block but `C++`, `bash` and `md`. A doc comment's block is Kanagawa only
->   when tagged `kanagawa`. A block passes as a whole file or as a function's
+>   is read as Markdown. A block is Kanagawa when it is tagged `kanagawa`;
+>   untagged Markdown blocks are passed over, and a line after the summary
+>   says how many. `--all-blocks` takes `chkdoc`'s set in Markdown instead,
+>   every block but `C++`, `bash` and `md`; a doc comment's block still needs
+>   the tag. A block passes as a whole file or as a function's
 >   body, against the base library or the import path's `mini-base.k`.
 >   `<!-- invalid -->` on the line before the fence skips it, `<!-- name.k -->`
 >   checks it in that file beside the document, and `module a.b` on its first

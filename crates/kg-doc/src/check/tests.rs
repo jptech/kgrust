@@ -46,26 +46,27 @@ inline void cpp() {}
 int main() {}
 ```
 
-~~~
+~~~kanagawa
 inline void tilde() {}
 ~~~
 
 * In a list:
 
-    ```
+    ```kanagawa
     inline void listed()
     {
     }
     ```
 ";
 
+/// An untagged block may hold anything, so only the tag says it is Kanagawa.
+/// Red with an untagged block taken.
 #[test]
-fn untagged_and_kanagawa_blocks_are_kanagawa() {
+fn only_a_block_tagged_kanagawa_is_kanagawa() {
     let blocks = markdown_blocks(GUIDE, Select::Kanagawa);
     assert_eq!(
         texts(&blocks),
         [
-            "inline void untagged() {}\n",
             "uint32 x = 3;\n",
             "inline void tilde() {}\n",
             "inline void listed()\n{\n}\n",
@@ -79,12 +80,12 @@ fn untagged_and_kanagawa_blocks_are_kanagawa() {
 fn a_crlf_document_maps_line_by_line() {
     let md = GUIDE.replace('\n', "\r\n");
     let blocks = markdown_blocks(&md, Select::Kanagawa);
-    assert_eq!(blocks.len(), 4);
+    assert_eq!(blocks.len(), 3);
     maps_back(&md, &blocks);
     // The parser's text runs over a line end the code does not hold: `b`
     // comes as "\nb", whose `\r` was the piece before's.
     let md = "```\r\na\r\nb\r\n```\r\n";
-    let blocks = markdown_blocks(md, Select::Kanagawa);
+    let blocks = markdown_blocks(md, Select::Chkdoc);
     assert_eq!(texts(&blocks), ["a\nb\n"]);
     maps_back(md, &blocks);
 }
@@ -94,7 +95,7 @@ fn a_crlf_document_maps_line_by_line() {
 #[test]
 fn a_tab_indented_block_in_a_list_maps_line_by_line() {
     let md = "- An item:\n\n  ```\n\tinline void f()\n\t{\n\t}\n  ```\n";
-    let blocks = markdown_blocks(md, Select::Kanagawa);
+    let blocks = markdown_blocks(md, Select::Chkdoc);
     assert_eq!(blocks.len(), 1);
     let block = &blocks[0];
     assert_eq!(block.text, "  inline void f()\n  {\n  }\n");
@@ -134,7 +135,7 @@ fn chkdoc_takes_every_block_but_cpp_bash_and_md() {
 #[test]
 fn the_comment_on_the_line_before_the_fence_directs() {
     let md = "<!-- invalid -->\n```\nnot Kanagawa\n```\n\n<!-- emptyfunction.k -->\n```\nreturn;\n```\n\n<!-- prettier-ignore -->\n```\ninline void a() {}\n```\n\n<!-- invalid -->\n\n```\ninline void b() {}\n```\n";
-    let blocks = markdown_blocks(md, Select::Kanagawa);
+    let blocks = markdown_blocks(md, Select::Chkdoc);
     let directives: Vec<&Directive> = blocks.iter().map(|b| &b.directive).collect();
     assert_eq!(
         directives,
@@ -147,7 +148,7 @@ fn the_comment_on_the_line_before_the_fence_directs() {
 
 #[test]
 fn an_empty_block_and_an_unclosed_one_are_seen_as_such() {
-    let blocks = markdown_blocks("```\n```\n\n```\n\n```\n\n```\nopen\n", Select::Kanagawa);
+    let blocks = markdown_blocks("```\n```\n\n```\n\n```\n\n```\nopen\n", Select::Chkdoc);
     assert_eq!(texts(&blocks), ["", "\n", "open\n"]);
     assert_eq!(blocks.iter().map(|b| b.closed).collect::<Vec<_>>(), [true, true, false]);
 }
@@ -156,7 +157,7 @@ fn an_empty_block_and_an_unclosed_one_are_seen_as_such() {
 fn a_module_block_names_the_file_an_import_finds() {
     let blocks = markdown_blocks(
         "```\nmodule foo.bar\n{ f }\n```\n\n```\nmodule solo\n```\n\n```\nmodule foo.bar { f }\n```\n",
-        Select::Kanagawa,
+        Select::Chkdoc,
     );
     let paths: Vec<Option<Utf8PathBuf>> = blocks.iter().map(Block::module_path).collect();
     assert_eq!(paths, [Some("foo/bar.k".into()), Some("solo.k".into()), None]);
@@ -165,7 +166,7 @@ fn a_module_block_names_the_file_an_import_finds() {
 #[test]
 fn an_offset_past_a_line_or_the_text_maps_to_the_block_s_end() {
     let md = "Text.\n\n```\nab\ncd\n```\nAfter.\n";
-    let block = &markdown_blocks(md, Select::Kanagawa)[0];
+    let block = &markdown_blocks(md, Select::Chkdoc)[0];
     assert_eq!(usize::from(block.host(TextSize::from(2))), md.find("ab").unwrap() + 2, "a line's newline");
     assert_eq!(usize::from(block.host(TextSize::from(3))), md.find("cd").unwrap(), "the next line's start");
     assert_eq!(usize::from(block.end), md.rfind("```").unwrap(), "the closing fence");
@@ -174,7 +175,7 @@ fn an_offset_past_a_line_or_the_text_maps_to_the_block_s_end() {
     // file but the block's end.
     assert_eq!(block.host(TextSize::of(block.text.as_str()) + TextSize::from(4)), block.end, "past the text");
     let md = "* Item.\n\n  ```\n  ab\n  ```\n";
-    let block = &markdown_blocks(md, Select::Kanagawa)[0];
+    let block = &markdown_blocks(md, Select::Chkdoc)[0];
     assert_eq!(usize::from(block.end), md.rfind("```").unwrap(), "an indented closing fence");
     assert_eq!(block.host(TextSize::of(block.text.as_str())), block.end);
 }
@@ -264,7 +265,9 @@ fn scratch(name: &str, files: &[(&str, &str)]) -> Scratch {
 
 fn checker(dir: &Utf8Path) -> Checker {
     // No import directory: no base library, as `Parser/IO.hs:73-74` has it.
-    Checker::new(Settings::fallback(dir), Select::Kanagawa)
+    // These documents' blocks are untagged, as upstream's are: what they test
+    // is what happens to a block once it is taken.
+    Checker::new(Settings::fallback(dir), Select::Chkdoc)
 }
 
 fn verdicts(report: &FileReport) -> Vec<(u32, Verdict)> {
@@ -322,7 +325,7 @@ fn a_warning_fails_a_block_only_under_warnings_as_errors() {
     assert_eq!(verdicts(&report), [(1, passed("emptyfile.k"))]);
     let mut settings = Settings::fallback(&*dir);
     settings.warnings_as_errors = true;
-    let report = Checker::new(settings, Select::Kanagawa).check_file(&dir.join("doc.md")).expect("readable");
+    let report = Checker::new(settings, Select::Chkdoc).check_file(&dir.join("doc.md")).expect("readable");
     assert_eq!(verdicts(&report), [(1, Verdict::Failed)]);
     assert!(report.blocks[0].diagnostics[0].warning.is_some(), "{:?}", report.blocks[0].diagnostics);
 }
@@ -340,8 +343,24 @@ fn a_block_s_notes_are_on_its_first_diagnostic() {
         assert!(block.diagnostics[1..].iter().all(|d| d.notes.is_empty()), "{:?}", block.diagnostics);
     }
     assert_eq!(untagged.diagnostics[0].notes.len(), 2, "{:?}", untagged.diagnostics[0]);
-    assert!(untagged.diagnostics[0].notes[1].contains("an untagged block is read as Kanagawa"));
+    assert!(untagged.diagnostics[0].notes[1].contains("`--all-blocks` reads an untagged block as Kanagawa"));
     assert_eq!(tagged.diagnostics[0].notes.len(), 1, "it says it is Kanagawa: {:?}", tagged.diagnostics[0]);
+}
+
+/// By default an untagged block is not read, however wrong it would be, and
+/// is counted, so that a check that read nothing does not pass for a clean one.
+/// `chkdoc`'s rule reads it, and has none to count. Red with the count dropped,
+/// or taken from the tagged blocks.
+#[test]
+fn an_untagged_block_is_passed_over_and_counted() {
+    let md = "```\nnot Kanagawa at all\n```\n\n```kanagawa\ninline void fine() {}\n```\n\n```sh\nls\n```\n";
+    let dir = scratch("untagged", &[("doc.md", md)]);
+    let report = Checker::new(Settings::fallback(&*dir), Select::Kanagawa).check_file(&dir.join("doc.md")).expect("readable");
+    assert_eq!(verdicts(&report), [(5, passed("emptyfile.k"))]);
+    assert_eq!(report.untagged, 1, "the `sh` block has a tag");
+    let report = checker(&dir).check_file(&dir.join("doc.md")).expect("readable");
+    assert_eq!(report.blocks[0].verdict, Verdict::Failed, "{report:?}");
+    assert_eq!(report.untagged, 0);
 }
 
 #[test]
@@ -368,7 +387,7 @@ fn a_block_may_pass_against_mini_base_alone() {
     );
     let mut settings = Settings::fallback(&*dir);
     settings.import_dirs = vec![dir.join("lib")];
-    let report = Checker::new(settings, Select::Kanagawa).check_file(&dir.join("doc.md")).expect("readable");
+    let report = Checker::new(settings, Select::Chkdoc).check_file(&dir.join("doc.md")).expect("readable");
     assert_eq!(
         verdicts(&report),
         [
@@ -440,7 +459,7 @@ fn a_fix_keeps_its_message_and_gives_up_its_edits() {
     let mut settings = Settings::fallback(&*dir);
     settings.warnings.enable(kg_diag::WarningKind::Conversion);
     settings.warnings_as_errors = true;
-    let report = Checker::new(settings, Select::Kanagawa).check_file(&dir.join("doc.md")).expect("readable");
+    let report = Checker::new(settings, Select::Chkdoc).check_file(&dir.join("doc.md")).expect("readable");
     let fix = &report.blocks[0].diagnostics[0].fixes[0];
     assert!(fix.message.contains("cast<uint32>"), "{fix:?}");
     assert!(fix.edits.is_empty(), "they are to the checked text: {fix:?}");
