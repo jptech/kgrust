@@ -164,25 +164,14 @@ impl Db {
 
         // Each argument's label, one per comma-separated slot; the caret's
         // slot is the one it is past as many commas as.
-        let mut labels: Vec<Option<String>> = vec![None];
-        for element in list.children_with_tokens() {
-            match element {
-                kg_syntax::NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => labels.push(None),
-                kg_syntax::NodeOrToken::Node(n) => {
-                    if let Some(l) = ast::ArgLabel::cast(n).and_then(|l| l.ident_token()) {
-                        *labels.last_mut().expect("never empty") = Some(l.text().to_owned());
-                    }
-                }
-                kg_syntax::NodeOrToken::Token(_) => {}
-            }
-        }
+        let slots = crate::navigate::argument_slots(&list);
         let at = list
             .children_with_tokens()
             .filter(|e| e.kind() == SyntaxKind::COMMA && e.text_range().end() <= offset)
             .count();
-        let positional = labels.iter().take(at).take_while(|l| l.is_none()).count();
+        let positional = slots.iter().take(at).take_while(|s| s.label.is_none()).count();
         let named: FxHashSet<&str> =
-            labels.iter().enumerate().filter(|&(i, _)| i != at).filter_map(|(_, l)| l.as_deref()).collect();
+            slots.iter().enumerate().filter(|&(i, _)| i != at).filter_map(|(_, s)| s.label_text()).collect();
 
         let names = self.interner();
         let params = if template { self.template_parameters_of(callee) } else { self.parameters_of(callee) };

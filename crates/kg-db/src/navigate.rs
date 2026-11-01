@@ -73,9 +73,12 @@
 //! from the CST and every declaration *fact* still comes from the item tree.
 //! Nothing here re-decides what a declaration is or what it is called.
 
+use std::cell::{OnceCell, RefCell};
+use std::rc::Rc;
+
 use kg_base::{FileId, FileRange, FxHashMap, Symbol, SymbolPath, TextRange, TextSize};
 use kg_resolve::{DefId, DefKind, Item, ItemId, ItemTree, ModuleSource, SymbolsConfig};
-use kg_syntax::{AstNode, SyntaxKind, SyntaxNode, SyntaxToken, ast};
+use kg_syntax::{AstNode, NodeOrToken, SyntaxKind, SyntaxNode, SyntaxToken, ast};
 use kg_ty::Ty;
 
 use crate::Db;
@@ -273,16 +276,35 @@ impl Db {
         file: FileId,
         offset: TextSize,
     ) -> Vec<Definition> {
-        let module = ModuleSource::File(file);
-        let root = self.parse(file).syntax_node();
-        let tree = self.item_tree(module);
-        let Some(token) = identifier_at(&root, offset) else { return Vec::new() };
+        self.definitions_in(&FileNames::read(self, file, Locals::Scanned), looped, roots, offset)
+    }
+
+    /// [`Db::definitions_at_through`] for a reader of many names in `file`
+    /// at one revision — the defaults hint, at every call in a viewport.
+    /// What each answer reads of the file is read once for all of them:
+    /// its declarations by name token, and which declaration binds a name
+    /// in which scope, indexed by name where the one-off answer scans each
+    /// scope for it (`bound_in`). The answers are the one-off's, offset by
+    /// offset (`a_resolver_answers_as_each_name_is_answered_alone`).
+    pub fn resolver(&self, file: FileId) -> Resolver<'_> {
+        Resolver { db: self, names: FileNames::read(self, file, Locals::Indexed { by_name: OnceCell::new(), placed: RefCell::default() }) }
+    }
+
+    fn definitions_in(
+        &self,
+        names: &FileNames,
+        looped: &dyn Fn() -> Option<crate::looped::EditorLoop>,
+        roots: &[FileId],
+        offset: TextSize,
+    ) -> Vec<Definition> {
+        let (module, root, tree) = (names.module, &names.root, &names.tree);
+        let Some(token) = identifier_at(root, offset) else { return Vec::new() };
 
         // Goto-definition *on* a definition returns it. Checked by range rather
         // than by node kind so that a lambda capture — whose declaration is a
         // `NAME_REF`, not a `NAME` (`Parser.hs:447`) — is covered by the same
         // test.
-        let declarations = declarations_by_name_token(&tree);
+        let declarations = names.declarations();
         if let Some(&item) = declarations.get(&token.text_range()) {
             return vec![Definition::new(module, item, tree.get(item))];
         }
@@ -294,17 +316,17 @@ impl Db {
         // value (a closure, a parameter of function type) has its names only
         // in a type, which declares nothing: no answer.
         if let Some(callee) = labelled_callee(&token) {
-            return self.parameter_definitions(looped, roots, file, callee, token.text());
+            return self.parameter_definitions(names, looped, roots, callee, token.text());
         }
         // A named template argument's (`Buffer<Size: 8>`) names a parameter of
         // the template its list follows, which `kg_sem::deduce` places it by.
         if let Some(template) = labelled_template(&token) {
-            let names = self.interner();
+            let interner = self.interner();
             return self
-                .definitions_at_through(looped, roots, file, template)
+                .definitions_in(names, looped, roots, template)
                 .iter()
                 .flat_map(|def| self.template_parameters_of(def))
-                .filter(|p| p.qualified_name.last().is_some_and(|n| names.resolve(n).as_str() == token.text()))
+                .filter(|p| p.qualified_name.last().is_some_and(|n| interner.resolve(n).as_str() == token.text()))
                 .collect();
         }
 
@@ -343,7 +365,7 @@ impl Db {
         //    (`SymbolTable.hs:243-244`). Without that guard a local `x` would
         //    answer `C::x`.
         if written.len() == 1
-            && let Some(item) = local_binding(&tree, &declarations, &token, name)
+            && let Some(item) = names.local_binding(&token, name)
         {
             return vec![Definition::new(module, item, tree.get(item))];
         }
@@ -357,24 +379,24 @@ impl Db {
     /// `callee` reaches.
     fn parameter_definitions(
         &self,
+        names: &FileNames,
         looped: &dyn Fn() -> Option<crate::looped::EditorLoop>,
         roots: &[FileId],
-        file: FileId,
         callee: TextSize,
         label: &str,
     ) -> Vec<Definition> {
-        let names = self.interner();
-        self.definitions_at_through(looped, roots, file, callee)
+        let interner = self.interner();
+        self.definitions_in(names, looped, roots, callee)
             .iter()
             .flat_map(|def| self.parameters_of(def))
-            .filter(|p| p.qualified_name.last().is_some_and(|n| names.resolve(n).as_str() == label))
+            .filter(|p| p.qualified_name.last().is_some_and(|n| interner.resolve(n).as_str() == label))
             .collect()
     }
 
     /// The parameters of the function `def` is, in their order — through a
     /// `template <…>` to the function it wraps, whose parameters are its own
     /// items — and none where `def` is no function.
-    pub(crate) fn parameters_of(&self, def: &Definition) -> Vec<Definition> {
+    pub fn parameters_of(&self, def: &Definition) -> Vec<Definition> {
         let tree = self.item_tree(def.def.module);
         let is_function = |kind: DefKind| matches!(kind, DefKind::Function | DefKind::FunctionDecl);
         let functions: Vec<ItemId> = match def.kind {
@@ -398,7 +420,7 @@ impl Db {
     /// The parameters of the template `def` is — or wraps, where `def` is the
     /// class or function a `template <…>` declares — in their order, and none
     /// where it is no template.
-    pub(crate) fn template_parameters_of(&self, def: &Definition) -> Vec<Definition> {
+    pub fn template_parameters_of(&self, def: &Definition) -> Vec<Definition> {
         let tree = self.item_tree(def.def.module);
         let template = match def.kind {
             DefKind::Template => Some(def.def.item),
@@ -413,6 +435,38 @@ impl Db {
             })
             .map(|i| Definition::new(def.def.module, i, tree.get(i)))
             .collect()
+    }
+
+    /// The node that declares `def`, the one its name is the `NAME` of —
+    /// a `FN_DECL`, a `PARAM`, a `VALUE_PARAM`, … — or `None` in a generated
+    /// module, which has no text, and for a name no `NAME` holds (a lambda's
+    /// capture).
+    pub fn declaring_node(&self, def: &Definition) -> Option<SyntaxNode> {
+        if def.range.file == FileId::SYNTHETIC {
+            return None;
+        }
+        let root = self.parse(def.range.file).syntax_node();
+        let name = token_with_range(&root, def.range.range)?;
+        name.parent().filter(|n| n.kind() == SyntaxKind::NAME)?.parent()
+    }
+
+    /// The function `def` names, as written: its `FN_DECL` or `FN_PROTO` —
+    /// where signature help reads a parameter list and the defaults hint its
+    /// defaults — or `None` where `def` is no function's declaration.
+    pub fn function_declaration(&self, def: &Definition) -> Option<SyntaxNode> {
+        self.declaring_node(def).filter(|n| matches!(n.kind(), SyntaxKind::FN_DECL | SyntaxKind::FN_PROTO))
+    }
+
+    /// The default the parameter `def` declares, written on one line
+    /// ([`one_line`]) — a function's (`uint8 shift = 1`, edition 1.1) or a
+    /// template's (`auto Size = 4`) — or `None` where `def` is no parameter
+    /// or declares none.
+    pub fn parameter_default(&self, def: &Definition) -> Option<String> {
+        if !matches!(def.kind, DefKind::FuncParam | DefKind::TemplateParam) {
+            return None;
+        }
+        let param = self.declaring_node(def)?;
+        Some(one_line(&written_default(&param)?))
     }
 
     /// The loop navigation reads for `roots`' program: the one the
@@ -804,7 +858,49 @@ pub fn identifier_at(root: &SyntaxNode, offset: TextSize) -> Option<SyntaxToken>
     // send a position from a document state this database has already moved
     // past.
     let offset = offset.min(root.text_range().end());
-    root.token_at_offset(offset).find(|t| t.kind() == SyntaxKind::IDENT)
+    tokens_at(root, offset).into_iter().flatten().find(|t| t.kind() == SyntaxKind::IDENT)
+}
+
+/// `root.token_at_offset(offset)`, the token before `offset` first — the
+/// one ending there, or the one `offset` is inside — then the one starting
+/// there: the tokens holding the bytes on either side, each found by a
+/// binary search down the tree ([`SyntaxNode::covering_element`]) where
+/// `token_at_offset` reads each level's children in turn. Every name the
+/// defaults hint resolves is looked up here, and in a file of a thousand
+/// functions that read is a thousand children at the top.
+fn tokens_at(root: &SyntaxNode, offset: TextSize) -> [Option<SyntaxToken>; 2] {
+    let range = root.text_range();
+    let byte = |at: TextSize| root.covering_element(TextRange::at(at, TextSize::new(1))).into_token();
+    let before = (offset > range.start()).then(|| byte(offset - TextSize::new(1))).flatten();
+    let after = (offset < range.end()).then(|| byte(offset)).flatten();
+    match (before, after) {
+        (Some(before), Some(after)) if before == after => [Some(before), None],
+        (before, after) => [before, after],
+    }
+}
+
+/// The token of `root` whose range is `range`, if one is: what
+/// `root.token_at_offset(range.start())` holds of that range, found by a
+/// binary search down the tree ([`SyntaxNode::covering_element`]) where
+/// `token_at_offset` reads each level's children in turn — a declaration's
+/// name, looked up once per callee by the defaults hint, in a file of a
+/// thousand functions read a thousand children deep at the top. An empty
+/// range is no token's: `token_at_offset` never yields an empty token.
+pub(crate) fn token_with_range(root: &SyntaxNode, range: TextRange) -> Option<SyntaxToken> {
+    if range.is_empty() || !root.text_range().contains_range(range) {
+        return None;
+    }
+    root.covering_element(range).into_token().filter(|t| t.text_range() == range)
+}
+
+/// The `.name` whose call or template arguments `token` labels one of —
+/// `f` of `v.f(x: 1)` for `x`, `g` of `o.template g<N: 1>()` for `N` — the
+/// name a label of a member's parameter is resolved through, or `None`
+/// where `token` is no label or what it follows is no member selector.
+pub fn labelled_member(token: &SyntaxToken) -> Option<SyntaxToken> {
+    let probe = labelled_callee(token).or_else(|| labelled_template(token))?;
+    let name = identifier_at(&token.parent_ancestors().last()?, probe)?;
+    is_member_selector(&name).then_some(name)
 }
 
 /// Where the callee of the call whose argument `token` labels is named, or
@@ -834,18 +930,162 @@ pub(crate) fn labelled_template_name(token: &SyntaxToken) -> Option<TextSize> {
     Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
 }
 
-/// Where `call`'s callee is named: the midpoint of its last identifier, the
-/// token [`Db::definition_at`] resolves for `f(…)`, `a::f(…)` and `o.f(…)`
-/// alike.
-pub(crate) fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
-    let name = call
-        .callee()?
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == SyntaxKind::IDENT)
-        .last()?;
+/// The identifier `call`'s callee is named by: the `NAME_REF` its path's
+/// last segment holds, or its `.` selects — `f` of `f(…)`, `a::f(…)`,
+/// `scaled<N: 3>(…)`, `o.f(…)` and `o.template f<N: 1>(…)` alike, and
+/// through parentheses, `(f)(…)`. Never a token of the template argument
+/// list the name carries, which is a label or a type of its own; and `None`
+/// for a callee no name names — a call's result, an index, a lambda — whose
+/// last identifier is some other declaration's.
+pub fn callee_name(call: &ast::CallExpr) -> Option<SyntaxToken> {
+    let mut callee = call.callee()?.syntax().clone();
+    while callee.kind() == SyntaxKind::PAREN_EXPR {
+        callee = callee.children().next()?;
+    }
+    let owner = match callee.kind() {
+        SyntaxKind::PATH => callee.children().filter(|c| c.kind() == SyntaxKind::PATH_SEGMENT).last()?,
+        // The selector is the last `NAME_REF` or `PATH_SEGMENT` child, as
+        // [`selector_base`] reads it; the base is a node of its own.
+        SyntaxKind::FIELD_EXPR => callee
+            .children()
+            .filter(|c| matches!(c.kind(), SyntaxKind::NAME_REF | SyntaxKind::PATH_SEGMENT))
+            .last()?,
+        _ => return None,
+    };
+    let name_ref = match owner.kind() {
+        SyntaxKind::NAME_REF => owner,
+        _ => owner.children().find(|c| c.kind() == SyntaxKind::NAME_REF)?,
+    };
+    name_ref.first_token().filter(|t| t.kind() == SyntaxKind::IDENT)
+}
+
+/// Where `call`'s callee is named ([`callee_name`]): the midpoint of the
+/// name, the offset [`Db::definition_at`] resolves it at — for the reason
+/// `kg-lsp`'s `references::probe` gives.
+pub fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
+    let name = callee_name(call)?;
     Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
+}
+
+/// The names of the functions under `root` with a parameter that has a
+/// default ([`written_default`]), sorted and once each — the declarations
+/// the defaults hint reads a callee's defaults off ([`Db::defaulting_functions`]).
+pub(crate) fn defaulting_functions(root: &SyntaxNode) -> Vec<String> {
+    let mut names: Vec<String> = root
+        .descendants()
+        .filter(|n| n.kind() == SyntaxKind::PARAM && written_default(n).is_some())
+        .filter_map(|param| {
+            let function = param.parent().filter(|l| l.kind() == SyntaxKind::PARAM_LIST)?.parent()?;
+            let name = match ast::FnDecl::cast(function.clone()) {
+                Some(f) => f.name(),
+                None => ast::FnProto::cast(function)?.name(),
+            };
+            Some(name?.ident_token()?.text().to_owned())
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// One comma-separated place of an argument list — a call's `(…)` or a
+/// template's `<…>` — as written: the label that names it (`x` of `x: 1`,
+/// edition 1.1) and its argument, each `None` where nothing is written yet.
+#[derive(Clone, Debug, Default)]
+pub struct ArgumentSlot {
+    pub label: Option<SyntaxToken>,
+    pub argument: Option<SyntaxNode>,
+}
+
+impl ArgumentSlot {
+    /// The label's name.
+    pub fn label_text(&self) -> Option<&str> {
+        self.label.as_ref().map(|t| t.text())
+    }
+}
+
+/// Every slot of `list`, an `ARG_LIST` or a `TEMPLATE_ARG_LIST`, in order:
+/// one more than it has commas, so the empty one after a trailing comma, or
+/// in `()`, is among them. One reading of a list for every feature that
+/// asks which argument is which — completion, signature help, the defaults
+/// a call is given — so that no two of them count a list apart.
+pub fn argument_slots(list: &SyntaxNode) -> Vec<ArgumentSlot> {
+    let mut out = vec![ArgumentSlot::default()];
+    for element in list.children_with_tokens() {
+        match element {
+            NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => out.push(ArgumentSlot::default()),
+            NodeOrToken::Node(n) => {
+                let slot = out.last_mut().expect("never empty");
+                match ast::ArgLabel::cast(n.clone()) {
+                    Some(label) => {
+                        if let Some(name) = label.ident_token() {
+                            slot.label = Some(name);
+                        }
+                    }
+                    None => {
+                        slot.argument.get_or_insert(n);
+                    }
+                }
+            }
+            NodeOrToken::Token(_) => {}
+        }
+    }
+    out
+}
+
+/// Which of the parameters named `names`, in their order, the arguments
+/// written in `slots` fill, as `kg_sem::named` places them: a positional
+/// argument the parameter its position among the arguments gives, a named
+/// one the parameter it names. A slot with no argument written fills none,
+/// and a label that names no parameter fills none.
+pub fn filled_parameters(slots: &[ArgumentSlot], names: &[&str]) -> Vec<bool> {
+    let mut filled = vec![false; names.len()];
+    for (position, slot) in slots.iter().filter(|s| s.argument.is_some()).enumerate() {
+        let at = match slot.label_text() {
+            Some(label) => names.iter().position(|n| *n == label),
+            None => Some(position),
+        };
+        if let Some(f) = at.and_then(|i| filled.get_mut(i)) {
+            *f = true;
+        }
+    }
+    filled
+}
+
+/// `node`'s text on one line: every run of whitespace, and every comment,
+/// one space — a parameter declared across lines, or a default with a
+/// comment in it, as a signature or a hint shows it.
+pub fn one_line(node: &SyntaxNode) -> String {
+    let mut out = String::new();
+    let mut pending_space = false;
+    for token in node.descendants_with_tokens().filter_map(|e| e.into_token()) {
+        if token.kind().is_trivia() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        out.push_str(token.text());
+    }
+    out.trim().to_owned()
+}
+
+/// The default a parameter's declaration writes after its `=` — a
+/// function's `PARAM` (`uint8 shift = 1`, edition 1.1) or a template's
+/// `VALUE_PARAM` or `TYPE_PARAM` (`auto Size = 4`) — or `None` where it
+/// writes none.
+pub fn written_default(param: &SyntaxNode) -> Option<SyntaxNode> {
+    let mut after_eq = false;
+    for element in param.children_with_tokens() {
+        match element {
+            NodeOrToken::Token(t) if t.kind() == SyntaxKind::EQ => after_eq = true,
+            NodeOrToken::Node(n) if after_eq => return Some(n),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Whether `token` names a member after a `.` — the `f` of `a.f` — which
@@ -900,6 +1140,128 @@ fn declarations_by_name_token(tree: &ItemTree) -> FxHashMap<TextRange, ItemId> {
         out.entry(item.range.range).or_insert(ItemId(i as u32));
     }
     out
+}
+
+/// Many answers in one file at one revision, read as
+/// [`Db::definitions_at_through`] reads each ([`Db::resolver`]).
+#[derive(Debug)]
+pub struct Resolver<'db> {
+    db: &'db Db,
+    names: FileNames,
+}
+
+impl Resolver<'_> {
+    /// [`Db::definitions_at_through`] at `offset` of the resolver's file.
+    pub fn definitions_at(
+        &self,
+        looped: &dyn Fn() -> Option<crate::looped::EditorLoop>,
+        roots: &[FileId],
+        offset: TextSize,
+    ) -> Vec<Definition> {
+        self.db.definitions_in(&self.names, looped, roots, offset)
+    }
+}
+
+/// What resolving a name reads of the file it is in.
+#[derive(Debug)]
+struct FileNames {
+    module: ModuleSource,
+    root: SyntaxNode,
+    tree: std::sync::Arc<ItemTree>,
+    /// [`declarations_by_name_token`], built on first use: an offset on no
+    /// identifier asks for none.
+    declarations: OnceCell<FxHashMap<TextRange, ItemId>>,
+    locals: Locals,
+}
+
+/// How [`FileNames::local_binding`] finds the scope that binds a name.
+#[derive(Debug)]
+enum Locals {
+    /// Each scope's tokens, read until one declares it ([`bound_in`]): one
+    /// answer reads the scopes it climbs and nothing else.
+    Scanned,
+    /// The file's declarations by name, each placed in the scope that binds
+    /// it the first time its name is asked: many answers read the file once.
+    Indexed {
+        by_name: OnceCell<FxHashMap<Symbol, Vec<ItemId>>>,
+        placed: RefCell<FxHashMap<Symbol, Rc<[Bound]>>>,
+    },
+}
+
+/// A declaration [`Locals::Indexed`] may answer a name with: where its name
+/// token starts, the item, and the scope that binds it ([`binder`]).
+#[derive(Debug)]
+struct Bound {
+    at: TextSize,
+    item: ItemId,
+    scope: SyntaxNode,
+}
+
+impl FileNames {
+    fn read(db: &Db, file: FileId, locals: Locals) -> FileNames {
+        let module = ModuleSource::File(file);
+        FileNames { module, root: db.parse(file).syntax_node(), tree: db.item_tree(module), declarations: OnceCell::new(), locals }
+    }
+
+    fn declarations(&self) -> &FxHashMap<TextRange, ItemId> {
+        self.declarations.get_or_init(|| declarations_by_name_token(&self.tree))
+    }
+
+    /// [`local_binding`], or — indexed — the same answer read off the
+    /// declarations of `name`: of the scopes `token` is in, innermost
+    /// first, the first that binds one, and of those it binds the first
+    /// in the text, which is the one [`bound_in`]'s walk meets first.
+    fn local_binding(&self, token: &SyntaxToken, name: Symbol) -> Option<ItemId> {
+        let Locals::Indexed { by_name, placed } = &self.locals else {
+            return local_binding(&self.tree, self.declarations(), token, name);
+        };
+        let bound = self.bound(by_name, placed, name);
+        if bound.is_empty() {
+            return None;
+        }
+        token
+            .parent()?
+            .ancestors()
+            .filter(|scope| introduces_scope(scope.kind()))
+            .find_map(|scope| bound.iter().filter(|b| b.scope == scope).min_by_key(|b| b.at).map(|b| b.item))
+    }
+
+    /// The declarations [`bound_in`] accepts for `name` in some scope, each
+    /// with that scope: an item first on its name token
+    /// ([`declarations_by_name_token`]), named `name`, whose token is an
+    /// identifier under a declaring node that has a [`binder`].
+    fn bound(
+        &self,
+        by_name: &OnceCell<FxHashMap<Symbol, Vec<ItemId>>>,
+        placed: &RefCell<FxHashMap<Symbol, Rc<[Bound]>>>,
+        name: Symbol,
+    ) -> Rc<[Bound]> {
+        if let Some(bound) = placed.borrow().get(&name) {
+            return bound.clone();
+        }
+        let by_name = by_name.get_or_init(|| {
+            let mut by_name: FxHashMap<Symbol, Vec<ItemId>> = FxHashMap::default();
+            for &item in self.declarations().values() {
+                if let Some(n) = self.tree.get(item).qualified_name.last() {
+                    by_name.entry(n).or_default().push(item);
+                }
+            }
+            by_name
+        });
+        let bound: Rc<[Bound]> = by_name
+            .get(&name)
+            .into_iter()
+            .flatten()
+            .filter_map(|&item| {
+                let range = self.tree.get(item).range.range;
+                let token = token_with_range(&self.root, range).filter(|t| t.kind() == SyntaxKind::IDENT)?;
+                let declaring = token.parent().and_then(|n| n.parent())?;
+                Some(Bound { at: range.start(), item, scope: binder(&declaring)? })
+            })
+            .collect();
+        placed.borrow_mut().insert(name, bound.clone());
+        bound
+    }
 }
 
 /// `findInScopes` (`SymbolTable.hs:256-259`) at a source offset: walk the
@@ -2191,5 +2553,117 @@ mod tests {
         let since = db.stats().since(&before);
         assert_eq!((since.misses(Query::Program), since.misses(Query::Symbols)), (1, 1), "`main`'s alone, rebuilt");
         assert_eq!((since.misses(Query::Parse), since.misses(Query::ItemTree)), (0, 0), "a module, reparsed");
+    }
+
+    /// Every identifier of `file`, answered by [`Db::resolver`] and alone
+    /// ([`Db::definitions_at_through`]); the offsets where they part, with
+    /// both answers. With no loop, which reads no member: the resolver
+    /// differs from the one-off answer only in what it reads of the file.
+    fn parted(db: &Db, file: FileId) -> Vec<String> {
+        let roots = [file];
+        let resolver = db.resolver(file);
+        let root = db.parse(file).syntax_node();
+        root.descendants_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| t.kind() == kg_syntax::SyntaxKind::IDENT)
+            .filter_map(|t| {
+                let at = t.text_range().start();
+                let alone = db.definitions_at_through(&|| None, &roots, file, at);
+                let many = resolver.definitions_at(&|| None, &roots, at);
+                let show = |d: &[Definition]| d.iter().map(|d| format!("{:?}", d.range)).collect::<Vec<_>>().join(" ");
+                (alone != many).then(|| format!("{}@{at:?}: alone [{}], resolver [{}]", t.text(), show(&alone), show(&many)))
+            })
+            .collect()
+    }
+
+    /// Every element of `root` whose range [`super::token_with_range`] reads
+    /// otherwise than `token_at_offset` at its start, keeping the token of
+    /// exactly that range; and every offset where [`super::tokens_at`] finds
+    /// other tokens than `token_at_offset` — each token's start, a byte
+    /// inside it, and the file's end, which is every case an offset can be.
+    fn misread(root: &kg_syntax::SyntaxNode) -> Vec<String> {
+        let ranged = root.descendants_with_tokens().filter_map(|e| {
+            let range = e.text_range();
+            let old = root.token_at_offset(range.start()).find(|t| t.text_range() == range);
+            let new = super::token_with_range(root, range);
+            (old != new).then(|| format!("{:?}@{range:?}: {old:?} against {new:?}", e.kind()))
+        });
+        let tokens: Vec<_> = root.descendants_with_tokens().filter_map(|e| e.into_token()).collect();
+        let offsets = tokens
+            .iter()
+            .flat_map(|t| [t.text_range().start(), t.text_range().start() + TextSize::new(1).min(t.text_range().len())])
+            .chain([root.text_range().end()]);
+        let at = offsets.filter_map(|offset| {
+            let old: Vec<_> = root.token_at_offset(offset).collect();
+            let new: Vec<_> = super::tokens_at(root, offset).into_iter().flatten().collect();
+            (old != new).then(|| format!("@{offset:?}: {old:?} against {new:?}"))
+        });
+        ranged.chain(at).collect()
+    }
+
+    /// [`Db::resolver`] reads a file once for many answers and gives each
+    /// the one-off answer: every identifier of a fixture of the scopes a
+    /// local binding is found in — a block's shadowing a function's, a
+    /// sibling's local left alone, a loop's variable, a template's
+    /// parameter, a class member, two declarations of one name in one
+    /// scope, a label — and of every file of the reference's library; and
+    /// the token of each node's and token's range is the one
+    /// `token_at_offset` finds. Red with the index taking the outermost
+    /// scope that binds a name, or the last declaration of one in the text.
+    #[test]
+    fn a_resolver_answers_as_each_name_is_answered_alone() {
+        let mut db = db();
+        let fixture = "const auto x = 1;\n\ninline uint8 f(uint8 x, uint8 y = 2)\n{\n    uint8 z = x;\n    {\n        uint8 x = z;\n        z = x + y;\n    }\n    for (const auto i : 4)\n    {\n        z = z + i;\n    }\n    return z;\n}\n\ninline uint8 g()\n{\n    uint8 z = x;\n    uint8 z = 3;\n    return f(z, y: z);\n}\n\ntemplate <auto N = 2>\nclass C\n{\n    uint8 m = N;\n\n    uint8 get(uint8 x)\n    {\n        return m + x + N;\n    }\n}\n";
+        let file = write(&mut db, "main.k", fixture);
+        assert_eq!(parted(&db, file), Vec::<String>::new());
+        assert_eq!(misread(&db.parse(file).syntax_node()), Vec::<String>::new());
+
+        let root = kg_base::reference_root();
+        let library = Utf8PathBuf::from(root.join("library").to_string_lossy().into_owned());
+        if !library.is_dir() {
+            kg_base::corpus_absent(&format!("no library at {library}; set KANAGAWA_ROOT"));
+            return;
+        }
+        let mut settings = Settings::fallback(library.clone());
+        settings.import_dirs = vec![library.clone()];
+        settings.base_library = Some(library.join("base.k"));
+        settings.target_device = "mock".to_owned();
+        let mut db = Db::new(settings);
+        let mut files: Vec<Utf8PathBuf> = Vec::new();
+        let mut dirs = vec![library];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().map(Result::unwrap) {
+                let path = Utf8PathBuf::from(entry.path().to_string_lossy().into_owned());
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension() == Some("k") {
+                    files.push(path);
+                }
+            }
+        }
+        files.sort();
+        // The answers alone and the lookups by `token_at_offset` cost what
+        // the resolver saves: the whole library took 13 s in the quick
+        // profile (2026-10-31, every file agreeing), most of it its two
+        // largest files. Resolved both ways, every file under 16 KiB — 110
+        // of 124 — and looked up both ways, every one under 8 KiB, 97.
+        let mut parted_all = Vec::new();
+        let mut read = (0, 0);
+        for path in &files {
+            let text = std::fs::read_to_string(path).unwrap();
+            let size = text.len();
+            if size >= 16 << 10 {
+                continue;
+            }
+            let file = db.set_file_text(path, text);
+            parted_all.extend(parted(&db, file).into_iter().map(|p| format!("{path}: {p}")));
+            read.0 += 1;
+            if size < 8 << 10 {
+                parted_all.extend(misread(&db.parse(file).syntax_node()).into_iter().map(|p| format!("{path}: {p}")));
+                read.1 += 1;
+            }
+        }
+        assert!(read.0 > 100 && read.1 > 90, "only {read:?} library files");
+        assert_eq!(parted_all, Vec::<String>::new());
     }
 }

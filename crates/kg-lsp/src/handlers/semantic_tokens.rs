@@ -210,7 +210,11 @@ fn classify_ident(token: &SyntaxToken) -> (TokenType, u32) {
         ATTR => (TokenType::Decorator, 0),
         // The `b3` of `"{x:b3}"`.
         FORMAT_SPEC => (TokenType::Modifier, 0),
-        // Edition 1.1's `f(x: 1)`: the label names one of `f`'s parameters.
+        // Edition 1.1's `f(x: 1)`: the label names one of `f`'s parameters;
+        // `Buffer<Size: 8>`'s one of the template's, which its declaration
+        // classes a type parameter. Without the `Readonly` a value's
+        // declaration carries: the label does not say which it names.
+        ARG_LABEL if parent.parent().is_some_and(|list| list.kind() == TEMPLATE_ARG_LIST) => (TokenType::TypeParameter, 0),
         ARG_LABEL => (TokenType::Parameter, 0),
         _ => (TokenType::Variable, 0),
     }
@@ -505,6 +509,17 @@ mod tests {
         let kind = |name: &str| all.iter().find(|(t, ..)| t == name).map(|(_, ty, _)| *ty);
         assert_eq!(kind("x"), Some(TokenType::Parameter));
         assert_eq!(kind("y"), Some(TokenType::Variable));
+    }
+
+    /// A named template argument's label is a type parameter, as the
+    /// template's declaration of it is — not a function's parameter. Red with
+    /// every label classed as a call's.
+    #[test]
+    fn a_template_argument_label_is_a_type_parameter() {
+        let named = kg_base::language::Features::NONE.with(kg_base::language::Feature::NamedTemplateArguments);
+        let all = tokens_in("class Main\n{\n    Buffer<uint8, Size: 8> _b;\n}\n", named);
+        let kind = |name: &str| all.iter().find(|(t, ..)| t == name).map(|(_, ty, mods)| (*ty, *mods));
+        assert_eq!(kind("Size"), Some((TokenType::TypeParameter, 0)));
     }
 
     #[test]

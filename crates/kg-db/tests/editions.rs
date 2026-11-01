@@ -69,6 +69,27 @@ fn a_change_of_language_reparses_an_unchanged_file() {
     assert!(!db.parse(file).errors().is_empty());
 }
 
+/// A parse is read at a settings revision, not on every visit: a settings
+/// change that leaves the file's language alone keeps the parse, and reads
+/// of it at one revision are hits however many a request makes. Red with
+/// the memo re-read after a settings change parsing again; that a hit at
+/// a standing revision skips `Db::features_of` no answer shows, and the
+/// two tests above are red with it served after the language moved.
+#[test]
+fn a_settings_change_that_keeps_the_language_keeps_the_parse() {
+    use kg_db::stats::Query;
+    let mut db = db(NAMED);
+    let file = write(&mut db, CALL);
+    let parsed = db.parse(file);
+    db.set_settings(settings(NAMED));
+    let before = db.stats();
+    for _ in 0..3 {
+        assert!(std::sync::Arc::ptr_eq(&db.parse(file), &parsed), "the parse survives a change that is not its own");
+    }
+    let since = db.stats().since(&before);
+    assert_eq!((since.misses(Query::Parse), since.hits(Query::Parse)), (0, 3));
+}
+
 /// What a call that names its arguments can get wrong, each reported at the
 /// argument it is about, once — the pass that places arguments runs on every
 /// round of the loop, and must not meet a call it has faulted again.
@@ -122,6 +143,32 @@ fn a_label_is_its_parameter() {
     assert_eq!(lands(&db, file, text, "b: m", 0).as_deref(), Some("7:34"), "a template's");
 }
 
+/// A label in a template's body names the parameter of whichever method
+/// each instance's receiver has: `_c.add(x: 1)` in `User<C>` is `A::add`'s
+/// `x` in `User<A>` and `B::add`'s in `User<B>`, both of which go to
+/// definition offers, and neither of which it is alone. What a rename of
+/// one refuses on (`kg-lsp`'s `references::walk`). Red with the label
+/// resolved through one instance's receiver, or through none.
+#[test]
+fn a_label_in_a_template_body_is_each_instance_s_parameter() {
+    let text = "class A\n{\npublic:\n    uint8 add(uint8 x) { return x; }\n}\n\nclass B\n{\npublic:\n    uint8 add(uint8 x) { return x + 1; }\n}\n\ntemplate <typename C>\nclass User\n{\n    C _c;\n\npublic:\n    uint8 go() { return _c.add(x: 1); }\n}\n\nclass Top\n{\n    User<A> _a;\n    User<B> _b;\n\npublic:\n    uint8 run() { return _a.go() + _b.go(); }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(errors_of(&db, file, text), Vec::<String>::new());
+    let at = text.find("x: 1").unwrap() + 1;
+    let index = kg_base::LineIndex::new(text);
+    let found: Vec<String> = db
+        .definitions_at(&[file], file, kg_base::TextSize::new(at as u32))
+        .iter()
+        .map(|d| {
+            let at = index.line_col(d.range.range.start());
+            format!("{}:{}", at.line + 1, at.col + 1)
+        })
+        .collect();
+    assert_eq!(found, ["4:21", "10:21"]);
+    assert_eq!(lands(&db, file, text, "x: 1", 0), None, "one of two is neither");
+}
+
 /// A label that names no parameter lands nowhere — not on the callee's one
 /// parameter, and not on a declaration of its spelling in scope, the guesses
 /// `definition_at` never makes. Red with a label's spelling unchecked against
@@ -133,6 +180,25 @@ fn a_label_that_names_no_parameter_lands_nowhere() {
     let file = write(&mut db, text);
     assert_eq!(lands(&db, file, text, "z: z", 0), None);
     assert_eq!(lands(&db, file, text, "z)", 0).as_deref(), Some("8:11"));
+}
+
+/// A callee written with template arguments is named by its own name, never
+/// by an identifier of its arguments: `scaled<N: 3>(x: p)`'s `x` is
+/// `scaled`'s, as it is after a type argument, `pass<Byte>(x: p)`, and after
+/// `.template`. Every label feature asks the callee here — signature help,
+/// completion, the defaults hint, a rename's search, which left such a call
+/// naming a parameter renamed away. Red with the callee's last identifier
+/// taken for its name, which is `N`, or `Byte`.
+#[test]
+fn a_label_after_template_arguments_is_its_callee_s_parameter() {
+    let text = "using Byte = uint8;\n\ntemplate <auto N = 2>\ninline uint8 scaled(uint8 x, uint8 shift = 1)\n{\n    return x * N << shift;\n}\n\ntemplate <typename T>\ninline T pass(T x)\n{\n    return x;\n}\n\nclass C\n{\npublic:\n    template <auto N>\n    uint8 times(uint8 x) { return x * N; }\n}\n\nclass Top\n{\nprivate:\n    C _c;\n\npublic:\n    uint8 run(uint8 p)\n    {\n        return scaled<N: 3>(x: p) + pass<Byte>(x: p) + _c.template times<N: 2>(x: p);\n    }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(errors_of(&db, file, text), Vec::<String>::new());
+    assert_eq!(lands(&db, file, text, "x: p", 0).as_deref(), Some("4:27"), "after a named template argument");
+    assert_eq!(lands(&db, file, text, "x: p", 1).as_deref(), Some("10:17"), "after a type argument");
+    assert_eq!(lands(&db, file, text, "x: p", 2).as_deref(), Some("19:23"), "after `.template`");
+    assert_eq!(lands(&db, file, text, "N: 3", 0).as_deref(), Some("3:16"), "the template's own label");
 }
 
 /// A call short of arguments is given each default it leaves out, in the
