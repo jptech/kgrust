@@ -624,6 +624,16 @@ impl<'a> Lowerer<'a> {
             cfg.open_breaks = false;
             cfg.indent = false;
         }
+        // Edition 1.1's trailing comma (`docs/editions/1.1/trailing-commas.md`):
+        // a list that ends in one is laid out for it — when broken, one item a
+        // line with the comma after each and the closer on a line of its own,
+        // the layout that lets a list grow a line at a time. The house style's
+        // leading separators (`docs/spec/style.md` §3.7) would leave the last
+        // comma alone on a line. The reference writes no trailing comma, so no
+        // corpus file reaches this.
+        if !cfg.preserve && close > open + 1 && ch.kind(close - 1) == COMMA {
+            cfg = ListCfg { open_breaks: false, hug: false, leading: false, indent: false, ..cfg };
+        }
         // A list that never breaks on width still breaks for a comment: a
         // `//` inside one would swallow whatever followed it.
         let commented = (open..=close.min(ch.len())).any(|i| !ch.gaps[i].is_empty());

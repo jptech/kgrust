@@ -381,6 +381,43 @@ mod tests {
         assert_eq!(format_file_in(&once, &Fmt::default(), trailing).unwrap(), once, "a broken list is a fixpoint too");
     }
 
+    /// A broken list that ends in a trailing comma is laid out for it: one
+    /// item a line, the comma after each, the closer on its own line — not
+    /// the house style's leading commas, which would leave the last comma
+    /// alone on a line. Whether written so or broken for width, and a
+    /// fixpoint. Red with the layout left to the list's own separators.
+    #[test]
+    fn a_broken_list_with_a_trailing_comma_trails_its_commas() {
+        let all = Features::all();
+        let written = "\
+module m {
+    f,
+    g,
+}
+
+template <
+    typename T,
+    auto N,
+>
+inline uint8 f(
+    uint8 value,
+    uint8 shift = 0,
+)
+{
+    return g(
+        value: value,
+        shift: shift,
+    );
+}
+";
+        assert_eq!(format_file_in(written, &Fmt::default(), all).unwrap(), written);
+        let long = format!("inline void f()\n{{\n    g({});\n}}\n", (0..12).map(|i| format!("argument_{i}, ")).collect::<String>().trim_end());
+        let once = format_file_in(&long, &Fmt::default(), all).unwrap();
+        let items: String = (0..12).map(|i| format!("        argument_{i},\n")).collect();
+        assert_eq!(once, format!("inline void f()\n{{\n    g(\n{items}    );\n}}\n"));
+        assert_eq!(format_file_in(&once, &Fmt::default(), all).unwrap(), once, "a fixpoint");
+    }
+
     /// Edition 1.1's named template arguments are spaced as a call's named
     /// arguments are, `Buffer<Size: 8, T: uint16>`, and the layout is a
     /// fixpoint.
