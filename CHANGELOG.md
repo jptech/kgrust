@@ -6,6 +6,12 @@ Notable changes to kgrust, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A Neovim plugin (`editors/nvim`, Neovim 0.11+). `.k` files open as
+  Kanagawa, with highlighting generated from the parser's keyword list,
+  indentation that follows `kg fmt`'s layout, and `kg lsp` attached.
+
 ### Changed
 
 - Inference does less over again, with identical results. It walks again

@@ -142,7 +142,11 @@ read rather than reproduced.
 ### 2.8 Other editors and the wider ecosystem
 
 The server is editor-agnostic; documented configurations for Neovim,
-Helix, Zed and Emacs cost little. A **tree-sitter grammar** — generated
+Helix, Zed and Emacs cost little. *Neovim, 2026-11-01:* a plugin in
+`editors/nvim`, with the filetype, a syntax file `cargo xtask codegen`
+generates beside the VS Code grammar, an `indentexpr` that follows `kg
+fmt`'s layout, and `kg lsp` enabled through `vim.lsp.config`. A headless
+smoke test drives it, and it is not in CI. A **tree-sitter grammar** — generated
 from `grammar/kanagawa.ungram` or the parser — is what Helix, Zed and
 Neovim highlight with and what GitHub's linguist could use. A **web
 playground** (the frontend built to WebAssembly: check, hover, format, no
