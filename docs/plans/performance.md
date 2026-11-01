@@ -129,6 +129,13 @@ Removes most of the 25%. Risk: a declaration-changing rewrite not marked —
 the identity gate, plus a debug-build assertion that recomputes a module's
 map when it is *not* dirty and compares.
 
+*Built otherwise* (§10: W5.4, 2026-10-10; 2026-11-01). The map is kept
+per subtree, not per module (`symbols::Filed`), and a build walks only the
+nodes made since the last. A write in place walks again the records that
+reach the node written, unless `symbols::unbounded` says no record bounds
+it. `KG_SYMBOLS_CHECK=1` is the assertion, against the whole walk at every
+build.
+
 ### 3.3 Walk only what can still change
 
 The core step. A subtree need not be revisited when nothing in it can
@@ -656,6 +663,49 @@ testing loop every later step uses.
   `array.k` within noise; under the stage's own settings, a smaller
   program, unchanged (`risc-v.k`'s first answer 325 and 322 → 327 and
   321 ms).
+- **The kept symbol maps, repaired rather than discarded, 2026-11-01**
+  (§13, option 5; journal, "A cache its own writer threw away").
+  - *Where the time was.* Most of what `symbols::Filed`'s builds walked
+    rather than copied was not new. A write in place that changed what
+    its subtree files discarded the module's whole store under all three
+    configs, and inference's folds are such writes: an `if` taken for its
+    branch, a `for` unrolled. The next builds walked the module whole:
+    93% of the nodes walked on `array.k`, 50% on `risc-v.k`, 59% on
+    `float.k`.
+  - *The repair.* Such a write now walks again only the records that
+    reach the node written: its own, at every place it lies; the template
+    that reads it as its declaration; and every record enclosing one.
+    That is exact because what a subtree files is a function of its nodes
+    alone. `symbols::unbounded` names the writes no record bounds, which
+    still discard the store: a name's identifier or a `Typename`, which a
+    parent reads, and a subtree that filed nothing coming to file
+    something.
+  - *The table.* The assembled map is sized for its entries before they
+    go in. Grown from empty, it rehashed at every build: nearly a third
+    of what the builds then spent on `array.k`.
+  - *Results.* Nodes walked in one `kg check`: `array.k` 6.49 M → 0.86 M,
+    `risc-v.k` 3.59 M → 2.20 M, `float.k` 1.63 M → 0.74 M. No store is
+    discarded on any of the three. `kg check` against `main` (`094fefc`),
+    six interleaved runs, medians: `array.k` 0.860 → 0.710 s, `float.k`
+    0.680 → 0.650 s, `risc-v.k` 1.785 → 1.735 s; peak RSS within 5 MiB.
+    The editor under its recorded settings (`bench --filter
+    keystroke-phases --recorded`, two interleaved runs each):
+    - `array.k`'s last answer after a keystroke 903 and 897 → 752 and
+      767 ms, its first 226 and 223 → 218 and 218;
+    - `risc-v.k`'s within noise: the first 784 and 781 → 759 and 777,
+      the last 1829 and 1815 → 1784 and 1848.
+
+    `cargo xtask mem`'s footprints are flat: `risc-v.k` checked 726 →
+    724 MiB, opened 839 → 843, after five edits 1421 → 1384; `array.k`
+    checked 290 → 291, opened 283 either way. After five edits it read
+    465, 467 and 482 on `main` and 481, 480 and 488 here, within that
+    case's spread: the stores hold 2.3 MB in all at the end of
+    `array.k`'s check.
+  - *Exactness.* `scripts/identity.sh 094fefc`, 304 roots identical.
+    `infer-identity` with `KG_SYMBOLS_CHECK=1`, every kept map against
+    the whole walk's at every build of every root: 304 identical. With
+    the repair broken (a record hit, but kept), 153 roots differ and the
+    check panics.
 - **The shipped binaries, 2026-10-12.** `cargo xtask dist` builds the
   `ship` profile, `release` with `lto = "fat"` and `codegen-units = 1`:
   `kg check` 6–10% faster in an interleaved A/B, `kg` 30% smaller, its
@@ -712,14 +762,43 @@ Raw runs: [`measurements/2026-10-11/vs-haskell-three-columns.txt`](../measuremen
 - Multi-threading is therefore an opportunity on our side too (§13's
   triage): the reference's own gain says the per-module passes split.
 
+**Our column re-measured, 2026-11-01.** The reference was not re-run: its
+pin is still `98a2d8c` and the machine is the same, so its two columns
+above stand. Ours was measured at `5685cc4` with the same `measure`,
+programs and order as `scripts/vs-haskell.sh`, best of three, at load
+2.48 → 2.69. `main`'s `094fefc` ran interleaved with it. Raw runs:
+[`measurements/2026-11-01/kg-check.txt`](../measurements/2026-11-01/kg-check.txt).
+
+| Program | Rust | faster than 1 core | faster than 16 cores | RSS, Rust |
+|---|---:|---:|---:|---:|
+| a four-line function (base library only) | 0.04 s | 15× | 16× | 42 MB |
+| `test/library/data/cache.k` | 0.21 s | 22× | 9× | 99 MB |
+| `test/library/data/bits.k` | 0.24 s | 26× | 9× | 121 MB |
+| `test/library/data/vector.k` | 0.63 s | 33× | 9× | 236 MB |
+| `test/library/data/array.k` | 0.68 s | 42× | 19× | 293 MB |
+| `test/library/numeric/float.k` | 0.63 s | 48× | 17× | 282 MB |
+| `test/library/processor/risc-v.k` | 1.66 s | 33× | 15× | 752 MB |
+
+- **Per core, 15–48× faster; against every core, 9–19×.** Against the
+  reference on every core, ours uses 4–51× less memory.
+- **Where it came from.** On its own, `main` runs `risc-v.k` in 1.71 s
+  rather than 1.95 s, from the work merged since 2026-10-11. Its other
+  programs are within 0.02 s of that day's. The rest is the symbol maps'
+  repair (§10, 2026-11-01): `array.k` 0.82 → 0.68 s, `float.k`
+  0.66 → 0.63, `risc-v.k` 1.71 → 1.66, `vector.k` 0.67 → 0.63.
+- **A session a minute earlier,** at load 2.45 → 3.06, read `array.k` at
+  0.74 s and `main`'s at 0.88 s, the same 16–17% apart
+  ([`kg-check-earlier.txt`](../measurements/2026-11-01/kg-check-earlier.txt)).
+  The four-line function's 0.04 s is at `time`'s 10 ms resolution.
+
 (MB here is MiB, as `/usr/bin/time -l`'s bytes divided by 2^20.) The
 one-core Haskell column agrees with 2026-09-27's to within 4% (`risc-v.k` 54.2 s
 then), so the gain is ours. The Rust column against its earlier readings:
 
-| Program | 2026-09-27 | 2026-10-10, loaded (load 7–11) | 2026-10-10, quiet, after the keystroke round | 2026-10-11, quiet |
-|---|---:|---:|---:|---:|
-| `array.k` | 3.05 s / 1367 MB | 1.01 s / 246 MB | 0.86–0.97 s / 291 MB | **0.79 s / 301 MB** |
-| `risc-v.k` | 6.08 s / 1857 MB | 2.79 s / 710 MB | 2.18–2.28 s / 781 MB | **1.92 s / 797 MB** |
+| Program | 2026-09-27 | 2026-10-10, loaded (load 7–11) | 2026-10-10, quiet, after the keystroke round | 2026-10-11, quiet | 2026-11-01, quiet |
+|---|---:|---:|---:|---:|---:|
+| `array.k` | 3.05 s / 1367 MB | 1.01 s / 246 MB | 0.86–0.97 s / 291 MB | 0.79 s / 301 MB | **0.68 s / 293 MB** |
+| `risc-v.k` | 6.08 s / 1857 MB | 2.79 s / 710 MB | 2.18–2.28 s / 781 MB | 1.92 s / 797 MB | **1.66 s / 752 MB** |
 
 Since the last quiet reading the CST inference engine, the second census
 and the twin's leftovers were deleted (W3.7, W4); the time is not
@@ -1059,13 +1138,49 @@ module's walk when nothing in it needs walking (13 ms at most).
    before each node must be shown order-free), instantiation, resolution,
    the wrappers, `closureCalls` — each algebra audited for what it hands
    back as it came. Some 5% of the check.
-5. **The symbol maps merged, not rebuilt** (`loop-across-edits.md` §6
-   step 4): 6% of inference here, 12% of `array.k`'s deduction.
+5. **The symbol maps merged, not rebuilt — taken, as a repair** (§10,
+   2026-11-01). Re-measured after options 1 and 3, the builds were 10%
+   of `risc-v.k`'s loop, 17% of `float.k`'s and 31% of `array.k`'s.
+   Little of that was the merging. Most was walking modules whose kept
+   store one of inference's folds had discarded, and a table rehashed as
+   it grew. A write is now bounded by the records it reaches, and the table
+   is sized first: `array.k`'s check 0.86 → 0.71 s. What is left:
+   - the nodes the round's passes mint, walked once per config (2.2 M on
+     `risc-v.k`);
+   - the assembly, about a fifth of the builds. On `array.k` two thirds
+     of its entries lie in modules that changed, so merging per key
+     (`loop-across-edits.md` §6 step 4) would save at most a third of
+     it there.
 6. **Threads**, item 1 below: the prefix, 9%.
 
-The confirming walks after a unit changed (42,144) are the reference's
-own iteration — a unit that moved is walked again to see it settle — and
-stay.
+7. **Confirming walks — deferred** (re-measured 2026-11-01 on PR #9's
+   head). A unit walked again because a node it owns changed, a walk that
+   then changes nothing: 27–30% of inference's unit visits on all three
+   programs, some 10–15% of the loop. They are the reference's own
+   iteration, a unit that moved walked again to see it settle, but not
+   every one can differ. A walk can come out otherwise only where a rule
+   read one of the unit's nodes before the same walk rewrote it.
+   Recording that per walk would let a walk where it never happened be
+   skipped, as a no-op by construction. The spike to run first (half a
+   day to a day): count the confirming walks that pass that test, then
+   force the skip and run `infer-identity`. Estimate if most pass:
+   `kg check` 5–8% faster on all three (`risc-v.k` ~80–150 ms); about
+   1–1.5 weeks with the proof, at the incremental walk's core.
+8. **Idle module visits — deferred** (re-measured 2026-11-01). A pass
+   visiting a module that gained nothing since it last ran:
+   - 23% of `float.k`'s loop (48 modules, 30 rounds), 7% of `array.k`'s
+     and 4% of `risc-v.k`'s;
+   - 64% of deduction's time on `float.k`.
+
+   `loop-across-edits.md` §2a ruled it out at 5–10% of the loop, but its
+   share grows as the loop gets faster. Skipping a module exactly needs
+   each pass to record what it reads from other modules, as the
+   module-boundary memo (W7.4) does. Deduction first: `float.k` ~8%
+   faster, ~15% with every pass. About a week for deduction and one or
+   two more passes, after a half-day spike. The spike should also
+   measure the editor under its recorded settings: there every
+   keystroke runs the loop over the whole base library, most of which
+   gains nothing.
 
 ### Optimisation opportunities, triaged (2026-10-11; nothing decided)
 

@@ -70,6 +70,7 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-10-30 | A named argument is moved to its parameter's place only where no two arguments could tell: a reorder that could change which side effect happens first is an error, never rewritten into locals | "Editions, piloted: named arguments in any order — 2026-10-30" |
 | 2026-10-31 | A later edition's syntax in a file without it is one error naming the edition and how to opt in, and the parse goes on as the feature's would: the verdict stays the reference's, the message is ours ([`known-divergences.md`](known-divergences.md) #42) | "An edition the user cannot see is not opted into — 2026-10-31" |
 | 2026-11-01 | The incremental walk forgets what no walk reads any more — an asker walked since without asking, a unit no walk reaches (`Units::forget`) — and what it forgets may only turn a skip into a walk, or a kept count into a count; a new set beside the units forgets with them | "A memory that never forgets is the coarse check again — 2026-11-01" |
+| 2026-11-01 | A write in place reports its weight to the kept symbol maps (`Filed::weighed`, `symbols::unbounded`). A bounded one walks again only the records that reach the node written; an unbounded one, or one nobody weighed, discards the module's store, which is exact but costs a whole walk. A new reader of a node that does not walk it, as a template reads its declaration, is recorded beside the records | "A cache its own writer threw away — 2026-11-01" |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -18702,3 +18703,88 @@ Checked 2026-11-01: `scripts/identity.sh e2bfc29` after option 1 and
 clean on `risc-v.k`, `float.k`, `array.k`, `cache.k`; `fast.sh --lint loop`
 green, every ratchet +0/−0; 30 mutants over seven unit tests, each caught by
 its own test's assertion.
+
+## A cache its own writer threw away — 2026-11-01
+
+`plans/performance.md` §13's option 5, the symbol maps merged rather than
+rebuilt, looked like a problem of merging: every build assembles the
+program-wide map again from every module's kept entries. The profile said
+otherwise. Three quarters of the builds' time was `FiledModule::refresh`,
+the walk of the nodes nothing kept covered, and a probe of what it walked
+found most of it old.
+
+**The store was discarded, not missed.** `symbols::Filed` keeps, per
+module and config, what each subtree filed, and a build walks only the
+nodes made since the last. That is exact because a node changes only by a
+write in place, and a write its writer had not weighed harmless discarded
+the module's whole store. Inference's constant folds are such writes: an
+`if` taken for its branch drops the other branch's declarations, and a
+`for` unrolled mints its body's. Each iteration that folded one discarded
+its module's store under all three configs, and the next three builds
+walked the module whole. That was 93% of the nodes walked on `array.k`,
+50% on `risc-v.k` and 59% on `float.k`. The unit tests covered the reset;
+nothing had counted how often it happened.
+
+**A write is bounded by the records it reaches.** What a subtree files is
+a function of its nodes alone, wherever it hangs. (The tree is a DAG: a
+folded constant shares its initializer's children.) So a write changes
+only the entries of the records whose subtrees reach the node written:
+the written node's own records, at every place it lies, and every record
+enclosing one. The store keeps its records in pre-order, each with the
+count of records below it, so one pass with a stack of the records open
+finds them all. Those are walked again and the rest copied.
+
+Three kinds of write do not fit, and they still discard the store
+(`symbols::unbounded`, `FiledModule::dirty`):
+
+- a write of a name's identifier or of a `Typename`, which its parent
+  reads and no record of the written node names;
+- a write that makes a subtree filing nothing file something, since it
+  may lie below subtrees remembered as filing nothing, and the store keeps
+  no record of those;
+- a write at a template's declaration where two templates share it, or
+  where its template is remembered as filing nothing. A template reads its
+  declaration without walking it: under `TemplateDecl` for its name, under
+  `NoTemplate` for its contents. So the store remembers which template
+  reads which declaration, and walks that template's records again on a
+  write there.
+
+**Why it holds.** For every record no write has reached, the records
+nested in it are its subtree's filing places now. A write at a node that
+files something inside it hits that node's record, nested there, so the
+enclosing one is walked again. A write at a node that files nothing
+before and after leaves the filing places as they were. And one that
+files where nothing was is unbounded. So a record survives only where its
+subtree files what it filed, and the next build copies only those.
+
+Each rule has a unit test and a mutant, 18 in all, each caught by its own
+test's assertion. `infer-identity` with `KG_SYMBOLS_CHECK=1` builds the
+whole walk beside every kept map, at every build of every root, and finds
+all 304 roots identical. With the repair broken (a record hit, but kept),
+153 roots differ and the check panics.
+
+**Then the map's own table.** With the walks gone, nearly a third of what
+was left on `array.k` was the assembled map rehashing as it grew from
+empty at every build. It is now sized for its entries first.
+
+**What it gave** (2026-11-01, against `main`, `094fefc`). Nodes walked
+in one `kg check`: `array.k` 6.49 M → 0.86 M, `risc-v.k` 3.59 M → 2.20 M,
+`float.k` 1.63 M → 0.74 M, and no store discarded on any of the three.
+`kg check` (six interleaved runs, medians): `array.k` 0.860 → 0.710 s,
+`float.k` 0.680 → 0.650 s, `risc-v.k` 1.785 → 1.735 s. In the editor on
+`array.k`, under its recorded settings, the last answer after a keystroke
+comes at 752 and 767 ms instead of 903 and 897 (`bench --filter
+keystroke-phases --recorded`, two runs each); `risc-v.k`'s moved within
+noise. Memory is flat: the stores
+hold 2.3 MB in all at the end of `array.k`'s check.
+
+**What is left.** The nodes the round's passes mint are walked once per
+config, three times in all (2.2 M on `risc-v.k`). The assembly is about a
+fifth of the builds' time, and on `array.k` two thirds of its entries lie
+in modules that changed: merging per module would save at most a third
+of it there.
+
+Checked 2026-11-01: `scripts/identity.sh 094fefc`, 304 roots identical;
+`KG_INFER_CHECK=1` clean on `risc-v.k`, `float.k`, `array.k`, `cache.k`;
+`fast.sh --lint loop` green, every ratchet +0/−0
+(`plans/performance.md` §10).

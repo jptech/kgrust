@@ -37,6 +37,9 @@ designing on it.
   `array.k`'s (`KG_LOOP_PROFILE=1`). A round's floor is the whole-program
   symbol maps (17%), inference (29%) and the prefix, and the visits to
   modules that *did* grow — walked whole for the few nodes they gained.
+  *Re-measured 2026-11-01*, with the loop faster: idle visits are 23% of
+  `float.k`'s loop, 7% of `array.k`'s, 4% of `risc-v.k`'s
+  ([`performance.md`](performance.md) §13, option 8, deferred).
 - **b. There are no extra rounds.** The reference takes the same number
   on every root, 321/321 (`loop-left`).
 - **c. A library module's state depends on the root, through dating.**

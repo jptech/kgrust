@@ -169,7 +169,7 @@ pub fn contributions(arena: &ExpArena, id: ExpId, this: Symbol, errors: Symbol, 
 }
 
 /// [`contributions`] under every config, in [`Config::ALL`]'s order — what
-/// an in-place write is weighed by ([`harmless`]). A subtree holding no
+/// an in-place write is weighed by ([`unbounded`]). A subtree holding no
 /// form any config files is answered without a list.
 pub fn filed_everywhere(arena: &ExpArena, id: ExpId, this: Symbol, errors: Symbol) -> [Vec<(SymbolPath, ExpId)>; 3] {
     if !holds_a_filed_form(arena, id) {
@@ -178,20 +178,23 @@ pub fn filed_everywhere(arena: &ExpArena, id: ExpId, this: Symbol, errors: Symbo
     Config::ALL.map(|config| contributions(arena, id, this, errors, config))
 }
 
-/// Whether a write in place, of `old` by `new` at one node whose subtree
-/// filed `before` and files `after` ([`filed_everywhere`]), leaves every
-/// map's entries as they were — every subtree around the node filing what
-/// it filed, so what [`Filed`] kept of them stays true.
+/// Per config, in [`Config::ALL`]'s order, whether a write in place, of
+/// `old` by `new` at one node whose subtree filed `before` and files
+/// `after` ([`filed_everywhere`]), can change that config's map beyond
+/// what [`Filed`] finds from the node itself: the records the node heads
+/// and those around them, walked again. Any other write is bounded so,
+/// however it changes what the node files.
 ///
-/// A parent's own entry reads two children besides itself: its name's
-/// identifier (`getName`), and a template's declaration, for its name and
-/// for whether it is a `Typename` (`symbol (Template _ Typename) = id`,
-/// `Symbols.hs:56`). A write of either shape is never harmless; any other
-/// is read only through the subtree it heads, which `before` and `after`
-/// cover.
-pub fn harmless(old: &Exp, new: &Exp, before: &[Vec<(SymbolPath, ExpId)>; 3], after: &[Vec<(SymbolPath, ExpId)>; 3]) -> bool {
+/// Two are not. A parent's own entry reads its name's identifier
+/// (`getName`), and a template reads whether its declaration is a
+/// `Typename` (`symbol (Template _ Typename) = id`, `Symbols.hs:56`): a
+/// write of either shape changes an entry no record of the written node
+/// holds. And a subtree that filed nothing and now files something may
+/// lie below others remembered as filing nothing, which no record names.
+pub fn unbounded(old: &Exp, new: &Exp, before: &[Vec<(SymbolPath, ExpId)>; 3], after: &[Vec<(SymbolPath, ExpId)>; 3]) -> [bool; 3] {
     let read_by_parent = |e: &Exp| matches!(e, Exp::Identifier(_) | Exp::Typename);
-    !read_by_parent(old) && !read_by_parent(new) && before == after
+    let named = read_by_parent(old) || read_by_parent(new);
+    std::array::from_fn(|c| named || (before[c].is_empty() && !after[c].is_empty()))
 }
 
 /// Whether any config's walk from `root` can meet a node it files: every
@@ -312,17 +315,27 @@ impl Filer<'_> {
 ///
 /// Exact because a node never changes once made — the arena is append-only,
 /// and a rewrite mints a replacement and re-roots — except by a write in
-/// place ([`ExpArena::node_mut`]). Every such write is counted by the
-/// arena; one its writer weighed [`harmless`] and reported
-/// ([`Filed::vetted`]) leaves what was kept true, and any other discards the
-/// module's whole store. The map is then assembled from each module's
-/// entries in program order, first one in winning, as [`Symbols::with`]
-/// assembles it from its walk.
+/// place ([`ExpArena::node_mut`]), which the arena logs. What a subtree
+/// files is a function of its nodes alone, wherever it hangs (the tree is
+/// a DAG: a folded constant shares its initializer's children). So a write
+/// changes only the entries of the records whose subtrees reach the node
+/// written, and a record reaches a node that files something only through
+/// the records nested in it, which the store keeps in pre-order: every
+/// record of a node written, and every record enclosing one, is walked
+/// again, and the rest copied. A template reads its declaration without
+/// walking it, so a write there walks the template's records again.
+///
+/// A write its writer weighed and reported [`unbounded`] for a config, and
+/// any write nobody weighed ([`Filed::weighed`]), discards the module's
+/// whole store under that config. The map is then assembled from each
+/// module's entries in program order, first one in winning, as
+/// [`Symbols::with`] assembles it from its walk.
 #[derive(Default)]
 pub struct Filed {
     modules: [Vec<FiledModule>; 3],
-    /// Per module, the in-place writes reported harmless.
-    vetted: Vec<u64>,
+    /// Per module, the in-place writes weighed, and of those, per config,
+    /// the unbounded ones.
+    weighed: Vec<Weighed>,
     /// Nodes the builds walked rather than copied — for the unit tests.
     walked: u64,
 }
@@ -338,31 +351,44 @@ impl Filed {
     /// in its order, every time.
     pub fn symbols<'a>(&mut self, modules: impl IntoIterator<Item = &'a ModuleIr>, interner: &Interner, config: Config) -> Symbols {
         let (this, errors) = (interner.intern("$this"), interner.intern("$errors"));
-        let mut map = FxHashMap::default();
         let kept = &mut self.modules[config.slot()];
+        let mut count = 0;
         for (module, ir) in modules.into_iter().enumerate() {
             if kept.len() <= module {
                 kept.resize_with(module + 1, FiledModule::default);
             }
-            if self.vetted.len() <= module {
-                self.vetted.resize(module + 1, 0);
+            if self.weighed.len() <= module {
+                self.weighed.resize(module + 1, Weighed::default());
             }
             let filer = Filer { arena: &ir.arena, this, errors, config };
-            kept[module].refresh(filer, ir.root, self.vetted[module], &mut self.walked);
-            for (key, id) in &kept[module].out {
+            kept[module].refresh(filer, ir.root, self.weighed[module], &mut self.walked);
+            count = module + 1;
+        }
+        // Sized for every entry at once: grown from empty, the table was
+        // rehashed on the way to its size at every build, a third of the
+        // builds' time on `array.k` (2026-11-01).
+        let entries = kept[..count].iter().map(|k| k.out.len()).sum();
+        let mut map = FxHashMap::with_capacity_and_hasher(entries, Default::default());
+        for (module, k) in kept[..count].iter().enumerate() {
+            for (key, id) in &k.out {
                 map.entry(key.clone()).or_insert(Decl { module, id: *id });
             }
         }
         Symbols { map }
     }
 
-    /// `writes` more writes in place in `module`'s arena, each weighed
-    /// [`harmless`] by its writer.
-    pub fn vetted(&mut self, module: usize, writes: u64) {
-        if self.vetted.len() <= module {
-            self.vetted.resize(module + 1, 0);
+    /// `writes` more writes in place in `module`'s arena, each weighed by
+    /// its writer, of which `unbounded[c]` were [`unbounded`] under
+    /// [`Config::ALL`]`[c]`.
+    pub fn weighed(&mut self, module: usize, writes: u64, unbounded: [u64; 3]) {
+        if self.weighed.len() <= module {
+            self.weighed.resize(module + 1, Weighed::default());
         }
-        self.vetted[module] += writes;
+        let w = &mut self.weighed[module];
+        w.writes += writes;
+        for (n, u) in w.unbounded.iter_mut().zip(unbounded) {
+            *n += u;
+        }
     }
 
     /// Nodes walked rather than copied, over every build so far.
@@ -371,14 +397,23 @@ impl Filed {
     }
 }
 
+/// One module's in-place writes reported to [`Filed::weighed`].
+#[derive(Copy, Clone, Default)]
+struct Weighed {
+    writes: u64,
+    unbounded: [u64; 3],
+}
+
 /// One module's kept entries under one config.
 #[derive(Default)]
 struct FiledModule {
     /// What they were filed from: the arena's stamp (`0`: nothing yet), its
-    /// in-place writes and the harmless ones then, and the root.
+    /// in-place writes, the weighed ones and this config's unbounded ones
+    /// then, and the root.
     stamp: u32,
     writes: u64,
-    vetted: u64,
+    weighed: u64,
+    unbounded: u64,
     root: Option<ExpId>,
     /// The module's entries, in the order the walk files them.
     out: Vec<(SymbolPath, ExpId)>,
@@ -387,10 +422,15 @@ struct FiledModule {
     /// it — so a kept subtree is copied with the records inside it, and a
     /// later build that rewrites around them still finds them.
     recs: Vec<Rec>,
-    /// `recs` by node index.
+    /// `recs` by node index: the first record of each node.
     at: FxHashMap<u32, u32>,
+    /// Some node has more than one record: it lies in the tree twice.
+    shared: bool,
     /// The nodes whose subtrees file nothing, as a bitset by node index.
     empty: Vec<u64>,
+    /// Each template's declaration, to the template ([`MANY`] for one
+    /// shared by two): what a template reads without walking it.
+    read_by: FxHashMap<u32, u32>,
 }
 
 #[derive(Copy, Clone)]
@@ -400,6 +440,10 @@ struct Rec {
     len: u32,
     below: u32,
 }
+
+/// [`FiledModule::read_by`]'s template for a declaration more than one
+/// reads.
+const MANY: u32 = u32::MAX;
 
 /// The walk's two visits to a node: before its children, and after.
 enum Visit {
@@ -420,20 +464,93 @@ impl FiledModule {
         self.empty[w] |= 1 << (index % 64);
     }
 
+    /// Forget the records `written` reach — each node's own, wherever it
+    /// lies, the template reading it, and every record enclosing one — so
+    /// the next walk enters them; whether any was. `None` where a template
+    /// reading a node written is remembered as filing nothing, which no
+    /// record bounds, or where more than one does.
+    fn dirty(&mut self, written: &[u32]) -> Option<bool> {
+        if written.is_empty() || self.recs.is_empty() {
+            return Some(false);
+        }
+        let mut hit: kg_base::FxHashSet<u32> = kg_base::FxHashSet::default();
+        for &w in written {
+            hit.insert(w);
+            if let Some(&template) = self.read_by.get(&w) {
+                if template == MANY || self.files_nothing(template as usize) {
+                    return None;
+                }
+                hit.insert(template);
+            }
+        }
+        let mut at: Vec<usize> = if self.shared {
+            (0..self.recs.len()).filter(|&r| hit.contains(&self.recs[r].index)).collect()
+        } else {
+            hit.iter().filter_map(|i| self.at.get(i)).map(|&r| r as usize).collect()
+        };
+        if at.is_empty() {
+            return Some(false);
+        }
+        at.sort_unstable();
+        // One pass in pre-order, the records open at each one hit on a stack:
+        // those are what encloses it.
+        let mut dirty = vec![false; self.recs.len()];
+        let mut open: Vec<usize> = Vec::new();
+        let mut next = 0;
+        for r in 0..self.recs.len() {
+            if next == at.len() {
+                break;
+            }
+            while let Some(&top) = open.last()
+                && top + (self.recs[top].below as usize) < r
+            {
+                open.pop();
+            }
+            if at[next] == r {
+                next += 1;
+                dirty[r] = true;
+                // An enclosing record already forgotten had its own
+                // enclosing ones forgotten with it.
+                for &o in open.iter().rev() {
+                    if std::mem::replace(&mut dirty[o], true) {
+                        break;
+                    }
+                }
+            }
+            open.push(r);
+        }
+        for (r, &d) in dirty.iter().enumerate() {
+            if d {
+                self.at.remove(&self.recs[r].index);
+            }
+        }
+        Some(true)
+    }
+
     /// Bring `out` up to the tree at `root`, walking only what nothing kept
     /// covers.
-    fn refresh(&mut self, filer: Filer<'_>, root: ExpId, vetted: u64, walked: &mut u64) {
+    fn refresh(&mut self, filer: Filer<'_>, root: ExpId, weighed: Weighed, walked: &mut u64) {
         let arena = filer.arena;
-        // Another arena (a fork has its own stamp), or a write in place
-        // nobody weighed: nothing kept can be trusted.
-        let trusted =
-            self.stamp == arena.stamp() && arena.writes().wrapping_sub(self.writes) == vetted.wrapping_sub(self.vetted);
+        let unbounded = weighed.unbounded[filer.config.slot()];
+        // Another arena (a fork has its own stamp), a write in place nobody
+        // weighed, or one unbounded here: nothing kept can be trusted.
+        let mut trusted = self.stamp == arena.stamp()
+            && arena.writes().wrapping_sub(self.writes) == weighed.writes.wrapping_sub(self.weighed)
+            && unbounded == self.unbounded;
+        let mut dirtied = false;
+        if trusted {
+            match self.dirty(arena.written_since(self.writes)) {
+                Some(any) => dirtied = any,
+                None => trusted = false,
+            }
+        }
         if !trusted {
             *self = FiledModule { stamp: arena.stamp(), ..FiledModule::default() };
         }
         self.writes = arena.writes();
-        self.vetted = vetted;
-        if self.root == Some(root) {
+        self.weighed = weighed.writes;
+        self.unbounded = unbounded;
+        if self.root == Some(root) && !dirtied {
             return;
         }
         let mut out: Vec<(SymbolPath, ExpId)> = Vec::with_capacity(self.out.len());
@@ -456,6 +573,17 @@ impl FiledModule {
                         continue;
                     }
                     *walked += 1;
+                    if let Exp::Template { decl, .. } = &arena[id].exp {
+                        let mut decl = *decl;
+                        loop {
+                            let reader = self.read_by.entry(decl.index() as u32).or_insert(index as u32);
+                            if *reader != index as u32 {
+                                *reader = MANY;
+                            }
+                            let Exp::Template { decl: inner, .. } = &arena[decl].exp else { break };
+                            decl = *inner;
+                        }
+                    }
                     let (start, rec) = (out.len() as u32, recs.len() as u32);
                     recs.push(Rec { index: index as u32, start, len: 0, below: 0 });
                     stack.push(Visit::Exit { index: index as u32, start, rec });
@@ -480,8 +608,14 @@ impl FiledModule {
             }
         }
         self.at.clear();
+        self.shared = false;
         for (r, rec) in recs.iter().enumerate() {
-            self.at.entry(rec.index).or_insert(r as u32);
+            match self.at.entry(rec.index) {
+                std::collections::hash_map::Entry::Occupied(_) => self.shared = true,
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(r as u32);
+                }
+            }
         }
         self.out = out;
         self.recs = recs;
@@ -545,6 +679,47 @@ mod tests {
             ),
             exp => exp,
         });
+    }
+
+    /// The `Variable` declaring `name`.
+    fn declaration(ir: &ModuleIr, interner: &Interner, name: &str) -> ExpId {
+        let name = interner.intern(name);
+        ir.arena
+            .iter()
+            .find_map(|(id, n)| match &n.exp {
+                Exp::Variable { name: n, .. } if matches!(ir.arena[*n].exp, Exp::Identifier(s) if s == name) => Some(id),
+                _ => None,
+            })
+            .expect("declared")
+    }
+
+    /// The block in the tree whose statements include `id`.
+    fn block_holding(ir: &ModuleIr, id: ExpId) -> ExpId {
+        crate::elaborate_tests_reachable(ir)
+            .into_iter()
+            .find(|&b| matches!(&ir.arena[b].exp, Exp::Seq(items) if items.contains(&id)))
+            .expect("held by a block")
+    }
+
+    /// A write in place at `id` in module `module`, weighed and reported as
+    /// inference weighs and reports its own (`Cx::replace`).
+    fn write(filed: &mut Filed, modules: &mut [ModuleIr], module: usize, interner: &Interner, id: ExpId, new: Exp) {
+        let (this, errors) = (interner.intern("$this"), interner.intern("$errors"));
+        let arena = &mut modules[module].arena;
+        let before = filed_everywhere(arena, id, this, errors);
+        let old = std::mem::replace(&mut arena.node_mut(id).exp, new);
+        let after = filed_everywhere(arena, id, this, errors);
+        filed.weighed(module, 1, unbounded(&old, &arena[id].exp, &before, &after).map(u64::from));
+    }
+
+    /// `exp` declared in `scope` instead.
+    fn rescoped(exp: &Exp, scope: SymbolPath) -> Exp {
+        let mut exp = exp.clone();
+        match &mut exp {
+            Exp::Variable { scope: s, .. } | Exp::Function { scope: s, .. } => *s = scope,
+            other => panic!("not a declaration with a scope: {other:?}"),
+        }
+        exp
     }
 
     const PROGRAM: &str = "\
@@ -652,72 +827,220 @@ inline uint8 f(uint8 r)
         agree(&mut filed, &modules, &interner);
     }
 
-    /// A write in place nobody vetted — a declaration's name changed under
+    /// A write in place nobody weighed — a declaration's name changed under
     /// its kept entry — discards the module's store. Red when the arena's
-    /// writes are not counted against the vetted ones.
+    /// writes are not counted against the weighed ones.
     #[test]
-    fn a_write_in_place_nobody_vetted_is_seen() {
+    fn a_write_in_place_nobody_weighed_is_seen() {
         let interner = Interner::new();
         let mut modules = vec![lower(PROGRAM, 0, &interner)];
         let mut filed = Filed::default();
         agree(&mut filed, &modules, &interner);
-        let a = interner.intern("a");
-        let name = modules[0]
-            .arena
-            .iter()
-            .find_map(|(_, n)| match &n.exp {
-                Exp::Variable { name, .. } if matches!(modules[0].arena[*name].exp, Exp::Identifier(s) if s == a) => Some(*name),
-                _ => None,
-            })
-            .expect("a is declared");
+        let a = declaration(&modules[0], &interner, "a");
+        let Exp::Variable { name, .. } = modules[0].arena[a].exp else { unreachable!("a variable") };
         modules[0].arena.node_mut(name).exp = Exp::Identifier(interner.intern("moved"));
         agree(&mut filed, &modules, &interner);
     }
 
-    /// A write in place weighed harmless and reported keeps the store
-    /// whole: the next build walks nothing. Red when a vetted write
-    /// discards it.
+    /// A weighed write at a node no record holds — a literal folded, which
+    /// files nothing before or after — keeps the store whole: the next
+    /// builds walk nothing. Red when a weighed write discards the store.
     #[test]
-    fn a_vetted_harmless_write_keeps_everything() {
+    fn a_weighed_write_reaching_no_record_keeps_everything() {
         let interner = Interner::new();
         let mut modules = vec![lower(PROGRAM, 0, &interner)];
         let mut filed = Filed::default();
         agree(&mut filed, &modules, &interner);
-        let (this, errors) = (interner.intern("$this"), interner.intern("$errors"));
         let one = modules[0]
             .arena
             .iter()
             .find_map(|(id, n)| matches!(n.exp, Exp::IntLiteral { .. }).then_some(id))
             .expect("a literal");
-        let arena = &mut modules[0].arena;
-        let before = filed_everywhere(arena, one, this, errors);
-        let new = Exp::BoolLiteral(true);
-        let old = std::mem::replace(&mut arena.node_mut(one).exp, new.clone());
-        let after = filed_everywhere(arena, one, this, errors);
-        assert!(harmless(&old, &new, &before, &after));
-        filed.vetted(0, 1);
+        write(&mut filed, &mut modules, 0, &interner, one, Exp::BoolLiteral(true));
         let walked = filed.walked();
         agree(&mut filed, &modules, &interner);
         assert_eq!(filed.walked(), walked);
     }
 
-    /// What is never harmless: a name's identifier, a `Typename`, and a
-    /// write that changes what the subtree files. Red with the name rule
-    /// gone, or with the lists not compared.
+    /// A weighed write that changes what its subtree files — a block's
+    /// declaration dropped, as a folded `if` drops a branch — walks again
+    /// only the records that reach the node written: the next builds equal
+    /// the whole walk's, and walk a few nodes of the tree. Red when the
+    /// written node's own record is not forgotten, or those enclosing it
+    /// (`inner` is kept), and when the write discards the store (the whole
+    /// tree walked again: 631 nodes, against 24).
     #[test]
-    fn a_name_or_a_change_in_what_is_filed_is_not_harmless() {
+    fn a_weighed_write_walks_again_only_the_records_that_reach_it() {
+        let interner = Interner::new();
+        let mut modules = vec![lower(PROGRAM, 0, &interner)];
+        let mut filed = Filed::default();
+        agree(&mut filed, &modules, &interner);
+        let whole = reachable(&modules[0]);
+        let inner = declaration(&modules[0], &interner, "inner");
+        let block = block_holding(&modules[0], inner);
+        let Exp::Seq(items) = modules[0].arena[block].exp.clone() else { unreachable!("a block") };
+        write(&mut filed, &mut modules, 0, &interner, block, Exp::Seq(items.into_iter().filter(|&i| i != inner).collect()));
+        let before = filed.walked();
+        agree(&mut filed, &modules, &interner);
+        let walked = filed.walked() - before;
+        assert!(walked * 6 < whole, "three builds walked {walked} nodes of a {whole}-node tree");
+        let inner = interner.intern("inner");
+        assert!(!Symbols::with(modules.iter(), &interner, Config::AllSymbols).iter().any(|(k, _)| k.last() == Some(inner)));
+    }
+
+    /// A write that makes a subtree file what it filed nothing of — an
+    /// error folded in place of a literal — is unbounded: a subtree
+    /// remembered as filing nothing may hold it, and no record names those.
+    /// The store goes, and the next builds equal the whole walk's. Red with
+    /// the rule gone from [`unbounded`], or the unbounded count not compared.
+    #[test]
+    fn a_write_filing_where_nothing_was_discards_the_store() {
+        let interner = Interner::new();
+        let mut modules = vec![lower(PROGRAM, 0, &interner)];
+        let mut filed = Filed::default();
+        agree(&mut filed, &modules, &interner);
+        let one = modules[0]
+            .arena
+            .iter()
+            .find_map(|(id, n)| matches!(n.exp, Exp::IntLiteral { .. }).then_some(id))
+            .expect("a literal");
+        write(&mut filed, &mut modules, 0, &interner, one, Exp::Error(kg_hir::ErrorNote::new("folded")));
+        agree(&mut filed, &modules, &interner);
+        assert!(Symbols::with(modules.iter(), &interner, Config::TemplateDecl).has_errors(&interner));
+    }
+
+    /// A template files its declaration's name without walking the
+    /// declaration (under `TemplateDecl`), so a write there walks the
+    /// template's records again. Red when the template is not remembered as
+    /// what reads its declaration.
+    #[test]
+    fn a_write_at_a_templates_declaration_walks_the_template_again() {
+        let interner = Interner::new();
+        let mut modules = vec![lower(PROGRAM, 0, &interner)];
+        let mut filed = Filed::default();
+        agree(&mut filed, &modules, &interner);
+        let decl = modules[0]
+            .arena
+            .iter()
+            .find_map(|(_, n)| match n.exp {
+                Exp::Template { decl, .. } => Some(decl),
+                _ => None,
+            })
+            .expect("a template");
+        let new = rescoped(&modules[0].arena[decl].exp, SymbolPath::single(interner.intern("elsewhere")));
+        write(&mut filed, &mut modules, 0, &interner, decl, new);
+        agree(&mut filed, &modules, &interner);
+    }
+
+    /// A node the tree holds twice — a folded constant shares its
+    /// initializer's children — has a record at each place it lies, and a
+    /// write at it walks again what encloses either. Red when only its first
+    /// record is found.
+    #[test]
+    fn a_write_at_a_shared_node_walks_again_around_each_place() {
+        let interner = Interner::new();
+        let mut modules = vec![lower(PROGRAM, 0, &interner)];
+        let mut filed = Filed::default();
+        agree(&mut filed, &modules, &interner);
+        // `f`'s body comes to share `g`'s declaration of `a`.
+        let (a, c) = (declaration(&modules[0], &interner, "a"), declaration(&modules[0], &interner, "c"));
+        let body = block_holding(&modules[0], c);
+        let Exp::Seq(mut items) = modules[0].arena[body].exp.clone() else { unreachable!("a block") };
+        items.push(a);
+        write(&mut filed, &mut modules, 0, &interner, body, Exp::Seq(items));
+        agree(&mut filed, &modules, &interner);
+        let new = rescoped(&modules[0].arena[a].exp, SymbolPath::single(interner.intern("elsewhere")));
+        write(&mut filed, &mut modules, 0, &interner, a, new);
+        agree(&mut filed, &modules, &interner);
+    }
+
+    const TEMPLATES: &str = "\
+const uint8 k = 1;
+
+template <typename T>
+inline void h()
+{
+}
+
+template <typename T>
+inline void j()
+{
+}
+";
+
+    /// Each template of [`TEMPLATES`], and its declaration.
+    fn templates(ir: &ModuleIr) -> Vec<(ExpId, ExpId)> {
+        crate::elaborate_tests_reachable(ir)
+            .into_iter()
+            .filter_map(|t| match ir.arena[t].exp {
+                Exp::Template { decl, .. } => Some((t, decl)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A declaration two templates read is bounded by neither one's records
+    /// alone: a write there discards the store. Red when only one reader is
+    /// remembered.
+    #[test]
+    fn a_write_at_a_declaration_two_templates_read_discards_the_store() {
+        let interner = Interner::new();
+        let mut modules = vec![lower(TEMPLATES, 0, &interner)];
+        let mut filed = Filed::default();
+        agree(&mut filed, &modules, &interner);
+        // `j` comes to declare what `h` does, as a fold shares a subtree.
+        let found = templates(&modules[0]);
+        let [(_, h), (j, _)] = found[..] else { panic!("two templates: {found:?}") };
+        let Exp::Template { params, .. } = modules[0].arena[j].exp.clone() else { unreachable!("a template") };
+        write(&mut filed, &mut modules, 0, &interner, j, Exp::Template { params, decl: h });
+        agree(&mut filed, &modules, &interner);
+        let new = rescoped(&modules[0].arena[h].exp, SymbolPath::single(interner.intern("elsewhere")));
+        write(&mut filed, &mut modules, 0, &interner, h, new);
+        agree(&mut filed, &modules, &interner);
+    }
+
+    /// A template whose declaration holds nothing filed is remembered as
+    /// filing nothing under `NoTemplate`, which enters the declaration's
+    /// contents without filing it: a write there that comes to file
+    /// something — an error folded in — discards the store, since no record
+    /// bounds it. Red when the template's record is looked for instead.
+    #[test]
+    fn a_write_at_the_declaration_of_a_template_filing_nothing_discards_the_store() {
+        let interner = Interner::new();
+        let mut modules = vec![lower(TEMPLATES, 0, &interner)];
+        let mut filed = Filed::default();
+        agree(&mut filed, &modules, &interner);
+        let (_, h) = templates(&modules[0])[0];
+        let arena = &mut modules[0].arena;
+        let error = arena.adopt(kg_hir::NodeData { exp: Exp::Error(kg_hir::ErrorNote::new("folded")), ..arena.node(h).clone() });
+        write(&mut filed, &mut modules, 0, &interner, h, Exp::Seq(vec![error]));
+        agree(&mut filed, &modules, &interner);
+        assert!(Symbols::with(modules.iter(), &interner, Config::NoTemplate).has_errors(&interner));
+    }
+
+    /// What is unbounded: a write of a name's identifier or of a `Typename`,
+    /// under every config, and one making a subtree that filed nothing file
+    /// something, under the configs it does so in. A write that only changes
+    /// or drops what a subtree files is bounded. Red with the name rule gone,
+    /// or the lists not weighed per config.
+    #[test]
+    fn only_a_name_or_filing_where_nothing_was_is_unbounded() {
         let interner = Interner::new();
         let ir = lower(PROGRAM, 0, &interner);
         let (this, errors) = (interner.intern("$this"), interner.intern("$errors"));
         let none: [Vec<(SymbolPath, ExpId)>; 3] = Default::default();
         let x = Exp::Identifier(interner.intern("x"));
         let y = Exp::Identifier(interner.intern("y"));
-        assert!(!harmless(&x, &y, &none, &none));
-        assert!(!harmless(&Exp::Typename, &Exp::Auto, &none, &none));
-        assert!(harmless(&Exp::Auto, &Exp::Void, &none, &none));
-        let variable = ir.arena.iter().find_map(|(id, n)| matches!(n.exp, Exp::Variable { .. }).then_some(id)).expect("a variable");
+        assert_eq!(unbounded(&x, &y, &none, &none), [true; 3]);
+        assert_eq!(unbounded(&Exp::Typename, &Exp::Auto, &none, &none), [true; 3]);
+        assert_eq!(unbounded(&Exp::Auto, &Exp::Void, &none, &none), [false; 3]);
+        let variable = declaration(&ir, &interner, "a");
         let filed = filed_everywhere(&ir.arena, variable, this, errors);
         assert!(filed.iter().all(|list| list.len() == 1));
-        assert!(!harmless(&Exp::Auto, &Exp::Void, &none, &filed));
+        assert_eq!(unbounded(&Exp::Auto, &Exp::Void, &none, &filed), [true; 3]);
+        assert_eq!(unbounded(&Exp::Auto, &Exp::Void, &filed, &none), [false; 3]);
+        let mut one = none.clone();
+        one[1] = filed[1].clone();
+        assert_eq!(unbounded(&Exp::Auto, &Exp::Void, &none, &one), [false, true, false]);
     }
 }
