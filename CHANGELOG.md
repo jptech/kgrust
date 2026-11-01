@@ -14,7 +14,8 @@ Notable changes to kgrust, newest first. The format follows
   every file of the project. What cannot be written exactly is refused, naming
   the construct, with nothing written, and every expansion is checked in
   edition 1.0 and walked into the backend against the program before it is
-  given. See [`docs/editions/`](docs/editions/README.md#kg-expand).
+  given. A program using nothing of a later edition comes back byte for byte,
+  unchecked. See [`docs/editions/`](docs/editions/README.md#kg-expand).
 
 ### Changed
 

@@ -1020,6 +1020,12 @@ fn kg_expand_of_a_broken_or_plain_program() {
     let run = run_in(KG, scratch.path(), &["expand", "--no-implicit-base", "bad.k"]);
     assert_eq!((run.code, run.stdout.as_str()), (1, ""));
     assert!(run.stderr.contains("error"), "{}", run.stderr);
+    // A plain program is not read by the checker, and its type error is `kg
+    // check`'s to say. Red with the program checked regardless.
+    let mistyped = "inline uint8 f(uint8 x) { return x + nope; }\n";
+    scratch.file("mistyped.k", mistyped);
+    let run = run_in(KG, scratch.path(), &["expand", "--no-implicit-base", "mistyped.k"]);
+    assert_eq!((run.code, run.stdout.as_str()), (0, mistyped), "{}", run.stderr);
 }
 
 /// Two roots have no one text for stdout, `--out` at the project's own root

@@ -156,7 +156,9 @@ own language and are not written.
 What has no exact spelling in edition 1.0 is refused, naming the construct, and
 nothing is written: a call its template's instances place differently, a call no
 instance compiles. Every expansion is checked in edition 1.0 and walked into the
-backend against the program before it is given.")]
+backend against the program before it is given. A program that uses nothing of a
+later edition has nothing to expand: it comes back byte for byte, unchecked, so
+it is `kg check` that says whether it is right.")]
     Expand(ExpandArgs),
     /// Simulate, synthesise and program a design on a board (`[board]`).
     #[command(long_about = "\

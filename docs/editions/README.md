@@ -191,6 +191,11 @@ A program with an error gives `kg check`'s errors, and no text, and so does an
 evaluation order only the labels could keep
 ([named arguments](1.1/named-arguments.md#order-of-evaluation)).
 
+A program that uses nothing of a later edition has nothing to expand and proves
+nothing. It comes back byte for byte and exits 0 unchecked, a type error and all;
+`kg check` is what says whether it is right. Only a syntax error stops it, since a
+file that does not parse cannot be shown to use nothing.
+
 ## How an edition is built
 
 Every extension lives in the frontend and is gone before the backend:
