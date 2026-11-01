@@ -437,14 +437,15 @@ impl<'i> Program<'i> {
                 visited: 0,
                 replaced: 0,
                 filed_differently: false,
-                vetted: 0,
+                weighed: 0,
+                unbounded: [0; 3],
             };
             cx.tree(root, Alg::Infer);
             cx.show_asked();
             visited += cx.visited;
             replaced += cx.replaced;
             filed_differently |= cx.filed_differently;
-            self.filed.vetted(m, cx.vetted);
+            self.filed.weighed(m, cx.weighed, cx.unbounded);
             let reads = cx.reads.into_inner();
             let asked = cx.asked.into_inner();
             if let Some(units) = units.as_mut() {
@@ -1232,9 +1233,11 @@ struct Cx<'a> {
     /// A rewrite changed what its subtree files in the symbol map: the
     /// next iteration's map is built afresh.
     filed_differently: bool,
-    /// Rewrites weighed [`crate::symbols::harmless`] to every symbol map's
-    /// kept entries ([`crate::symbols::Filed::vetted`]).
-    vetted: u64,
+    /// Rewrites weighed for every symbol map's kept entries
+    /// ([`crate::symbols::Filed::weighed`]), and of them, per config, the
+    /// [`crate::symbols::unbounded`] ones.
+    weighed: u64,
+    unbounded: [u64; 3],
 }
 
 impl Cx<'_> {
@@ -2278,9 +2281,9 @@ impl Cx<'_> {
         if *self.exp(id) != exp {
             self.replaced += 1;
             // What the subtree files under every config, before and after:
-            // inference's own map is rebuilt when its list moved, and a
-            // write that moves none is reported harmless to the maps' kept
-            // entries (`symbols::Filed`), which any other write discards.
+            // inference's own map is rebuilt when its list moved, and the
+            // maps' kept entries (`symbols::Filed`) are told whether the
+            // write is bounded by the records it reaches, or discards them.
             let filed = |cx: &Self| crate::symbols::filed_everywhere(cx.arena, id, cx.names.this, cx.names.errors);
             let before = self.overlay.is_some().then(|| filed(self));
             if let Some(o) = self.overlay.as_deref_mut() {
@@ -2294,8 +2297,10 @@ impl Cx<'_> {
                 let after = filed(self);
                 let inference = crate::symbols::Config::TemplateDecl.slot();
                 self.filed_differently |= before[inference] != after[inference];
-                if crate::symbols::harmless(&old, &self.arena[id].exp, &before, &after) {
-                    self.vetted += 1;
+                self.weighed += 1;
+                let unbounded = crate::symbols::unbounded(&old, &self.arena[id].exp, &before, &after);
+                for (n, u) in self.unbounded.iter_mut().zip(unbounded) {
+                    *n += u as u64;
                 }
             }
         }
