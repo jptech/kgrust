@@ -145,13 +145,13 @@ feature it has, so that features are also graded together:
   every feature on as with none (481 files, 2026-10-31; the one not UTF-8,
   `test/syntax/imports/binary.k`, is skipped and named; `doc/` holds none);
 - **claims** — every fixture is rejected by `kg-oracle --errors` and by
-  `kg` in edition 1.0 (13);
+  `kg` in edition 1.0 (23, `cargo xtask editions`, 2026-11-01);
 - **twins** — each `accept/x.k` checks clean in its suite's language, its
   hand-written `x.ref.k` is accepted by the oracle and by edition 1.0, and
   the two walk through the trace backend call for call, locations aside
-  (7);
+  (10);
 - **rejections** — each `reject/x.k` gives exactly the errors its
-  `// expect-error L:C: message` lines list, in order (6).
+  `// expect-error L:C: message` lines list, in order (13).
 
 Blind to: a feature that acts after the parse — every feature so far acts
 only where the parser built its construct, which is what makes a parse

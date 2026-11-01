@@ -18491,5 +18491,81 @@ trailing comma in all three through `comma_list`. The page now lists them,
 and the twin fixture walks them.
 
 Checked 2026-10-31: 15 mutants (8 against the manifest's marking, 7
-against `Parser::gate`'s errors), each caught by its own test; one first "caught" by a
-compile error was planted again until it compiled.
+against `Parser::gate`'s errors), each caught by its own test; one first
+"caught" by a compile error was planted again until it compiled.
+
+## Reviewing an edition: a miscompile, two doors left open, and the docs behind — 2026-11-01
+
+A review of the editions branch before its merge (PR #8) found what its
+gates could not, because each was a program no fixture held:
+
+- **A call through a value named the wrong parameters.** Labels were
+  matched against the callee's inferred type, and a value of function type
+  given a lambda is typed by pass 2 and instantiation as the lambda's
+  closure, so `g(y: a, x: b)` through `(uint8 x, uint8 y) -> uint8 g`
+  placed its arguments by the lambda's names — subtraction the other way
+  round, silently. The names are now the declared type's, read by the
+  declaration's head (`Function.hs:313-359`), and a value is given no
+  default, a default being a declaration's and not a type's. Pinned by
+  `named-arguments/accept/values.k` and its twin.
+- **`kanagawa` opted in.** Its settings walked up to a `kanagawa.toml` for
+  the language like `kg`'s, so a 1.1 manifest above a file changed what
+  the compat binary accepted; rule 6 was true only of its flags.
+  `LanguageMap::reference()` reads none, and `kg --no-manifest` reads none
+  for the language either.
+- **A dependency's refused manifest was silent**: its files read as 1.0
+  with nothing said. The map now keeps what it refused, and `kg check`,
+  `build`, `doc` and the editor report it.
+- **The order rule refused constants.** Folding does not reliably come
+  before a call is placed — an aggregate constant never folds, a scalar
+  only once its initializer has — so `Table[1]` beside a call was refused.
+  A constant is now pure by its declaration or its type (`tIsConst`,
+  `Constexpr.hs:280`); an imported `const` memory is still classed as
+  reading, toward refusing.
+- **Defaults were judged nowhere.** An ill-typed default was accepted until
+  a call leaned on it, and then reported at every such call. It is now
+  judged at the declaration as the argument it stands for
+  (`checkArguments`, `TypeCheck.hs:97`), once; and an enum's constant as an
+  integer parameter's default, a correct program, had made every call
+  short of it an arity error — the default now names its constant by the
+  enum's absolute name, read off its own type.
+- **Two messages lied about a wrong program**: an undefined name in a
+  reordered call got the order error, not `Symbol name not in scope`; a
+  misnamed label on a function template's call was reported at the call,
+  its instance mangled. Both are now the reference's kind of error, where
+  the reference puts it.
+- **The formatter and trailing commas.** The house style leads with its
+  commas; a broken list that ends in a trailing comma printed a lone `,`
+  line. Such a list now trails its commas (`docs/spec/style.md` §3).
+
+What the editor gained in speed, each exact (2026-10-31, interleaved A/B
+over stdio, the quick profile; the drivers in the commits' messages):
+
+- **The defaults hint** resolved every call in the viewport through the
+  one-off path, each reading the file again: 28.8 → 0.96 ms for a 60-line
+  viewport of 150 defaulted calls, 231 → 3.6 ms for 300 calls in a file of
+  1500 functions. `Db::resolver` reads the file once for many names, and
+  only a call spelled as a function some file declares a default for is
+  resolved. A resolver's answers are the one-off's at every identifier of
+  the library (`a_resolver_answers_as_each_name_is_answered_alone`).
+- **rowan's `token_at_offset` is linear**: it reads every child of each
+  node in turn, and was 93% of what remained of that request in a file of
+  1500 functions. `covering_element` searches; `identifier_at` and
+  `declaring_node` now use it.
+- **A parse memo hit** asked the file's language on every hit (~440 ns);
+  it now compares a stamp and the settings' revision (8.6 ns).
+- **`named_arguments`** walked every module every round: 0.151 s over
+  1430 visits of a loop of 0.93 s on `array.k` with one default, 0.010 s
+  over 288 after (`KG_LOOP_PROFILE=1`), the 1.0 rows unchanged. One part
+  of its skip — the type map's write count in the module's state — no
+  mutant could make matter; it is kept as the sound key, unproven.
+
+**Signature help's "none"** has one spelling every client reads so: LSP
+3.17 defaults a missing `activeParameter` to 0, and 3.18's `null` needs a
+capability `lsp-types` 0.97 cannot express. A label that names no
+parameter is answered with the signature and no `parameters`.
+
+Checked 2026-11-01: `cargo xtask editions` — 481 reference files the same,
+claims 23, twins 10, rejections 13; every new test proven by
+`scripts/mutant.sh` (the commits list each). The branch's gates are in
+its merge commit's message.
