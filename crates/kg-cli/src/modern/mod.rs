@@ -529,12 +529,12 @@ fn expand(global: &GlobalArgs, args: &ExpandArgs, styles: &Styles, out: &mut dyn
             return 1;
         }
     };
+    if let Some(i) = roots.iter().position(|root| !expanded.iter().any(|e| e.file == *root)) {
+        let _ = writeln!(err, "kg: {} is not a file of this project: it has a language of its own, so expand it from its own project", files[i]);
+        return 2;
+    }
     let Some(dir) = &args.out else {
         let root = roots[0];
-        let Some(file) = expanded.iter().find(|e| e.file == root) else {
-            let _ = writeln!(err, "kg: {} is no file of the project, which keeps its own language: expand it in its own", files[0]);
-            return 2;
-        };
         let others = expanded.iter().filter(|e| e.file != root && e.changed).count();
         if others > 0 {
             let _ = writeln!(
@@ -545,7 +545,9 @@ fn expand(global: &GlobalArgs, args: &ExpandArgs, styles: &Styles, out: &mut dyn
                 if others == 1 { "s" } else { "" },
             );
         }
-        let _ = write!(out, "{}", file.text);
+        if let Some(file) = expanded.iter().find(|e| e.file == root) {
+            let _ = write!(out, "{}", file.text);
+        }
         return 0;
     };
     write_expanded(&expanded, Utf8Path::new(dir), &resolved.settings, global, out, err)

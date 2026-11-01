@@ -30,11 +30,17 @@ pub(crate) fn verify(db: &Db, roots: &[FileId], out: &[Expanded], rendered: &[Re
     // Back from where the reading found a fault to the file it stands for.
     let back = |at: FileRange, what: String| {
         let i = files.iter().position(|&f| f == at.file);
-        let (file, rendered) = match i {
-            Some(i) => (out[i].file, Some(&rendered[i])),
-            None => (first_edit(out, rendered).file, None),
+        let (file, range, wrote) = match i {
+            Some(i) => {
+                let (range, wrote) = rendered[i].origin(at.range.start());
+                (out[i].file, range, wrote)
+            }
+            // A fault outside the project, as an instance in a library may be.
+            None => {
+                let first = first_edit(out, rendered);
+                (first.file, first.range, None)
+            }
         };
-        let (range, wrote) = rendered.map_or((TextRange::default(), None), |r| r.origin(at.range.start()));
         let message = match wrote {
             Some(wrote) => format!("cannot write {wrote} in edition 1.0: {what}"),
             None => format!("cannot write this program in edition 1.0: its text does not read back: {what}"),

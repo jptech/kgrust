@@ -462,8 +462,9 @@ enum Cmd {
         max_tests: usize,
     },
     /// Grade the language beyond the reference: every feature neutral over the
-    /// corpus, its fixtures claimed, walked as their twins, and rejected as
-    /// expected (`docs/editions/README.md`).
+    /// corpus, its fixtures claimed, walked as their twins, rejected as expected,
+    /// and expanded by `kg expand` to their twins or refused as expected
+    /// (`docs/editions/README.md`).
     Editions {
         /// Path to the reference checkout.
         #[arg(long, env = "KANAGAWA_ROOT", default_value = "third_party/kanagawa")]

@@ -165,7 +165,7 @@ fn run(db: &Db, roots: &[FileId], every_list: bool) -> Outcome {
         for (id, list) in source.scan.lists.iter().enumerate() {
             // A list in a default goes with the default; the program has it
             // only as the value the calls were given.
-            if source.scan.defaults.iter().any(|d| d.contains_range(list.range)) {
+            if source.scan.defaults.iter().any(|d| d.contains(list.open)) {
                 continue;
             }
             let placement = match list.kind {
@@ -544,9 +544,9 @@ mod tests {
         assert_eq!(expanded(&program("sub(y: x, x: 1)")), program("sub(1, x)"));
     }
 
-    /// Every file of the project that leans on a default is written, though
-    /// it holds no construct of its own. Red with a file whose language has no
-    /// features left unscanned while a default is about.
+    /// A call in one file is given the default another file declares, and both
+    /// are written. Red with the call's list left as written where the default's
+    /// is in another file.
     #[test]
     fn a_file_with_no_construct_is_given_the_defaults_it_leans_on() {
         let lib = "module lib { bump }\n\ninline uint8 bump(uint8 x = 1)\n{\n    return x;\n}\n";

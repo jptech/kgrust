@@ -104,12 +104,10 @@ pub(crate) fn int(ty: Option<LiteralType>, value: &ConstInt) -> Result<String, S
 }
 
 /// A `float32`, in the shortest text the lowering's reader takes back to the
-/// same bits — one float token, as the lexer reads it.
+/// same bits — one float token, as the lexer reads it, which `inf` and `NaN`
+/// are not.
 pub(crate) fn float(bits: F32Bits) -> Result<String, String> {
     let f = bits.to_f32();
-    if !f.is_finite() {
-        return Err(format!("the float {f}, which no literal writes"));
-    }
     let magnitude = f.abs();
     let text = format!("{magnitude:?}");
     let lexed = kg_parser::LexedStr::new(&text);

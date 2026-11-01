@@ -922,10 +922,7 @@ fn expand_project(name: &str) -> Scratch {
 
 /// A file goes to stdout, the program nothing else: the project in edition 1.1,
 /// its root's own text with only the constructs rewritten, and what else the
-/// program rewrites is said on stderr. The project's root is known by the
-/// spelling the roots have, which on a symlinked temporary directory is not the
-/// one the shell gave. Red with `LanguageMap::rooted_at` left out, the root then
-/// no file of the project.
+/// program rewrites is said on stderr. Red with the note on stdout.
 #[test]
 fn kg_expand_prints_one_file_to_stdout() {
     let scratch = expand_project("expand-stdout");
@@ -933,6 +930,38 @@ fn kg_expand_prints_one_file_to_stdout() {
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, EXPAND_TOP.replace("bump(by: 2, x: p,) + bump(p)", "bump(p, 2) + bump(p, 1)"));
     assert!(run.stderr.contains("1 other file of the program expands too"), "{}", run.stderr);
+}
+
+/// A project reached through a symlink is still the project: its root is known
+/// by the spelling its files are ([`canonical`] roots). Red with
+/// `LanguageMap::rooted_at` left out, the root then no file of the project.
+#[cfg(unix)]
+#[test]
+fn kg_expand_knows_the_project_through_a_symlink() {
+    let scratch = Scratch::new("expand-symlink");
+    scratch.file_at("real/kanagawa.toml", EXPAND_MANIFEST);
+    scratch.file_at("real/top.k", EXPAND_TOP);
+    scratch.file_at("real/lib/helper.k", EXPAND_HELPER);
+    std::os::unix::fs::symlink(scratch.path().join("real"), scratch.path().join("link")).expect("symlink");
+    let run = run_in(KG, scratch.path(), &["expand", "--no-implicit-base", "-I", "link", "link/top.k"]);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, EXPAND_TOP.replace("bump(by: 2, x: p,) + bump(p)", "bump(p, 2) + bump(p, 1)"));
+}
+
+/// A file of the reference's language holds no construct, and its call may
+/// still lean on a default a dependency in a later edition declares: nothing in
+/// its own text shows it, and the program it stands for writes it. Red with a
+/// file with no features left unscanned.
+#[test]
+fn kg_expand_gives_a_reference_file_a_dependencys_default() {
+    let scratch = Scratch::new("expand-dep-default");
+    scratch.file("kanagawa.toml", "[package]\nname = \"p\"\n\n[project]\nsources = [\"top.k\"]\n");
+    scratch.file("top.k", "import dep\n\nclass Main\n{\npublic:\n    uint8 run(uint8 p)\n    {\n        return dep_bump(p);\n    }\n}\n\nexport Main;\n");
+    scratch.file_at("vendor/dep/kanagawa.toml", "[package]\nname = \"dep\"\nedition = \"1.1\"\n");
+    scratch.file_at("vendor/dep/dep.k", "module dep { dep_bump }\n\ninline uint8 dep_bump(uint8 x, uint8 by = 3)\n{\n    return x + by;\n}\n");
+    let run = run_in(KG, scratch.path(), &["expand", "--no-implicit-base", "-I", "vendor/dep", "top.k"]);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert!(run.stdout.contains("return dep_bump(p, 3);"), "{}", run.stdout);
 }
 
 /// With `--out`, every file of the project the program reaches is written at its
@@ -993,10 +1022,11 @@ fn kg_expand_of_a_broken_or_plain_program() {
     assert!(run.stderr.contains("error"), "{}", run.stderr);
 }
 
-/// Two roots have no one text for stdout, and `--out` at the project's own root
-/// would overwrite the program, which an expansion cannot take back. Both are
-/// usage errors, nothing written. Red with the second check gone, the sources
-/// then overwritten.
+/// Two roots have no one text for stdout, `--out` at the project's own root
+/// would overwrite the program, which an expansion cannot take back, and a root
+/// outside the project is not this project's to write. All are usage errors,
+/// nothing written. Red with any of the three checks gone: the sources then
+/// overwritten, or `--out` silently writing none of what was named.
 #[test]
 fn kg_expand_will_not_guess_or_overwrite() {
     let scratch = expand_project("expand-usage");
@@ -1007,4 +1037,13 @@ fn kg_expand_will_not_guess_or_overwrite() {
     assert_eq!(run.code, 2, "{}", run.stderr);
     assert!(run.stderr.contains("would overwrite"), "{}", run.stderr);
     assert_eq!(std::fs::read_to_string(scratch.path().join("top.k")).unwrap(), EXPAND_TOP);
+    let other = Scratch::new("expand-usage-other");
+    let outside = other.file("outside.k", GOOD);
+    let manifest = scratch.path().join("kanagawa.toml");
+    let manifest = manifest.to_str().unwrap();
+    let outside = outside.to_str().unwrap();
+    let run = run_in(KG, other.path(), &["--manifest-path", manifest, "expand", "--no-implicit-base", "--out", "out", outside]);
+    assert_eq!(run.code, 2, "{}", run.stderr);
+    assert!(run.stderr.contains("is not a file of this project"), "{}", run.stderr);
+    assert!(!other.path().join("out").exists());
 }
