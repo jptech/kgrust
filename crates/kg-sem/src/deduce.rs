@@ -85,6 +85,7 @@ pub fn deduce_template_args(program: &mut Program<'_>) {
             door,
             versions: &versions,
             read: std::cell::RefCell::default(),
+            fault: std::cell::RefCell::default(),
         };
         let mut rw = Rewriter::new(&mut module.ir.arena, interner);
         let types = &mut module.types;
@@ -144,6 +145,10 @@ pub(crate) struct Cx<'a> {
     /// The templates of another module the deductions under way read, in
     /// order ([`Cx::deduce_instance`]).
     read: std::cell::RefCell<Vec<Decl>>,
+    /// A later edition's call whose labels its function template's
+    /// parameters cannot take — the argument at fault, and why — which no
+    /// deduction can be made of ([`Cx::by_parameter`]).
+    fault: std::cell::RefCell<Option<(usize, String)>>,
 }
 
 /// A template, read off its module's snapshot.
@@ -297,6 +302,11 @@ impl<'a> Cx<'a> {
                     return Exp::FunctionCall { attr, function: b, args: c };
                 };
                 let items = Self::items(m.rw.arena, c);
+                // A call a fault was reported at is deduced no more
+                // ([`crate::named::faulted_label`]).
+                if items.iter().any(|&i| crate::named::faulted_label(m.rw.arena, i)) {
+                    return Exp::FunctionCall { attr, function: b, args: c };
+                }
                 let arg_types: Vec<Ty> = items.iter().map(|&i| m.types.get(i)).collect();
                 // A later edition's labels, which name the template's own
                 // parameters until `crate::named` can read its instance's.
@@ -309,6 +319,22 @@ impl<'a> Cx<'a> {
                     .collect();
                 let labels = if labels.iter().any(Option::is_some) { labels } else { Vec::new() };
                 let y2 = self.deduce_instance(m, &arg_types, &labels, y);
+                // A label the template's function cannot take is an error at
+                // it, as `crate::named` reports one for a function, and the
+                // call is left undeduced: its labels kept, so that no
+                // argument stands in another's place, and the faulted one's
+                // value the error, which no later round deduces or reports
+                // again.
+                if let Some((at, message)) = self.fault.borrow_mut().take() {
+                    let Exp::Labelled { label, .. } = m.rw.arena[items[at]].exp else {
+                        return Exp::FunctionCall { attr, function: b, args: c };
+                    };
+                    let error = m.copy_note(items[at], Exp::Error(kg_hir::ErrorNote::new(message)));
+                    let mut items = items;
+                    items[at] = m.copy_note(items[at], Exp::Labelled { label, value: error });
+                    let c = m.copy_note(c, Exp::Seq(items));
+                    return Exp::FunctionCall { attr, function: b, args: c };
+                }
                 if y2 == y {
                     return Exp::FunctionCall { attr, function: b, args: c };
                 }
@@ -368,7 +394,10 @@ impl<'a> Cx<'a> {
         let read = self.read.borrow().len();
         door.tentative();
         let out = self.deduce_instance_reading(m, arg_types, labels, x);
-        let changed = out != x || before != (m.rw.arena.len(), m.rw.arena.writes(), m.types.writes());
+        // A fault the call is rewritten for read the signature too.
+        let changed = out != x
+            || before != (m.rw.arena.len(), m.rw.arena.writes(), m.types.writes())
+            || self.fault.borrow().is_some();
         // The templates this deduction read, shown only where it changed
         // the module: a signature is spelled for what it moved, never for a
         // deduction made again of a call already rewritten.
@@ -544,7 +573,13 @@ impl<'a> Cx<'a> {
             how: How::Supertype,
         };
         let params = Self::items(t.arena, func_params);
-        let Some(by_param) = Self::by_parameter(t.arena, &params, arg_types, labels) else { return q };
+        let by_param = match self.by_parameter(t.arena, &params, arg_types, labels, &self.template_name(m.rw.arena, ident)) {
+            Ok(by_param) => by_param,
+            Err(fault) => {
+                *self.fault.borrow_mut() = Some(fault);
+                return q;
+            }
+        };
         for (&p, ty) in params.iter().zip(&by_param) {
             if let (Exp::FuncParam { ty: pt, .. }, Some(ty)) = (&t.arena[p].exp, ty) {
                 d.deduce_type(Pat::of(*pt), ty);
@@ -721,27 +756,38 @@ impl<'a> Cx<'a> {
 
     /// Each parameter's argument type: positionally, as the reference zips
     /// them (`zipWithM_ deduceFromFuncParam`, `Type.hs:1477`), or — a later
-    /// edition's labelled arguments — by the parameter each names. `None`
-    /// where a label names no parameter, or two arguments one: nothing is
-    /// deduced, and the call is left for `crate::named` to report.
-    fn by_parameter<'t>(arena: &ExpArena, params: &[ExpId], arg_types: &'t [Ty], labels: &[Option<Symbol>]) -> Option<Vec<Option<&'t Ty>>> {
+    /// edition's labelled arguments — by the parameter each names. `Err`
+    /// where a label names no parameter, or two arguments one: the argument
+    /// at fault and why, in the words `crate::named` has for a function.
+    fn by_parameter<'t>(
+        &self,
+        arena: &ExpArena,
+        params: &[ExpId],
+        arg_types: &'t [Ty],
+        labels: &[Option<Symbol>],
+        name: &str,
+    ) -> Result<Vec<Option<&'t Ty>>, (usize, String)> {
         if labels.is_empty() {
-            return Some(arg_types.iter().map(Some).collect());
+            return Ok(arg_types.iter().map(Some).collect());
         }
+        let param_name = |p: ExpId| match &arena[p].exp {
+            Exp::FuncParam { name, .. } => kg_hir::rewrite::ident_sym(arena, *name),
+            _ => None,
+        };
         let mut out: Vec<Option<&Ty>> = vec![None; params.len().max(arg_types.len())];
         for (i, (ty, label)) in arg_types.iter().zip(labels).enumerate() {
             let slot = match label {
                 None => i,
-                Some(l) => params.iter().position(|&p| match &arena[p].exp {
-                    Exp::FuncParam { name, .. } => kg_hir::rewrite::ident_sym(arena, *name) == Some(*l),
-                    _ => false,
+                Some(l) => params.iter().position(|&p| param_name(p) == Some(*l)).ok_or_else(|| {
+                    (i, format!("{name} has no parameter named `{}`", self.interner.resolve(*l)))
                 })?,
             };
             if out[slot].replace(ty).is_some() {
-                return None;
+                let shown = params.get(slot).and_then(|&p| param_name(p)).map_or_else(|| format!("#{}", slot + 1), |n| self.interner.resolve(n).to_string());
+                return Err((i, format!("the parameter `{shown}` is given an argument twice")));
             }
         }
-        Some(out)
+        Ok(out)
     }
 
     /// `deduceInstanceFromType` (`Type.hs:1468-1471`): a function named as

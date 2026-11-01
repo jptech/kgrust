@@ -190,8 +190,18 @@ fn is_lambda(t: &Ty) -> bool {
     }
 }
 
+/// Whether the call's labels are still to be placed: it has one, and no
+/// pass has reported a fault at one ([`faulted_label`]).
 fn has_labels(arena: &ExpArena, args: ExpId) -> bool {
-    matches!(&arena[args].exp, Exp::Seq(items) if items.iter().any(|&i| matches!(arena[i].exp, Exp::Labelled { .. })))
+    let Exp::Seq(items) = &arena[args].exp else { return false };
+    items.iter().any(|&i| matches!(arena[i].exp, Exp::Labelled { .. })) && !items.iter().any(|&i| faulted_label(arena, i))
+}
+
+/// Whether `item` is an argument whose label `crate::deduce` found no
+/// parameter of a function template for: its value is the error, at the
+/// label, and the call is left as it is.
+pub(crate) fn faulted_label(arena: &ExpArena, item: ExpId) -> bool {
+    matches!(arena[item].exp, Exp::Labelled { value, .. } if matches!(arena[value].exp, Exp::Error(_)))
 }
 
 /// `` `f` `` for a callee with a name, `this function` for one without.
@@ -201,7 +211,12 @@ fn callee_name(arena: &ExpArena, function: ExpId, interner: &Interner) -> String
         _ => function,
     };
     match get_name(arena, inner) {
-        Some(s) => format!("`{}`", interner.resolve(s)),
+        // An instance's name is its template's and its arguments, mangled
+        // (`fixed<|@3|>`): the call is of the template the user named.
+        Some(s) => {
+            let name = interner.resolve(s);
+            format!("`{}`", name.split_once("<|").map_or(&*name, |(template, _)| template))
+        }
         None => "this function".to_owned(),
     }
 }
