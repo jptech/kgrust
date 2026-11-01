@@ -518,6 +518,15 @@ impl Member {
 /// too. In a template's body whose instances reach `f` in two classes, the
 /// label is one text naming two parameters, and a rename of one would
 /// leave the other's call naming none.
+///
+/// Each file's names are resolved through one [`kg_db::navigate::Resolver`],
+/// made at its first use the needle lets through: what an answer reads of
+/// the file — its declarations by name token, which declaration binds a
+/// name in which scope — is read once for every use, where the answer
+/// alone reads it for each. A name at the top of a file of 4,000 lines used
+/// 177 times took 660 ms to highlight, the answer alone scanning the file
+/// for its binder at every use (2026-11-01). The answers are the one-off's
+/// (`kg_db`'s `a_resolver_answers_as_each_name_is_answered_alone`).
 #[allow(clippy::too_many_arguments)]
 fn walk(
     db: &Db,
@@ -540,6 +549,8 @@ fn walk(
     for &file in files {
         kg_base::cancel::checkpoint();
         let tree = db.parse(file).syntax_node();
+        let resolver: OnceCell<kg_db::navigate::Resolver<'_>> = OnceCell::new();
+        let resolve = |token: &SyntaxToken| resolver.get_or_init(|| db.resolver(file)).definitions_at(&looped, roots, probe(token));
         for token in tree.descendants_with_tokens().filter_map(|e| e.into_token()) {
             if token.kind() != SyntaxKind::IDENT {
                 continue;
@@ -550,7 +561,7 @@ fn walk(
             {
                 continue;
             }
-            let reached = db.definitions_at_through(&looped, roots, file, probe(&token));
+            let reached = resolve(&token);
             if matches!(reached.as_slice(), [one] if one == target) {
                 found.hits.push(FileRange::new(file, token.text_range()));
             }
@@ -564,7 +575,7 @@ fn walk(
                 .as_deref()
                 .and_then(|owner| kg_db::navigate::labelled_member(&token).filter(|callee| callee.text() == owner));
             let (reaches, label) = match &through {
-                Some(callee) => (db.definitions_at_through(&looped, roots, file, probe(callee)), true),
+                Some(callee) => (resolve(callee), true),
                 None if selector && member.selected => (reached, false),
                 None => continue,
             };

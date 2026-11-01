@@ -2556,10 +2556,12 @@ mod tests {
     }
 
     /// Every identifier of `file`, answered by [`Db::resolver`] and alone
-    /// ([`Db::definitions_at_through`]); the offsets where they part, with
-    /// both answers. With no loop, which reads no member: the resolver
-    /// differs from the one-off answer only in what it reads of the file.
-    fn parted(db: &Db, file: FileId) -> Vec<String> {
+    /// ([`Db::definitions_at_through`]) through `looped`; the offsets where
+    /// they part, with both answers. The resolver differs from the one-off
+    /// answer only in what it reads of the file, which a member read
+    /// through the loop does not read; with a loop, the members and the
+    /// labels of method calls are answered too.
+    fn parted(db: &Db, file: FileId, looped: &dyn Fn() -> Option<crate::looped::EditorLoop>) -> Vec<String> {
         let roots = [file];
         let resolver = db.resolver(file);
         let root = db.parse(file).syntax_node();
@@ -2568,8 +2570,8 @@ mod tests {
             .filter(|t| t.kind() == kg_syntax::SyntaxKind::IDENT)
             .filter_map(|t| {
                 let at = t.text_range().start();
-                let alone = db.definitions_at_through(&|| None, &roots, file, at);
-                let many = resolver.definitions_at(&|| None, &roots, at);
+                let alone = db.definitions_at_through(looped, &roots, file, at);
+                let many = resolver.definitions_at(looped, &roots, at);
                 let show = |d: &[Definition]| d.iter().map(|d| format!("{:?}", d.range)).collect::<Vec<_>>().join(" ");
                 (alone != many).then(|| format!("{}@{at:?}: alone [{}], resolver [{}]", t.text(), show(&alone), show(&many)))
             })
@@ -2606,16 +2608,22 @@ mod tests {
     /// local binding is found in — a block's shadowing a function's, a
     /// sibling's local left alone, a loop's variable, a template's
     /// parameter, a class member, two declarations of one name in one
-    /// scope, a label — and of every file of the reference's library; and
+    /// scope, a label, a method called and labelled through its receiver,
+    /// with no loop and with one — and of every file of the reference's
+    /// library; and
     /// the token of each node's and token's range is the one
     /// `token_at_offset` finds. Red with the index taking the outermost
     /// scope that binds a name, or the last declaration of one in the text.
     #[test]
     fn a_resolver_answers_as_each_name_is_answered_alone() {
         let mut db = db();
-        let fixture = "const auto x = 1;\n\ninline uint8 f(uint8 x, uint8 y = 2)\n{\n    uint8 z = x;\n    {\n        uint8 x = z;\n        z = x + y;\n    }\n    for (const auto i : 4)\n    {\n        z = z + i;\n    }\n    return z;\n}\n\ninline uint8 g()\n{\n    uint8 z = x;\n    uint8 z = 3;\n    return f(z, y: z);\n}\n\ntemplate <auto N = 2>\nclass C\n{\n    uint8 m = N;\n\n    uint8 get(uint8 x)\n    {\n        return m + x + N;\n    }\n}\n";
+        let fixture = "const auto x = 1;\n\ninline uint8 f(uint8 x, uint8 y = 2)\n{\n    uint8 z = x;\n    {\n        uint8 x = z;\n        z = x + y;\n    }\n    for (const auto i : 4)\n    {\n        z = z + i;\n    }\n    return z;\n}\n\ninline uint8 g()\n{\n    uint8 z = x;\n    uint8 z = 3;\n    return f(z, y: z);\n}\n\ntemplate <auto N = 2>\nclass C\n{\n    uint8 m = N;\n\n    uint8 get(uint8 x)\n    {\n        return m + x + N;\n    }\n}\n\nclass D\n{\npublic:\n    uint8 put(uint8 x, uint8 y)\n    {\n        return x - y;\n    }\n}\n\ninline uint8 h(uint8 x)\n{\n    static D d;\n    static C<3> c;\n    return d.put(y: x, x: 1) + c.get(x) + d.put(x, 2);\n}\n";
         let file = write(&mut db, "main.k", fixture);
-        assert_eq!(parted(&db, file), Vec::<String>::new());
+        assert_eq!(parted(&db, file, &|| None), Vec::<String>::new());
+        let looped = db.loop_once(&[file]);
+        let members = db.definitions_at_through(&|| Some(looped.clone()), &[file], file, TextSize::new(fixture.rfind("put(x, 2)").unwrap() as u32));
+        assert_eq!(members.len(), 1, "the loop places `d.put`");
+        assert_eq!(parted(&db, file, &|| Some(looped.clone())), Vec::<String>::new());
         assert_eq!(misread(&db.parse(file).syntax_node()), Vec::<String>::new());
 
         let root = kg_base::reference_root();
@@ -2656,7 +2664,7 @@ mod tests {
                 continue;
             }
             let file = db.set_file_text(path, text);
-            parted_all.extend(parted(&db, file).into_iter().map(|p| format!("{path}: {p}")));
+            parted_all.extend(parted(&db, file, &|| None).into_iter().map(|p| format!("{path}: {p}")));
             read.0 += 1;
             if size < 8 << 10 {
                 parted_all.extend(misread(&db.parse(file).syntax_node()).into_iter().map(|p| format!("{path}: {p}")));
