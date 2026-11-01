@@ -270,8 +270,12 @@ impl GlobalState {
     /// until the manifest is read again, so the editor can mark it for as
     /// long as it stays broken.
     pub fn manifest_problems(&self) -> Vec<(Utf8PathBuf, ManifestProblem)> {
-        let config = lock(&self.inner.config);
+        let mut config = lock(&self.inner.config);
+        config.note_refused_dependencies();
         let mut problems: Vec<_> = config.problems.iter().map(|(p, m)| (p.clone(), m.clone())).collect();
+        problems.extend(
+            config.dependencies.iter().filter(|(p, _)| !config.problems.contains_key(*p)).map(|(p, m)| (p.clone(), m.clone())),
+        );
         problems.sort_by(|a, b| a.0.cmp(&b.0));
         problems
     }
@@ -588,6 +592,12 @@ struct ConfigStore {
     /// The manifests whose load failed since the last reload, kept for the
     /// editor to mark ([`GlobalState::manifest_problems`]).
     problems: FxHashMap<Utf8PathBuf, ManifestProblem>,
+    /// Dependencies' manifests that did not load, met by a file's language
+    /// (`kg_config::LanguageMap::refused`). Kept across a reload until the
+    /// manifest loads or is gone: a reload reads them again only when a
+    /// check next reaches their files, and a mark taken off meanwhile would
+    /// come back as news.
+    dependencies: FxHashMap<Utf8PathBuf, ManifestProblem>,
     fallback: Option<Arc<Settings>>,
     /// Whether a file with no manifest above it has been reported: its
     /// settings have no import directories, so the base library is not
@@ -612,6 +622,7 @@ impl ConfigStore {
             errors: Vec::new(),
             reported: Vec::new(),
             problems: FxHashMap::default(),
+            dependencies: FxHashMap::default(),
             fallback: None,
             said_unmanaged: false,
             verdicts: kg_config::Verdicts::read(|name| std::env::var_os(name)),
@@ -629,10 +640,33 @@ impl ConfigStore {
         self.reported.clear();
         self.problems.clear();
         self.fallback = None;
+        self.dependencies.retain(|manifest, problem| match kg_config::load(manifest) {
+            Err(err) if manifest.is_file() => {
+                *problem = refused(manifest, &err);
+                true
+            }
+            _ => false,
+        });
     }
 
     fn take_errors(&mut self) -> Vec<String> {
         std::mem::take(&mut self.errors)
+    }
+
+    /// Each manifest a project's files reached and could not load — a
+    /// dependency's, which only a file's language reads
+    /// (`kg_config::LanguageMap::refused`) — kept as a refused project
+    /// manifest is, to be marked and said once.
+    fn note_refused_dependencies(&mut self) {
+        let met: Vec<_> = self.by_manifest.values().chain(&self.fallback).flat_map(|s| s.language.refused()).collect();
+        for (manifest, err) in met {
+            if self.reported.contains(&manifest) {
+                continue;
+            }
+            self.reported.push(manifest.clone());
+            self.errors.push(format!("{err}"));
+            self.dependencies.insert(manifest.clone(), refused(&manifest, &err));
+        }
     }
 
     fn settings_for(&mut self, path: Option<&Utf8Path>) -> Arc<Settings> {
@@ -684,10 +718,7 @@ impl ConfigStore {
                 if !self.reported.contains(&manifest) {
                     self.reported.push(manifest.clone());
                     self.errors.push(format!("{err}"));
-                    // The text `toml` refused, read again for the span to
-                    // index: a manifest is small, and this runs once a load.
-                    let span = err.span().zip(std::fs::read_to_string(&manifest).ok()).map(|(s, t)| (s, Arc::from(t)));
-                    self.problems.insert(manifest.clone(), ManifestProblem { message: err.message(), span, refused: true });
+                    self.problems.insert(manifest.clone(), refused(&manifest, &err));
                 }
                 self.fallback(start.as_deref())
             }
@@ -709,6 +740,14 @@ impl ConfigStore {
         self.fallback = Some(Arc::clone(&settings));
         settings
     }
+}
+
+/// A manifest refused whole, as the editor marks it: the text `toml`
+/// refused, read again for the span to index — a manifest is small, and
+/// this runs once a load.
+fn refused(manifest: &Utf8Path, err: &kg_config::ManifestError) -> ManifestProblem {
+    let span = err.span().zip(std::fs::read_to_string(manifest).ok()).map(|(s, t)| (s, Arc::from(t)));
+    ManifestProblem { message: err.message(), span, refused: true }
 }
 
 /// Interns a path-like name as a `file:` URI, for tests that need a document

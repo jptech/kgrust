@@ -113,8 +113,10 @@ struct Server<'a> {
     published: Arc<Published>,
     /// The broken manifests the editor was last told of, and what it was
     /// told: a problem is marked and said once, and its mark is taken off
-    /// when the manifest loads again ([`report_config_errors`]).
-    manifests_shown: Mutex<FxHashMap<camino::Utf8PathBuf, ManifestProblem>>,
+    /// when the manifest loads again ([`report_config_errors`]). Shared with
+    /// the diagnostics lane, which is where a dependency's manifest is first
+    /// read — when a file under it is.
+    manifests_shown: Arc<Mutex<FxHashMap<camino::Utf8PathBuf, ManifestProblem>>>,
 }
 
 fn main_loop(connection: &Connection, state: GlobalState) -> ExitCode {
@@ -124,7 +126,7 @@ fn main_loop(connection: &Connection, state: GlobalState) -> ExitCode {
         pool: TaskPool::new(connection.sender.clone(), default_threads()),
         diagnostics: TaskPool::new(connection.sender.clone(), 1),
         published: Arc::new(Published::new(connection.sender.clone())),
-        manifests_shown: Mutex::new(FxHashMap::default()),
+        manifests_shown: Arc::default(),
     };
     let mut shutdown_requested = false;
 
@@ -429,6 +431,8 @@ fn publish(server: &Server<'_>, uri: Uri, trigger: Trigger) {
     }
     let state = state.clone();
     let published = Arc::clone(&server.published);
+    let shown = Arc::clone(&server.manifests_shown);
+    let sender = server.connection.sender.clone();
     server.diagnostics.spawn_notification(move || {
         // Coalescing: a newer job for this document is queued behind this
         // one, and will answer for newer text. Typing faster than a check
@@ -444,6 +448,9 @@ fn publish(server: &Server<'_>, uri: Uri, trigger: Trigger) {
             Err(_) => handlers::cleared_diagnostics(&uri),
         };
         published.send_if_latest(file, ticket, Tier::Full, params);
+        // The check read each file's language, a dependency's included,
+        // and so its manifest.
+        report_manifests(&state, &shown, &sender);
     });
 }
 
@@ -453,21 +460,38 @@ fn publish(server: &Server<'_>, uri: Uri, trigger: Trigger) {
 /// files on the defaults, so `edition = "9.9"` read as edition 1.0, and the
 /// user saw only the parse errors of a 1.1 program with nothing naming why.
 fn report_config_errors(server: &Server<'_>) {
-    let state = &server.state;
+    report_manifests(&server.state, &server.manifests_shown, &server.connection.sender);
+}
+
+/// [`report_config_errors`], from wherever a manifest may have been read:
+/// the main loop, after a file's settings are resolved, and the diagnostics
+/// lane, after a check whose files reached a dependency's manifest
+/// (`kg_config::LanguageMap::refused`).
+///
+/// The mark follows the manifest's text — a problem that moved is marked
+/// where it now is — but the message is said once a problem: saving a
+/// manifest that is still broken the same way says nothing again.
+fn report_manifests(
+    state: &GlobalState,
+    shown: &Mutex<FxHashMap<camino::Utf8PathBuf, ManifestProblem>>,
+    sender: &Sender<Message>,
+) {
     for message in state.take_config_errors() {
         crate::log(MessageType::WARNING, format!("kanagawa.toml: {message}"));
     }
     let problems: FxHashMap<_, _> = state.manifest_problems().into_iter().collect();
-    let mut shown = lock(&server.manifests_shown);
+    let mut shown = lock(shown);
     for path in shown.keys().filter(|p| !problems.contains_key(*p)) {
         if let Some(uri) = crate::uri::path_to_uri(path) {
-            send_diagnostics(&server.connection.sender, handlers::cleared_diagnostics(&uri));
+            send_diagnostics(sender, handlers::cleared_diagnostics(&uri));
         }
     }
     for (path, problem) in &problems {
-        if shown.get(path) == Some(problem) {
+        let before = shown.get(path);
+        if before == Some(problem) {
             continue;
         }
+        let said = before.is_some_and(|b| b.message == problem.message && b.refused == problem.refused);
         let Some(uri) = crate::uri::path_to_uri(path) else { continue };
         let range = problem.span.as_ref().map_or_else(lsp_types::Range::default, |(span, text)| {
             let index = kg_base::LineIndex::new(text);
@@ -484,10 +508,10 @@ fn report_config_errors(server: &Server<'_>) {
             message: problem.message.clone(),
             ..lsp_types::Diagnostic::default()
         };
-        send_diagnostics(
-            &server.connection.sender,
-            lsp_types::PublishDiagnosticsParams { uri, diagnostics: vec![diagnostic], version: None },
-        );
+        send_diagnostics(sender, lsp_types::PublishDiagnosticsParams { uri, diagnostics: vec![diagnostic], version: None });
+        if said {
+            continue;
+        }
         let consequence = if problem.refused {
             " Until it is fixed, the files under it are read as if it were not there, in edition 1.0."
         } else {
@@ -497,10 +521,7 @@ fn report_config_errors(server: &Server<'_>) {
             typ: MessageType::WARNING,
             message: format!("{path}: {}.{consequence}", problem.message.trim_end_matches('.')),
         };
-        let _ = server.connection.sender.send(Message::Notification(Notification::new(
-            notif::ShowMessage::METHOD.to_owned(),
-            params,
-        )));
+        let _ = sender.send(Message::Notification(Notification::new(notif::ShowMessage::METHOD.to_owned(), params)));
     }
     *shown = problems;
 }

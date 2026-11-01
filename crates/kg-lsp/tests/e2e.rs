@@ -863,11 +863,96 @@ fn a_refused_manifest_is_marked_where_it_is_wrong() {
         partial_result_params: PartialResultParams::default(),
     });
     let _ = client.response(&id, &mut seen);
+    // Edited and saved, still broken the same way: the mark moves with the
+    // value, and nothing is said again — the message once said it all.
+    let text = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(&manifest, format!("# a comment, a line above\n{text}")).unwrap();
+    changed(&client);
+    let moved = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert_eq!(moved.diagnostics[0].range, Range::new(Position::new(2, 10), Position::new(2, 15)), "the mark moved");
     write_manifest("1.0");
     changed(&client);
     let cleared = client.diagnostics_for(&manifest_uri, &mut seen);
     assert!(cleared.diagnostics.is_empty(), "fixed, its mark goes: {:?}", errors(&cleared));
     assert_eq!(said(&seen), 0, "said once, not on every reload");
+
+    let id = client.request::<req::Shutdown>(());
+    let _ = client.response(&id, &mut seen);
+    client.notify::<notif::Exit>(());
+    assert_eq!(client.finish(&mut Vec::new()), kg_lsp::ExitCode::Ok);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A dependency's manifest that does not load — read only for its files'
+/// language, as the project's import reaches them — is marked and said as
+/// the project's own is, and its mark goes once it is fixed. It used to read
+/// the dependency in 1.0 without a word.
+#[test]
+fn a_dependency_s_refused_manifest_is_marked() {
+    let dir = std::env::temp_dir().join(format!("kg-lsp-e2e-dependency-{}", std::process::id()));
+    let root = camino::Utf8PathBuf::from_path_buf(dir.clone()).unwrap();
+    let write = |rel: &str, text: &str| {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    write("app/kanagawa.toml", "[project]\nimport-dirs = [\"../lib\"]\nimplicit-base = false\n");
+    let main = write("app/main.k", "import lib\n\ninline uint8 g(uint8 p) { return pick(p); }\n");
+    let manifest = write("lib/kanagawa.toml", "[package]\nedition = \"9.9\"\n");
+    write("lib/lib.k", "module lib { pick }\n\ninline uint8 pick(uint8 x) { return x; }\n");
+    let manifest_uri = kg_lsp::uri::path_to_uri(&manifest).unwrap();
+    let said = |seen: &[Notification]| seen.iter().filter(|n| n.method == notif::ShowMessage::METHOD).count();
+
+    let mut client = Client::start();
+    let mut seen = Vec::new();
+    let app = kg_lsp::uri::path_to_uri(&root.join("app")).unwrap();
+    let folder = lsp_types::WorkspaceFolder { uri: app, name: "app".to_owned() };
+    let id = client.request::<req::Initialize>(InitializeParams { workspace_folders: Some(vec![folder]), ..InitializeParams::default() });
+    let _: serde_json::Value = result(client.response(&id, &mut seen));
+    client.notify::<notif::Initialized>(InitializedParams {});
+    let main = kg_lsp::uri::path_to_uri(&main).unwrap();
+    client.notify::<notif::DidOpenTextDocument>(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: main.clone(),
+            language_id: "kanagawa".to_owned(),
+            version: 1,
+            text: "import lib\n\ninline uint8 g(uint8 p) { return pick(p); }\n".to_owned(),
+        },
+    });
+    let marked = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert_eq!(errors(&marked), ["unknown edition `9.9`: this kg knows 1.0, 1.1"]);
+    assert_eq!(marked.diagnostics[0].range, Range::new(Position::new(1, 10), Position::new(1, 15)), "at `\"9.9\"`");
+    // Said from the same lane, right after the mark.
+    let message = loop {
+        match client.recv() {
+            Message::Notification(n) if n.method == notif::ShowMessage::METHOD => break n,
+            Message::Notification(n) => seen.push(n),
+            other => panic!("unexpected message while awaiting the message: {other:?}"),
+        }
+    };
+    let message: lsp_types::ShowMessageParams = serde_json::from_value(message.params).unwrap();
+    assert!(message.message.contains("lib/kanagawa.toml") && message.message.contains("unknown edition `9.9`"), "{}", message.message);
+
+    let changed = |client: &Client| {
+        client.notify::<notif::DidChangeWatchedFiles>(lsp_types::DidChangeWatchedFilesParams {
+            changes: vec![lsp_types::FileEvent { uri: manifest_uri.clone(), typ: lsp_types::FileChangeType::CHANGED }],
+        });
+    };
+    // Edited and still broken: the reload keeps the mark — moved with the
+    // value — rather than taking it off until a check reads it again, and
+    // says nothing.
+    std::fs::write(&manifest, "# still wrong\n[package]\nedition = \"9.9\"\n").unwrap();
+    changed(&client);
+    let moved = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert_eq!(moved.diagnostics.len(), 1, "still marked across the reload");
+    assert_eq!(moved.diagnostics[0].range, Range::new(Position::new(2, 10), Position::new(2, 15)), "the mark moved");
+
+    std::fs::write(&manifest, "[package]\nedition = \"1.1\"\n").unwrap();
+    changed(&client);
+    let cleared = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert!(cleared.diagnostics.is_empty(), "fixed, its mark goes: {:?}", errors(&cleared));
+    assert_eq!(said(&seen), 0, "said once");
 
     let id = client.request::<req::Shutdown>(());
     let _ = client.response(&id, &mut seen);
