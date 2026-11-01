@@ -69,7 +69,7 @@ code --user-data-dir ~/.vscode-kgrust/data --extensions-dir ~/.vscode-kgrust/ext
 Put that `kg` on `PATH`, or name it:
 
 ```jsonc
-{ "kanagawa.server.path": "/path/to/kgrust/target/dist/kgrust-0.1.0-aarch64-apple-darwin/bin/kg" }
+{ "kanagawa.server.path": "/path/to/kgrust/target/dist/kgrust-0.2.0-aarch64-apple-darwin/bin/kg" }
 ```
 
 The defaults are `kg` and `["lsp"]`, the shipping `kg lsp` command, found on
