@@ -143,6 +143,32 @@ fn a_label_is_its_parameter() {
     assert_eq!(lands(&db, file, text, "b: m", 0).as_deref(), Some("7:34"), "a template's");
 }
 
+/// A label in a template's body names the parameter of whichever method
+/// each instance's receiver has: `_c.add(x: 1)` in `User<C>` is `A::add`'s
+/// `x` in `User<A>` and `B::add`'s in `User<B>`, both of which go to
+/// definition offers, and neither of which it is alone. What a rename of
+/// one refuses on (`kg-lsp`'s `references::walk`). Red with the label
+/// resolved through one instance's receiver, or through none.
+#[test]
+fn a_label_in_a_template_body_is_each_instance_s_parameter() {
+    let text = "class A\n{\npublic:\n    uint8 add(uint8 x) { return x; }\n}\n\nclass B\n{\npublic:\n    uint8 add(uint8 x) { return x + 1; }\n}\n\ntemplate <typename C>\nclass User\n{\n    C _c;\n\npublic:\n    uint8 go() { return _c.add(x: 1); }\n}\n\nclass Top\n{\n    User<A> _a;\n    User<B> _b;\n\npublic:\n    uint8 run() { return _a.go() + _b.go(); }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(errors_of(&db, file, text), Vec::<String>::new());
+    let at = text.find("x: 1").unwrap() + 1;
+    let index = kg_base::LineIndex::new(text);
+    let found: Vec<String> = db
+        .definitions_at(&[file], file, kg_base::TextSize::new(at as u32))
+        .iter()
+        .map(|d| {
+            let at = index.line_col(d.range.range.start());
+            format!("{}:{}", at.line + 1, at.col + 1)
+        })
+        .collect();
+    assert_eq!(found, ["4:21", "10:21"]);
+    assert_eq!(lands(&db, file, text, "x: 1", 0), None, "one of two is neither");
+}
+
 /// A label that names no parameter lands nowhere — not on the callee's one
 /// parameter, and not on a declaration of its spelling in scope, the guesses
 /// `definition_at` never makes. Red with a label's spelling unchecked against
