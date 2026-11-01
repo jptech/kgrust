@@ -22,8 +22,13 @@
 //!    lines are exactly the errors `kg check` gives it, in order.
 //!
 //! Fixtures live in `tests/editions/<feature>/`, the directory named as the
-//! manifest names the feature; a fixture is read in edition 1.0 with that
-//! one feature on.
+//! manifest names the feature, and are read in edition 1.0 with that one
+//! feature on; and in `tests/editions/<edition>/`, read in the edition with
+//! every feature it has, so that features are graded together too — a call
+//! that skips a default by naming a later parameter is no one feature's.
+//!
+//! `--no-oracle` grades all but the reference's own verdicts (checks 2 and
+//! 3's `kg-oracle` halves), for CI, which builds no reference.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -49,31 +54,60 @@ fn rel(path: &Path, root: &Path) -> String {
     path.strip_prefix(root).unwrap_or(path).display().to_string()
 }
 
-pub fn run(kanagawa_root: &Path, verbose: bool) -> Result<()> {
+/// A directory of fixtures and the language they are read in.
+struct Suite {
+    dir: PathBuf,
+    language: Language,
+}
+
+/// Every suite: each feature's alone, in edition 1.0; then each edition
+/// after the reference, whole.
+fn suites(fixtures: &Path) -> Vec<Suite> {
+    let features = Feature::ALL.into_iter().map(|f| Suite {
+        dir: fixtures.join(f.name()),
+        language: Language { edition: Edition::V1_0, extra: Features::NONE.with(f) },
+    });
+    let editions = Edition::ALL
+        .into_iter()
+        .filter(|&e| e != Edition::V1_0)
+        .map(|e| Suite { dir: fixtures.join(e.name()), language: Language { edition: e, extra: Features::NONE } });
+    features.chain(editions).collect()
+}
+
+pub fn run(kanagawa_root: &Path, verbose: bool, no_oracle: bool) -> Result<()> {
     let root = kanagawa_root
         .canonicalize()
         .with_context(|| format!("no reference checkout at {}", kanagawa_root.display()))?;
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).parent().context("the workspace")?.join("tests/editions");
     let mut failures: Vec<String> = Vec::new();
 
-    let neutral = neutral(&root, &mut failures)?;
+    let (neutral, skipped) = neutral(&root, &mut failures)?;
     println!("neutral: {neutral} reference files parsed with every feature on and with none");
-
-    let oracle = crate::ir::find_oracle();
-    if oracle.is_none() {
-        failures.push("kg-oracle is not built — run oracle/build.sh first; the claims and twins need it".to_owned());
+    for path in &skipped {
+        println!("  skipped, not UTF-8: {path}");
     }
+
+    let oracle = if no_oracle {
+        println!("kg-oracle: not asked (--no-oracle); the reference's verdicts on the fixtures are not graded");
+        None
+    } else {
+        let oracle = crate::ir::find_oracle();
+        if oracle.is_none() {
+            failures.push(
+                "kg-oracle is not built — run oracle/build.sh first, or grade without it with --no-oracle".to_owned(),
+            );
+        }
+        oracle
+    };
     let (mut claims, mut twins, mut rejections) = (0, 0, 0);
-    for feature in Feature::ALL {
-        let dir = fixtures.join(feature.name());
+    for Suite { dir, language } in suites(&fixtures) {
         let mut accept = Vec::new();
         collect(&dir.join("accept"), &mut accept);
         let mut reject = Vec::new();
         collect(&dir.join("reject"), &mut reject);
         if accept.is_empty() || reject.is_empty() {
-            failures.push(format!("{}: a feature needs fixtures to accept and to reject", rel(&dir, &fixtures)));
+            failures.push(format!("{}: a suite needs fixtures to accept and to reject", rel(&dir, &fixtures)));
         }
-        let language = Language { edition: Edition::V1_0, extra: Features::NONE.with(feature) };
         let is_twin = |p: &PathBuf| p.to_string_lossy().ends_with(".ref.k");
         for path in accept.iter().chain(&reject).filter(|p| !is_twin(p)) {
             let name = rel(path, &fixtures);
@@ -133,7 +167,8 @@ pub fn run(kanagawa_root: &Path, verbose: bool) -> Result<()> {
             }
         }
     }
-    println!("claims: {claims} fixtures the reference rejects");
+    let rejecter = if oracle.is_some() { "the reference rejects" } else { "edition 1.0 rejects (the reference not asked)" };
+    println!("claims: {claims} fixtures {rejecter}");
     println!("twins: {twins} programs walk as their reference twins");
     println!("rejections: {rejections} fixtures give exactly their expected errors");
     for f in &failures {
@@ -147,8 +182,11 @@ pub fn run(kanagawa_root: &Path, verbose: bool) -> Result<()> {
     }
 }
 
-/// Check 1: the reference's tree, parsed with every feature and with none.
-fn neutral(root: &Path, failures: &mut Vec<String>) -> Result<usize> {
+/// Check 1: the reference's tree, parsed with every feature and with none —
+/// how many files, and the names of those skipped for not being UTF-8 (a
+/// test of the reference's own reader, `test/syntax/imports/binary.k`),
+/// which no parser of ours is asked to read.
+fn neutral(root: &Path, failures: &mut Vec<String>) -> Result<(usize, Vec<String>)> {
     let mut files = Vec::new();
     for dir in ["library", "test", "doc", "tools"] {
         collect(&root.join(dir), &mut files);
@@ -158,15 +196,19 @@ fn neutral(root: &Path, failures: &mut Vec<String>) -> Result<usize> {
     }
     let all = kg_syntax::ParseOptions { features: Features::all(), ..Default::default() };
     let mut n = 0;
+    let mut skipped = Vec::new();
     for path in &files {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            skipped.push(rel(path, root));
+            continue;
+        };
         let (off, on) = (kg_syntax::parse_file(&text), kg_syntax::parse_file_with(&text, all));
         n += 1;
         if off.green() != on.green() || off.errors() != on.errors() {
             failures.push(format!("{}: parses differently with every feature on", rel(path, root)));
         }
     }
-    Ok(n)
+    Ok((n, skipped))
 }
 
 /// The settings `kg` checks a fixture under: the reference's library on the
@@ -253,4 +295,34 @@ fn walk(root: &Path, language: Language, path: &Path) -> Result<Vec<String>> {
         .filter(|c| !c.starts_with("SetLocation2") && !c.starts_with("UnknownLocation"))
         .map(str::to_owned)
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every feature has its suite, read in 1.0 with that feature alone, and
+    /// every edition after the reference has one read in the edition whole —
+    /// each on disk with fixtures to accept and to reject. Red with an
+    /// edition's suite left out of [`suites`].
+    #[test]
+    fn every_feature_and_every_later_edition_has_a_suite() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("tests/editions");
+        let suites = suites(&fixtures);
+        let alone = |f: Feature| Language { edition: Edition::V1_0, extra: Features::NONE.with(f) };
+        let whole = |e: Edition| Language { edition: e, extra: Features::NONE };
+        let wanted: Vec<Language> = Feature::ALL
+            .into_iter()
+            .map(alone)
+            .chain(Edition::ALL.into_iter().filter(|&e| e != Edition::V1_0).map(whole))
+            .collect();
+        assert_eq!(suites.iter().map(|s| s.language).collect::<Vec<_>>(), wanted);
+        for suite in &suites {
+            for side in ["accept", "reject"] {
+                let mut found = Vec::new();
+                collect(&suite.dir.join(side), &mut found);
+                assert!(!found.is_empty(), "{}/{side} holds no fixture", suite.dir.display());
+            }
+        }
+    }
 }

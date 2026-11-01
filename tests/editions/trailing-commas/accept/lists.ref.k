@@ -1,5 +1,14 @@
 // The edition-1.0 twin of `lists.k`: every trailing comma taken out.
 
+module lists {
+    Mode,
+    Pair,
+    Scaler,
+    Holder,
+    apply,
+    C
+}
+
 enum Mode : uint2
 {
     Idle,
@@ -29,6 +38,15 @@ public:
     }
 }
 
+template <
+    template <typename, auto> typename S
+>
+class Holder
+{
+public:
+    S<uint8, 2> held;
+}
+
 inline uint8 apply(
     (uint8, uint8) -> uint8 f,
     uint8 x
@@ -40,6 +58,8 @@ inline uint8 apply(
 class C
 {
 private:
+    Holder<Scaler> _holder;
+    [[memory, non_replicated]] uint8[4] _table;
     Scaler<
         uint8,
         3

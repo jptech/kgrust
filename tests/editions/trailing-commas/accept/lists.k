@@ -1,8 +1,18 @@
-// A trailing comma in every list that may hold one: enum constants, template
-// parameters and arguments, parameters, a function type's parameters, call
-// arguments, an intrinsic's arguments (`mux`, `concat`), a lambda's captures,
-// and both shapes of initializer list. Written one element a line,
-// as a list that grows a line at a time is.
+// A trailing comma in every list that may hold one: a module's exposure list,
+// enum constants, template parameters and arguments, a template template
+// parameter's kinds, parameters, a function type's parameters, call
+// arguments, an intrinsic's arguments (`mux`, `concat`), a lambda's
+// captures, both shapes of initializer list, and attributes. Written one
+// element a line, as a list that grows a line at a time is.
+
+module lists {
+    Mode,
+    Pair,
+    Scaler,
+    Holder,
+    apply,
+    C,
+}
 
 enum Mode : uint2
 {
@@ -33,6 +43,15 @@ public:
     }
 }
 
+template <
+    template <typename, auto,> typename S,
+>
+class Holder
+{
+public:
+    S<uint8, 2> held;
+}
+
 inline uint8 apply(
     (uint8, uint8,) -> uint8 f,
     uint8 x,
@@ -44,6 +63,8 @@ inline uint8 apply(
 class C
 {
 private:
+    Holder<Scaler> _holder;
+    [[memory, non_replicated,]] uint8[4] _table;
     Scaler<
         uint8,
         3,

@@ -471,6 +471,11 @@ enum Cmd {
         /// Report every twin's walk, not only the failures.
         #[arg(long)]
         verbose: bool,
+        /// Grade without `kg-oracle`: every check but the reference's own
+        /// verdicts on the claims and the twins — what CI, which builds no
+        /// reference, can run.
+        #[arg(long)]
+        no_oracle: bool,
     },
     /// Prove the formatter is idempotent and layout-only over the whole corpus.
     FmtCheck {
@@ -796,7 +801,7 @@ fn dispatch(command: Cmd) -> Result<()> {
         Cmd::FmtCheck { kanagawa_root, width, verbose } => {
             fmtgate::run(&kanagawa_root, width, verbose)
         }
-        Cmd::Editions { kanagawa_root, verbose } => editions::run(&kanagawa_root, verbose),
+        Cmd::Editions { kanagawa_root, verbose, no_oracle } => editions::run(&kanagawa_root, verbose, no_oracle),
         Cmd::Errors { kanagawa_root, filter, max_failures, verbose } => {
             errors::run(&kanagawa_root, filter.as_deref(), max_failures, verbose)
         }
