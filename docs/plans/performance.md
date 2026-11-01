@@ -1124,9 +1124,34 @@ module's walk when nothing in it needs walking (13 ms at most).
      it there.
 6. **Threads**, item 1 below: the prefix, 9%.
 
-The confirming walks after a unit changed (42,144) are the reference's
-own iteration — a unit that moved is walked again to see it settle — and
-stay.
+7. **Confirming walks — deferred** (re-measured 2026-11-01 on PR #9's
+   head). A unit walked again because a node it owns changed, a walk that
+   then changes nothing: 27–30% of inference's unit visits on all three
+   programs, some 10–15% of the loop. They are the reference's own
+   iteration, a unit that moved walked again to see it settle, but not
+   every one can differ. A walk can come out otherwise only where a rule
+   read one of the unit's nodes before the same walk rewrote it.
+   Recording that per walk would let a walk where it never happened be
+   skipped, as a no-op by construction. The spike to run first (half a
+   day to a day): count the confirming walks that pass that test, then
+   force the skip and run `infer-identity`. Estimate if most pass:
+   `kg check` 5–8% faster on all three (`risc-v.k` ~80–150 ms); about
+   1–1.5 weeks with the proof, at the incremental walk's core.
+8. **Idle module visits — deferred** (re-measured 2026-11-01). A pass
+   visiting a module that gained nothing since it last ran:
+   - 23% of `float.k`'s loop (48 modules, 30 rounds), 7% of `array.k`'s
+     and 4% of `risc-v.k`'s;
+   - 64% of deduction's time on `float.k`.
+
+   `loop-across-edits.md` §2a ruled it out at 5–10% of the loop, but its
+   share grows as the loop gets faster. Skipping a module exactly needs
+   each pass to record what it reads from other modules, as the
+   module-boundary memo (W7.4) does. Deduction first: `float.k` ~8%
+   faster, ~15% with every pass. About a week for deduction and one or
+   two more passes, after a half-day spike. The spike should also
+   measure the editor under its recorded settings: there every
+   keystroke runs the loop over the whole base library, most of which
+   gains nothing.
 
 ### Optimisation opportunities, triaged (2026-10-11; nothing decided)
 
