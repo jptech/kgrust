@@ -646,6 +646,16 @@ testing loop every later step uses.
   reached again is walked as new — and `infer-identity` agrees on all 304
   roots with forgetting at every fixpoint, and with every unit but the
   spines forgotten; `scripts/identity.sh 069094d`, 304 roots identical.
+  Both changes against `main` (`e2bfc29`), interleaved: `kg check` of
+  `risc-v.k` 1.935 → 1.730 s and 786 → 753 MiB, `float.k` 0.665 s either
+  way and 294 → 282 MiB, `array.k` 0.845 → 0.830 s and 301 → 294 MiB
+  (six runs each, medians); the editor on `risc-v.k` under its recorded
+  settings, the full base library (`bench --filter keystroke-phases
+  --recorded`, two runs each), the first answer after a keystroke 823 and
+  817 → 786 and 784 ms, the last 2073 and 2064 → 1824 and 1823 ms, and
+  `array.k` within noise; under the stage's own settings, a smaller
+  program, unchanged (`risc-v.k`'s first answer 325 and 322 → 327 and
+  321 ms).
 - **The shipped binaries, 2026-10-12.** `cargo xtask dist` builds the
   `ship` profile, `release` with `lto = "fat"` and `codegen-units = 1`:
   `kg check` 6–10% faster in an interleaved A/B, `kg` 30% smaller, its

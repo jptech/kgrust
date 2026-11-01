@@ -18661,10 +18661,13 @@ walk before. The lists held every unit that had *ever* asked, each with
 the flag its first walk earned. Of 201,187 askers of answers whose type
 held, 185,774 were flagged as having read the expression, and 91,591 of
 those had never read the answer they were flagged for: the flag was an
-earlier walk's, of an earlier answer. Each asker now
-records the pass of the walk that asked, and each unit the pass it was
-last walked. A unit walked since without asking reads the lookup no more,
-so it is dropped. With that, 4.01 M visits, and the check 1.97 → 1.78 s.
+earlier walk's, of an earlier answer. Each asker now records the pass of
+the walk that asked, and each unit the pass it was last walked. A unit
+walked since without asking reads the lookup no more, so it is dropped.
+With that, 4.01 M visits, and the check 1.97 → 1.78 s. In the editor,
+with the full base library, the last answer after a keystroke on
+`risc-v.k` comes at 1.82 s instead of 2.07 (`bench --filter
+keystroke-phases --recorded`).
 
 **Option 3, the units.** The same shape one level up. Every unit stayed
 in the owner, count and reader sets, in `at` and among the askers long
