@@ -54,8 +54,7 @@ Independent options, roughly in the order recommended.
    backend build wants finishing — at fewer jobs than Docker's 8 GB
    allowed — and the archive trying), the VS Code extension on a
    marketplace (it packages already; its publisher and name are open,
-   below), doc tests for Markdown code blocks like upstream's `chkdoc`
-   ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
+   below) ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
 3. **The loop on more than one core, and its tail rounds.** The loop runs
    on one core where the reference gains 2.2–3.5× from sixteen; `array.k`
    and `float.k` spend half their loop in a tail of cheap rounds that
