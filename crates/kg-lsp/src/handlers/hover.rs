@@ -158,6 +158,14 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
                 Some(IrAnswer::Copies { types, untyped, budget_exhausted }) => {
                     copies_markdown(&declared, &name, &types, &untyped, budget_exhausted, names)
                 }
+                // A template's parameter has no type outside an instance —
+                // the loop types the copies, never the template — and its
+                // declaration says what it is: `auto Size = 4`, `typename
+                // T`, its default shown as a function parameter's is.
+                None if found.len() == 1 && first.kind == DefKind::TemplateParam => match db.declaring_node(first) {
+                    Some(param) => format!("```kanagawa\n{}\n```\n\n{declared}", kg_db::navigate::one_line(&param)),
+                    None => markdown(&declared, &name, &Ty::Unresolved, names),
+                },
                 None => markdown(&declared, &name, &Ty::Unresolved, names),
             };
             Some(with_docs(shown, docs))
@@ -795,6 +803,27 @@ class Adder {
         assert_eq!(body(&state, &uri, Position::new(7, 18)).as_deref(), Some(shift), "at the label");
         let value = "```kanagawa\nuint8 value\n```\n\n**parameter** `scale::value`";
         assert_eq!(body(&state, &uri, Position::new(0, 27)).as_deref(), Some(value), "no default");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A template's parameter, which no loop types outside an instance, is
+    /// shown as declared — its default, edition 1.1's named template
+    /// argument names it by, with it — at its declaration, at a use in the
+    /// body and at a label naming it; one with no default as written too.
+    /// Red with a template parameter left to "Type not yet inferred".
+    #[test]
+    fn a_template_parameter_is_shown_as_declared() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "template <typename T, auto Size = 4>\nclass Buffer\n{\npublic:\n    T get(T x) { return x + Size; }\n}\n\nclass Main\n{\n    Buffer<uint8, Size: 8> _b;\n}\n";
+        let files = [("hover.k", text)];
+        let (dir, state, src) = lay_out_1_1("hover-template-default", &files);
+        let uri = open_one(&state, &src, &files, "hover.k");
+        let size = "```kanagawa\nauto Size = 4\n```\n\n**template parameter** `Size`";
+        assert_eq!(body(&state, &uri, Position::new(0, 28)).as_deref(), Some(size), "at the declaration");
+        assert_eq!(body(&state, &uri, Position::new(4, 29)).as_deref(), Some(size), "at a use");
+        assert_eq!(body(&state, &uri, Position::new(9, 19)).as_deref(), Some(size), "at the label");
+        let t = "```kanagawa\ntypename T\n```\n\n**template parameter** `T`";
+        assert_eq!(body(&state, &uri, Position::new(0, 19)).as_deref(), Some(t), "no default");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
