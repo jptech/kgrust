@@ -66,6 +66,9 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-10-12 | Release archives are built with the `ship` profile (`release`, fat LTO, one codegen unit); the gates and `cargo xtask` stay on `release`, which builds a minute faster | "Quick wins: a stale CI cache, and the shipped binaries optimised whole" |
 | 2026-10-17 | Boards reach `kg` only through a manifest's opt-in `[board]`, never for every project; `kg build` hands the backend the compat binary's record for the same options (`[hw]`, `-Z hw.*` through its flag table) | "`kg board`, and `kg build` reading its options" |
 | 2026-10-17 | A design meets a board through its interface description, joined from its declaration and its ports and checked both ways; a function that fits no resource is refused with the contract, never wired approximately; a small part's board caps `max-threads-default` | "No glue RTL: the board wrapper, the bridge, cocotb and a virtual board" |
+| 2026-10-30 | Language editions are opt-in per package and numbered `MAJOR.MINOR`: `1.0` is the reference and follows the pin; a minor edition only adds, giving a meaning only to programs the edition before it rejects; only a major one may take away. A file's language is the nearest `kanagawa.toml` above it, with no boundary at an import directory; an unknown edition or feature is an error; `kanagawa` never opts in. Everything desugars to reference Kanagawa before the walk | "Editions, piloted: named arguments in any order — 2026-10-30" |
+| 2026-10-30 | A named argument is moved to its parameter's place only where no two arguments could tell: a reorder that could change which side effect happens first is an error, never rewritten into locals | "Editions, piloted: named arguments in any order — 2026-10-30" |
+| 2026-10-31 | A later edition's syntax in a file without it is one error naming the edition and how to opt in, and the parse goes on as the feature's would: the verdict stays the reference's, the message is ours ([`known-divergences.md`](known-divergences.md) #42) | "An edition the user cannot see is not opted into — 2026-10-31" |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -18468,7 +18471,8 @@ server through its watcher, and was checked over stdio switching one buffer
   `window/showMessage`, and takes the mark off when it loads
   (`a_refused_manifest_is_marked_where_it_is_wrong`).
 - **A 1.1 feature in a 1.0 file was a cascade.** `return sub(y: q, x: p);`
-  gave 13 parse errors, none naming an edition. Every feature's syntax is
+  gave 13 parse errors, none naming an edition (`kg check` of a 1.0 file
+  holding that call, 2026-10-31, before this change). Every feature's syntax is
   one the reference rejects, and the `editions` gate's neutral check proves
   no reference file holds any, so the parser now recognises it in every
   file and, where the language lacks it, gives one error naming the edition
@@ -18487,5 +18491,5 @@ trailing comma in all three through `comma_list`. The page now lists them,
 and the twin fixture walks them.
 
 Checked 2026-10-31: 15 mutants (8 against the manifest's marking, 7
-against the gate), each caught by its own test; one first "caught" by a
+against `Parser::gate`'s errors), each caught by its own test; one first "caught" by a
 compile error was planted again until it compiled.

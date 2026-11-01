@@ -83,7 +83,7 @@ Buffer<uint8, 3, Shift: 1> _c;           // Buffer<uint8, 3, false, 1>
 
 | Error | When |
 |---|---|
-| `` named template arguments need edition 1.1: `[package] edition = "1.1"` in kanagawa.toml, or the feature `named-template-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
+| `` named template arguments need edition 1.1, which `kg` reads from kanagawa.toml: `[package] edition = "1.1"`, or the feature `named-template-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
 | `` `Buffer` has no template parameter named `Depth` `` | a label names no parameter of the template |
 | `` the template parameter `T` is given an argument twice `` | a named argument fills a parameter a positional or another named one already filled |
 | `` `Buffer` takes 3 template arguments `` | more positional arguments than parameters, in a list that names any |
@@ -93,7 +93,10 @@ Buffer<uint8, 3, Shift: 1> _c;           // Buffer<uint8, 3, false, 1>
 
 Each is reported once. The fixture
 [`tests/editions/named-template-arguments/reject/names.k`](../../../tests/editions/named-template-arguments/reject/names.k)
-pins the first, second, fourth and a function template's.
+pins "no template parameter named", for a class template and a function
+template, "given an argument twice" and "missing a template argument";
+the database's unit tests pin "takes 3 template arguments", and the
+parser's the edition error and both parse errors.
 
 ## The tools
 
@@ -108,8 +111,8 @@ pins the first, second, fourth and a function template's.
 
 `cargo xtask editions` ([`gates.md`](../../gates.md)):
 
-- with the feature on, every file of the reference's tree parses to the
-  same tree as with it off;
+- with every feature on, every file of the reference's tree parses to the
+  same tree as with none;
 - [`accept/templates.k`](../../../tests/editions/named-template-arguments/accept/templates.k)
   names a class template's arguments in and out of order, skips defaults
   before and after one given, lets a default read a named argument, and
@@ -117,7 +120,10 @@ pins the first, second, fourth and a function template's.
   through the trace backend call for call as its twin, which writes every
   instance positionally and which the reference accepts;
 - [`reject/names.k`](../../../tests/editions/named-template-arguments/reject/names.k)
-  gives exactly the errors it lists.
+  gives exactly the errors it lists;
+- in [`tests/editions/1.1/`](../../../tests/editions/1.1/), graded in
+  edition 1.1 whole, a class template's named and defaulted arguments
+  meet named call arguments and trailing commas.
 
 Unit tests, each proven with `scripts/mutant.sh`: the parser, the
 formatter, the database (`crates/kg-db/tests/editions.rs`: every error,

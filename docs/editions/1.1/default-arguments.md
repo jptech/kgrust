@@ -35,6 +35,11 @@ parameter = attributes type identifier [ "=" expression ]
   a template's parameter, or an expression of them — whatever the
   compiler folds to an integer, a `bool`, a `float` or an enum value.
   A member, another parameter, a local or a call is not.
+- **Where**: a function's parameter, a method's, a function template's
+  and a lambda's — `[](uint8 a, uint8 b = 1)`. A function *type*'s
+  parameter takes none, `(uint8 a, uint8 b = 1) -> uint8 g` being one
+  error: a call through a value of function type is given no default,
+  the value's own included, as it is no call of that function by name.
 - **Any parameter may have one**, not only the last: a call gives the
   ones before it by position, or skips them by naming the ones after
   ([named arguments](named-arguments.md)). Template parameters have the
@@ -82,15 +87,19 @@ uint8 c = scale(p, mode: Mode::Idle);     // scale(p, Step + 1, false, Mode::Idl
 
 | Error | When |
 |---|---|
-| `` default arguments need edition 1.1: `[package] edition = "1.1"` in kanagawa.toml, or the feature `default-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
+| `` default arguments need edition 1.1, which `kg` reads from kanagawa.toml: `[package] edition = "1.1"`, or the feature `default-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
 | `` the default of `x` is not a constant a call can be given: … `` | a default that never folds to a constant integer, `bool`, `float` or enum value — reported once, at the default, and at no call of the function |
 | `` `f` is missing an argument for `x` `` | a call that names its arguments leaves out a parameter with no default |
 | `Invalid number of arguments, expected N` | a call by position leaves out a parameter with no default: the reference's own error |
 | `expected an expression` (a parse error) | `uint8 x =` with nothing after it |
+| `` a function type's parameter takes no default `` (a parse error) | `(uint8 a, uint8 b = 1) -> uint8 g`, in any edition |
 
 The fixtures in
 [`tests/editions/default-arguments/reject/`](../../../tests/editions/default-arguments/reject/)
-pin the first and the third.
+pin "not a constant" and the reference's `Invalid number of arguments`;
+[`named-arguments/reject/misnamed.k`](../../../tests/editions/named-arguments/reject/misnamed.k)
+pins "missing an argument"; the parser's unit tests pin the edition
+error, the function type's, and that an empty default is an error.
 
 ## The tools
 
@@ -99,19 +108,20 @@ pin the first and the third.
 | `kg check`, `kg build` | defaults written into the calls that leave them out; the backend receives the whole call |
 | `kg fmt`, editor formatting | `uint8 shift = 1` |
 | `kg doc` | the signature shows each default as written, a name in one linked to its declaration |
-| language server | signature help shows the defaults; hover on a parameter, or on a label naming it, shows `uint8 shift = 1`; an inlay hint at a call that leaves defaults out shows what it is given, `scale(p⟨, shift: 1, mode: Mode::Run⟩)` |
+| language server | signature help shows the defaults; hover on a parameter, or on a label naming it, shows `uint8 shift = 1`; an inlay hint at a call that leaves defaults out shows what it is given, `scale(p⟨, shift: Step + 1, round: false, mode: Mode::Run⟩)` |
 | `kanagawa` | rejects a default, as the reference does |
 
 The inlay hint reads the default as the declaration spells it, so a
 default written `Step + 1` shows as `Step + 1`; it is computed only in a
-program with a file of an edition that has default arguments.
+program that declares a default, whatever the edition of the file the
+call is in.
 
 ## How it is graded
 
 `cargo xtask editions` ([`gates.md`](../../gates.md)):
 
-- with the feature on, every file of the reference's tree parses to the
-  same tree as with it off;
+- with every feature on, every file of the reference's tree parses to the
+  same tree as with none;
 - [`accept/defaults.k`](../../../tests/editions/default-arguments/accept/defaults.k)
   leaves out an integer default folded from a constant, a `bool`, an
   enum's constant, a method's and a class template's parameter, and walks
@@ -126,7 +136,10 @@ formatter, the type (`crates/kg-ty/src/ty.rs`: a default is kept as a
 parameter's name is), the database (`crates/kg-db/tests/editions.rs`: the
 defaults placed beside positional and named arguments, an enum's default
 folded after the function is first typed, each error), the language
-server's hover and inlay hints, and `kg doc`'s signature. By hand,
+server's hover and inlay hints, `kg doc`'s signature, and the walk
+(`crates/kg-ptbridge/tests/editions.rs`: a 1.0 package calling a 1.1
+library's function short of its defaulted arguments walks as both
+written whole in 1.0, each package's language read from its manifest).
+Graded with the other features in `tests/editions/1.1/`. By hand,
 2026-10-30: `kg build` of a file using each kind of default through the
-real backend, and a 1.0 package calling a 1.1 library's function short of
-its defaulted arguments.
+real backend.

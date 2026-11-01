@@ -1,12 +1,12 @@
 # Editions: layering language changes on the frontend, opt-in
 
-*Part of the [plans](README.md). **Plan, 2026-10-29; piloted
-2026-10-30 on the `editions-pilot` branch** at the owner's request: steps
-1–3 built, with the owner's decisions of that day — versioned editions,
-`1.0` the reference; named arguments in any order, reordered — folded in
-below and marked *as built*. Whether the pilot merges is still the
-roadmap's open question. The user's pages: [`../editions/`](../editions/README.md).
-Surveyed at `3562431`; every "today" below was read in the code then.*
+*Part of the [plans](README.md). **Plan, 2026-10-29; built 2026-10-30/31
+on the `editions-pilot` branch** (PR #8) at the owner's request: steps 1–4
+— the plumbing, the `editions` gate, and edition `1.1` as a preview of
+four features — with the owner's decisions of those days folded in below
+and marked *as built*. Step 5, freezing an edition, waits on use. The
+user's pages: [`../editions/`](../editions/README.md). Surveyed at
+`3562431`; every "today" below was read in the code then.*
 
 The goal: new code and new users can opt into language changes; existing
 code never notices. A program without the opt-in — every program the
@@ -20,6 +20,12 @@ unchanged.
 1. **Off is the reference.** With no opt-in, no new branch is taken: the
    parser, the lowering and every pass behave as before, byte for byte. The
    existing gates hold this already; nothing about them changes.
+   *As built, narrowed:* no program the reference **accepts** reaches a new
+   branch. A later edition's syntax in a 1.0 file is parsed to be refused
+   by name — one error naming the edition, where the reference gives a
+   parse error (`Parser::gate`;
+   [`../known-divergences.md`](../known-divergences.md) #42) — so a
+   rejected program's message changes, never its verdict.
 2. **An extension claims only programs the reference rejects.** Its syntax
    is a parse error, or its construct a rejection, in the reference today —
    proven per extension by `kg-oracle` (§6.2) — so turning it on cannot
@@ -42,7 +48,10 @@ unchanged.
    newer program as something else.
 6. **`kanagawa` never opts in.** The compat binary reads no manifest
    (`crates/kg-cli/src/legacy/options.rs:599-635`) and gains no flag; it
-   rejects extension syntax exactly as the reference does.
+   rejects extension syntax exactly as the reference does. *As built:* its
+   settings' language is `LanguageMap::reference()`, which reads no
+   manifest even for the language (2026-10-31; the first build walked up
+   to one), pinned by `the_compat_binary_never_opts_in_wherever_it_runs`.
 7. **Diagnostics point at what the user wrote**, and the house rules hold
    inside an edition too: fail toward silence, every rule cited — to the
    edition's own specification, since the reference has none to cite — and
@@ -68,7 +77,9 @@ that differs from the one before ([`../editions/`](../editions/README.md)).
 
 - **A feature** is the unit of change: one extension, specified, tested,
   and free to change between kgrust releases while it is a feature. A
-  `kg` release lists the features it knows (`kg --list-features`).
+  `kg` release lists the features it knows (`kg --list-features`). *As
+  built:* no such flag; an unknown feature's error lists the known ones
+  (`` unknown language feature `x`: this kg knows … ``).
 - **An edition** is a frozen bundle of features, named once the first
   bundle exists (the name is the owner's: §8). Frozen means frozen: a
   later edition may differ, a released one never changes meaning.
@@ -78,7 +89,9 @@ that differs from the one before ([`../editions/`](../editions/README.md)).
   feature claims (§7).
 - **Without a manifest**, `kg check --feature named-arguments file.k` (and
   `--edition`) give the same to a single file; the language server reads
-  manifests only (§8).
+  manifests only (§8). *As built:* the flags are taken by `check`,
+  `build`, `doc`, `fmt` and `dump`, and `--no-manifest` reads no manifest
+  for the language either.
 
 `[language]` is a new table rather than more of `[package]`, so that an
 older `kg` refuses the whole table loudly (rule 5) and so that a profile —
@@ -134,7 +147,9 @@ and not the parser.
 - `ParseOptions` gains `features: Features` (a small bit set), carried into
   `Input` so that the grammar asks `p.has(Feature::NamedArguments)` at the
   one place an extension begins. With the set empty, no new branch is
-  reachable (rule 1).
+  reachable (rule 1). *As built:* `Parser::gate(feature)` instead, which
+  in a file without the feature reports the edition error and parses on
+  as if it were there (rule 1, as narrowed).
 - **The `Parse` records the options it was made with.** `Db::parse_module`
   keeps an equal re-parse's old `Arc` (`db.rs:603-607`), and the item tree,
   the sorted lowering and the kept snapshots are keyed on that pointer
@@ -218,8 +233,9 @@ notices a swapped donor ([`../gates.md`](../gates.md#src-donors-need-a-unit-test
   a `Donated` node answers no hover (`crates/kg-hir/src/position.rs:14-30`),
   so features on extension syntax read the CST, as navigation does.
 - **`kg explain`** gets prose for every new diagnostic, under a `kg::`
-  name of its own; JSON diagnostics carry it.
-- **`kg expand`** (later): the program as the reference would be given it.
+  name of its own; JSON diagnostics carry it. *Not built:* 1.1's errors
+  carry no code of their own, and each says what to write.
+- **`kg expand`** (later, not built): the program as the reference would be given it.
   Not first: the sorted printer prints the file's text at a name's head
   (`crates/kg-hir/src/pretty.rs:18-33`), which for a name donated from
   extension syntax is extension text, so the printer needs work first. The
@@ -309,7 +325,7 @@ calls that leave it out by `named.rs`); and named template arguments
 `crates/kg-sem/src/deduce.rs`, the holes given their defaults as
 `resolveTemplateArgs` gives those past the last argument,
 `Type.hs:1405-1428`). Each is a page under
-[`../editions/1.1/`](../editions/1.1.md), alone a feature name. Operators
+[`../editions/1.1.md`](../editions/1.1.md), alone a feature name. Operators
 and tagged enums remain the candidates for the edition after.*
 
 **Step 5 — the first edition**, once some features have been used long
@@ -343,6 +359,25 @@ editions` grades the rest, as pass/fail — exactness is not a ratchet:
 A feature's fixtures are also its specification: the user's guide quotes
 them, and a change to one is a change to the language.
 
+*As built* (`xtask/src/editions.rs`; [`../gates.md`](../gates.md)), with
+these differences:
+
+- **Neutral** is a parse identity: every `.k` file of the reference's
+  tree — the corpus, the library, the tests — parses to the same tree and
+  errors with every feature on as with none. Every feature so far acts
+  through the parse alone, so an identical parse is an identical program;
+  a feature that acts later needs the verdict-and-walk check above.
+- **The claims** are the fixtures themselves: every one that uses a
+  feature is rejected by `kg-oracle --errors` and by `kg` in edition 1.0.
+  There is no `claims/` directory.
+- **The rejections** carry `// expect-error L:C: message` lines, matched
+  exactly and in order, rather than the corpus's `expected:` style.
+- **Suites**: `tests/editions/<feature>/{accept,reject}` is read in 1.0
+  with that feature alone; `tests/editions/<edition>/` in the edition
+  whole, so that features are graded together too.
+- `--no-oracle` grades everything but the reference's own verdicts, so
+  CI (`scripts/ci.sh`), which builds no reference, runs it.
+
 ## 7. Risks
 
 - **Upstream moves into the same space.** If upstream Kanagawa later gives
@@ -369,8 +404,8 @@ them, and a change to one is a change to the language.
 
 | Question | Assumed meanwhile |
 |---|---|
-| Does kgrust extend the language at all (the roadmap's) | piloted on a branch (2026-10-30), unmerged |
-| The first edition's name and the naming scheme | **decided** 2026-10-30: versioned, `1.0` the reference, `1.1` named arguments |
+| Does kgrust extend the language at all (the roadmap's) | built on `editions-pilot` (2026-10-30/31, PR #8); merging it is the owner's answer |
+| The first edition's name and the naming scheme | **decided** 2026-10-30: versioned, `1.0` the reference, `1.1` call sites that say what they mean (named arguments, trailing commas, default arguments, named template arguments) |
 | A file-level opt-in for single files without a manifest (a header comment), beyond `--feature` | flags only, applied under the first input's directory; the language server reads manifests only (the owner left single files to the implementer, 2026-10-30) |
 | Whether an edition may also carry *stricter* checks — diagnosing in the frontend what the reference leaves to the backend (the 241 assertions the compat path must not catch early: [`../architecture.md`](../architecture.md), "The scoreboard precedes the work it scores") | allowed, in a major edition only (the owner: "an edition can be stricter, but TBD how much we want to push for that"); none planned |
 | Where the user's guide to the language beyond the reference lives | beside each feature's fixtures, gathered into one page at step 5 |

@@ -105,7 +105,7 @@ pin each message.
 
 | Error | When |
 |---|---|
-| `` named arguments need edition 1.1: `[package] edition = "1.1"` in kanagawa.toml, or the feature `named-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
+| `` named arguments need edition 1.1, which `kg` reads from kanagawa.toml: `[package] edition = "1.1"`, or the feature `named-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
 | `` `f` has no parameter named `z` `` | a label names no parameter of the callee |
 | `` the parameter `x` is given an argument twice `` | a named argument fills a parameter a positional one or another named one already filled |
 | `` `f` takes N arguments `` | more positional arguments than parameters |
@@ -115,7 +115,8 @@ pin each message.
 | `` `p` is not a function whose parameters have names `` | a labelled call whose callee is not a function |
 | `` `f` takes no parameters to name `` | a labelled call to a function of no parameters |
 | `` cannot tell which of `f`'s parameters these arguments name `` | the callee's parameters never became known (the backstop: no fixture reaches it) |
-| `the argument `x` is named twice`, `a positional argument cannot follow a named one` | parse errors, above |
+| `` the argument `x` is named twice ``, `a positional argument cannot follow a named one` | parse errors, above |
+| `` `mux` takes no named arguments `` (a parse error) | a label in a call of `mux`, `lutmul`, `concat`, `static`, `cast` or `fan_out`, which are keywords and have no parameters to name, in any edition |
 
 A call inside a template is checked where the template is instantiated,
 as the reference checks every template; an undefined callee is reported
@@ -141,14 +142,17 @@ rename of a lambda's parameter leaves such labels as they are.
 
 `cargo xtask editions` ([`gates.md`](../../gates.md)):
 
-- with the feature on, every file of the reference's tree parses to the
-  same tree as with it off;
+- with every feature on, every file of the reference's tree parses to the
+  same tree as with none;
 - every fixture is rejected by `kg-oracle --errors` and by edition 1.0;
 - each accepted fixture under
   [`tests/editions/named-arguments/accept/`](../../../tests/editions/named-arguments/accept/)
   walks through the trace backend call for call as its hand-written
   edition-1.0 twin (`x.ref.k`), which the reference accepts;
-- each rejected fixture gives exactly the errors it lists.
+- each rejected fixture gives exactly the errors it lists;
+- in [`tests/editions/1.1/`](../../../tests/editions/1.1/), graded in
+  edition 1.1 whole, named arguments meet defaults, named template
+  arguments and trailing commas, against a twin that has none of them.
 
 Unit tests, each proven with `scripts/mutant.sh`: the parser
 (`crates/kg-parser/src/grammar/tests.rs`), the formatter, the semantic

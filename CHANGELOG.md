@@ -18,22 +18,28 @@ install`.
 
 - Language editions, opt-in per package: `[package] edition` in
   `kanagawa.toml` (`"1.0"`, the reference, by default), single features
-  under `[language] features`, and `--edition` / `--feature` for one run.
-  A file is read in its own package's language; the standard library and
-  everything the `kanagawa` binary compiles are always `1.0`. Edition
-  `1.1` (a preview) adds trailing commas, `f(1, 2,)`; named
-  arguments, `f(y: 2, x: 1)`, in any order; and default arguments,
+  under `[language] features`, and `--edition` / `--feature` for one run
+  (`check`, `build`, `doc`, `fmt`, `dump`). A file is read in its own
+  package's language, found from the nearest `kanagawa.toml` above it: the
+  standard library, which has none above it, is `1.0`, and the `kanagawa`
+  binary reads no manifest and is always `1.0`. Edition `1.1` (a preview)
+  adds trailing commas, `f(1, 2,)`, in every comma-separated list; named
+  arguments, `f(y: 2, x: 1)`, in any order; default arguments,
   `uint8 f(uint8 x, uint8 shift = 1)`, which a call may leave out; and
   named template arguments, `FIFO<uint8, Size: 4, DequeueBlocking: false>`,
-  skipping any default —
-  through `kg check`, `kg build`, `kg fmt`, `kg doc` and the language
-  server, where a label navigates to its parameter, renames with it,
-  lights it in signature help and is offered as a completion, hover shows
-  a parameter's default, and an inlay hint shows the defaults a call is
-  given ([`docs/editions/`](docs/editions/README.md)). Graded by a new gate,
-  `cargo xtask editions`. A file that uses a feature its edition lacks is
-  told, once a use, which edition has it and how to ask for it, where the
+  skipping any default — through `kg check`, `kg build`, `kg fmt`, `kg doc`
+  and the language server, where a label navigates to its parameter,
+  renames with it, lights it in signature help and is offered as a
+  completion, hover shows a parameter's default, and an inlay hint shows
+  the defaults a call is given ([`docs/editions/`](docs/editions/README.md)).
+  Graded by a new gate, `cargo xtask editions`, which CI runs too
+  (`--no-oracle`). A file that uses a feature its edition lacks is told,
+  once a use, which edition has it and how to ask for it, where the
   reference's cascade of parse errors said nothing of editions.
+- A dependency's `kanagawa.toml` that does not load — an unknown edition,
+  say — is reported by `kg check`, `kg build` and `kg doc`, which exit 2,
+  and marked in the editor, rather than its files read in `1.0` without a
+  word.
 - The language server marks a `kanagawa.toml` it refuses — an unknown
   edition or feature, a syntax error, a misnamed key — at the value at
   fault, and says so once in a message; it had only logged it, so a
@@ -117,6 +123,14 @@ install`.
 
 ### Changed
 
+- Two programs the reference rejects as parse errors are now one error
+  each, in every edition, rather than a cascade: a label in a call of a
+  keyword (`mux`, `lutmul`, `concat`, `static`, `cast`, `fan_out`) is
+  `` `mux` takes no named arguments ``, and a default on a function type's
+  parameter is `a function type's parameter takes no default`
+  ([`docs/known-divergences.md`](docs/known-divergences.md) #42).
+- `kg fmt` leaves a broken list that ends in a trailing comma (edition
+  1.1) with its commas trailing, one item a line, rather than leading.
 - The UPduino's `blinky` and `monitor` examples use the generated core;
   `spram` keeps its own, as the example of replacing it. The UPduino's
   shell gains an SPI bus (header pins 44-47) and an I2C bus (2 and 3).

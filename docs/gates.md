@@ -132,27 +132,37 @@ filtered run writes no ledger.
 
 `cargo xtask editions` grades the language beyond the reference
 ([`editions/`](editions/README.md); the design,
-[`plans/editions.md`](plans/editions.md) §6), pass/fail, in ~6 s; in
-`fast.sh`'s diagnostics tier and `gates.sh`:
+[`plans/editions.md`](plans/editions.md) §6), pass/fail, in ~8 s; in
+`fast.sh`'s diagnostics tier and `gates.sh`. **Needs `oracle/build.sh`**
+(`kg-oracle`) for the reference's verdicts; `--no-oracle` grades the rest
+without it, which is what CI runs (`scripts/ci.sh`). Its fixtures are
+`tests/editions/<feature>/`, each read in edition 1.0 with that feature
+alone, and `tests/editions/<edition>/`, read in the edition with every
+feature it has, so that features are also graded together:
 
 - **neutral** — every `.k` file under the reference's `library/`, `test/`,
   `doc/` and `tools/` parses to the same tree, with the same errors, with
-  every feature on as with none;
-- **claims** — every fixture of `tests/editions/<feature>/` is rejected by
-  `kg-oracle --errors` and by `kg` in edition 1.0;
-- **twins** — each `accept/x.k` checks clean in its feature, its
+  every feature on as with none (481 files, 2026-10-31; the one not UTF-8,
+  `test/syntax/imports/binary.k`, is skipped and named; `doc/` holds none);
+- **claims** — every fixture is rejected by `kg-oracle --errors` and by
+  `kg` in edition 1.0 (13);
+- **twins** — each `accept/x.k` checks clean in its suite's language, its
   hand-written `x.ref.k` is accepted by the oracle and by edition 1.0, and
-  the two walk through the trace backend call for call, locations aside;
+  the two walk through the trace backend call for call, locations aside
+  (7);
 - **rejections** — each `reject/x.k` gives exactly the errors its
-  `// expect-error L:C: message` lines list, in order.
+  `// expect-error L:C: message` lines list, in order (6).
 
 Blind to: a feature that acts after the parse — every feature so far acts
 only where the parser built its construct, which is what makes a parse
 identity a program identity; the first feature that does not (a stricter
 check, say) needs the neutral check widened to diagnostics. The twins are
-walked, not built: the backend's output is compared by hand
-([`editions/1.1.md`](editions/1.1.md)). Each check proven red by a planted
-mutation, 2026-10-30.
+walked, not built: the backend's output was compared by hand
+([named arguments](editions/1.1/named-arguments.md),
+[named template arguments](editions/1.1/named-template-arguments.md)).
+Blind, too, to a pin move that renames a library parameter a 1.1 call
+names: the corpus is 1.0 code. Each check proven red by a planted
+mutation, 2026-10-30; the edition suite's, 2026-10-31.
 
 ### `conformance` and `strict-ledger`
 

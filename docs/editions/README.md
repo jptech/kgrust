@@ -1,7 +1,7 @@
 # Language editions
 
-*Part of the [documentation map](../README.md). Current as built on the
-`editions-pilot` branch, 2026-10-30; the design and its reasons are
+*Part of the [documentation map](../README.md). Current as built,
+2026-10-31; the design and its reasons are
 [`../plans/editions.md`](../plans/editions.md).*
 
 Kanagawa as upstream ships it is **edition 1.0**. A package may opt into a
@@ -12,7 +12,7 @@ checks, diagnoses and builds exactly as it did before editions existed.
 | Edition | Status | Adds | The difference, in full |
 |---|---|---|---|
 | `1.0` | the default; follows `reference.lock`'s pin | — | [`1.0.md`](1.0.md) |
-| `1.1` | **preview**: may still change | call sites that say what they mean: named arguments, trailing commas, default arguments | [`1.1.md`](1.1.md) |
+| `1.1` | **preview**: may still change | call sites that say what they mean: named arguments, trailing commas, default arguments, named template arguments | [`1.1.md`](1.1.md) |
 
 ## Opting in
 
@@ -25,8 +25,10 @@ edition = "1.1"                  # default "1.0"
 features = ["named-arguments"]   # single features, beside the edition
 ```
 
-- **`edition`** names a frozen bundle. A file is in every feature of its
-  edition and of the editions before it.
+- **`edition`** names a bundle of features, frozen once a release ships
+  it (`1.1` is still a preview). A file is in every feature of its edition
+  and of the editions before it. It is a string: `edition = 1.1`, a
+  number, is refused with the spelling to write.
 - **`[language] features`** turns on single features on top of the
   edition: a way to try one before the edition that holds it, or to stay
   on an older edition and take one feature. Known features:
@@ -34,23 +36,31 @@ features = ["named-arguments"]   # single features, beside the edition
   `named-template-arguments`.
 - **An edition or a feature this `kg` does not know is an error**, never
   ignored: `` unknown edition `2.0`: this kg knows 1.0, 1.1 ``. An older
-  tool must not compile a newer program as something else. In the editor
-  it is marked in `kanagawa.toml` itself, at the value refused, and said
-  once in a message: the files under a refused manifest are read as if it
-  were not there, in edition 1.0.
+  tool must not compile a newer program as something else. A dependency's
+  manifest is held to the same: `kg check`, `kg build` and `kg doc` report
+  it as they report the project's own, and exit 2. In the editor either
+  is marked in `kanagawa.toml` itself, at the value refused, and said once
+  in a message: the files under a refused manifest are read as if it were
+  not there, in edition 1.0.
 - **A feature used without it is one error naming the edition**: `f(x: 1)`
-  in a 1.0 file is `` named arguments need edition 1.1: `[package] edition
-  = "1.1"` in kanagawa.toml, or the feature `named-arguments` alone ``, and
-  not the parse errors of a language without labels. The program is
-  rejected exactly where the reference rejects it; only what it is told
-  changes ([`known-divergences.md`](../known-divergences.md) #42).
+  in a 1.0 file is `` named arguments need edition 1.1, which `kg` reads
+  from kanagawa.toml: `[package] edition = "1.1"`, or the feature
+  `named-arguments` alone ``, and not the parse errors of a language
+  without labels. The program is rejected wherever the reference rejects
+  it — the error may stand a token earlier than the reference's — and only
+  what it is told changes ([`known-divergences.md`](../known-divergences.md)
+  #42).
 - **On the command line**, `--edition <VERSION>` and `--feature <NAME>`
   (repeatable) replace the project's edition and add to its features, for
-  one run: `kg check --edition 1.1 file.k`. They change the project's own
-  files and nothing else (below).
-- **The `kanagawa` binary never opts in.** It reads no manifest and has no
-  such flag: it is the reference's interface, and it rejects every
-  edition's syntax wherever the reference does (with the error above).
+  one run: `kg check --edition 1.1 file.k`. `check`, `build`, `doc`, `fmt`
+  and `dump` take them; they change the project's own files and nothing
+  else (below). `kg lsp` reads the manifests only.
+- **The `kanagawa` binary never opts in.** It reads no manifest — not even
+  one above a file it is given from another directory — and has no such
+  flag: it is the reference's interface, and it rejects every edition's
+  syntax wherever the reference does, with the error above. So a program
+  that leans on a later edition, a 1.0 file calling a 1.1 library's
+  defaults included, builds with `kg` only.
 
 ## What a version means
 
@@ -90,8 +100,12 @@ that imports it: walking up from the file's directory, the first
   has no manifest above it and is edition `1.0`;
 - a file with no manifest above it at all is edition `1.0`, and so are the
   synthetic `.cmdargs` and `.options` modules;
-- a manifest that does not load names no language: its files read as `1.0`
-  (and the manifest's own error is reported where it always was).
+- a manifest that does not load names no language: its files read as `1.0`,
+  and the manifest is reported — the project's where it always was, a
+  dependency's by every command that reaches its files (above);
+- with `--no-manifest`, no manifest is read for the language either: the
+  files under the first input's directory are in the flags' language,
+  every other in `1.0`.
 
 Why no boundary at an import directory: a feature never changes the
 meaning of a program the language without it accepts (the minor rule
@@ -106,14 +120,20 @@ are in the flags' language, the standard library is not. The language
 server reads manifests only — an editor buffer gets the language its
 `kanagawa.toml` names, or `1.0`.
 
+**Parameter names are API in 1.1.** A call that names an argument, or a
+template argument, names the callee's parameter, the standard library's
+included (`FIFO<uint8, Size: 4>`). Upstream renaming one breaks such a
+call when the pin moves, and no gate sees it: the corpus is 1.0 code.
+
 ## The tools
 
-Every command reads each file in its own language: `kg check`, `kg build`
-and the language server through the database; `kg fmt` and the editor's
-formatting (a file that uses a feature its package has not turned on is
-refused as unparseable, as by every other command); `kg dump`; `kg board`'s
-interface reader. A change to a manifest's edition reparses the files it
-governs, in the editor too.
+Every command that reads a project reads each file in its own language:
+`kg check`, `kg build`, `kg doc` and the language server through the
+database; `kg fmt` and the editor's formatting (a file that uses a
+feature its package has not turned on is refused as unparseable, as by
+every other command); `kg board`'s interface reader. `kg dump` reads one
+file and no manifest: its language is the flags' alone. A change to a
+manifest's edition reparses the files it governs, in the editor too.
 
 ## How an edition is built
 
@@ -122,8 +142,9 @@ what the walk (`kg-ptbridge`) hands the C++ backend is a program the
 reference could have handed it. The rules, in short (in full:
 [`../plans/editions.md`](../plans/editions.md) §1):
 
-1. with no opt-in, no new branch is reachable — the existing gates prove
-   it on every run;
+1. with no opt-in, no program the reference accepts reaches a new branch —
+   a later edition's syntax in a 1.0 file is parsed only to be refused by
+   name — and the existing gates prove it on every run;
 2. an extension claims only programs the reference rejects — checked
    against `kg-oracle`;
 3. everything desugars to reference Kanagawa before the walk — checked

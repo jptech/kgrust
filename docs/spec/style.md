@@ -823,6 +823,13 @@ language change, not a formatting question.
 | class / struct / union body | no commas (`;`-terminated members) | §3.4 measurement showed 421/421 struct and 39/39 union bodies comma-free | — |
 | base list | **does not exist** | §3.6 | — |
 
+**Edition 1.1's trailing comma** ([`../editions/1.1/trailing-commas.md`](../editions/1.1/trailing-commas.md))
+is the one exception, and no corpus file has one: a broken list that ends
+in a comma — any of the leading-comma lists above, or a call's arguments —
+is laid out one element a line with the comma after each and the closer on
+its own line, since a leading-comma layout would leave the last comma alone
+on a line (`kg-fmt`'s `Lowerer::delim`, 2026-10-31).
+
 ---
 
 ## 4. `[[attribute]]` placement
