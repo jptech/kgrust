@@ -7,7 +7,7 @@ use crate::{MANIFEST_NAME, Manifest};
 #[derive(Debug)]
 pub enum ManifestError {
     Io { path: Utf8PathBuf, source: std::io::Error },
-    Parse { path: Utf8PathBuf, source: toml::de::Error },
+    Parse { path: Utf8PathBuf, source: Box<toml::de::Error>, text: std::sync::Arc<str> },
 }
 
 impl std::fmt::Display for ManifestError {
@@ -17,7 +17,7 @@ impl std::fmt::Display for ManifestError {
             // `toml`'s own rendering already carries line/column and a caret,
             // so a manifest typo reads like a compiler error rather than a
             // serde dump.
-            ManifestError::Parse { path, source } => write!(f, "{path}:\n{source}"),
+            ManifestError::Parse { path, source, .. } => write!(f, "{path}:\n{source}"),
         }
     }
 }
@@ -32,6 +32,14 @@ impl ManifestError {
         match self {
             ManifestError::Io { .. } => None,
             ManifestError::Parse { source, .. } => source.span(),
+        }
+    }
+
+    /// The text [`span`](Self::span) indexes, as it was when it was refused.
+    pub fn text(&self) -> Option<std::sync::Arc<str>> {
+        match self {
+            ManifestError::Io { .. } => None,
+            ManifestError::Parse { text, .. } => Some(std::sync::Arc::clone(text)),
         }
     }
 
@@ -69,7 +77,7 @@ pub fn load(path: &Utf8Path) -> Result<Manifest, ManifestError> {
 }
 
 pub fn parse(text: &str, path: &Utf8Path) -> Result<Manifest, ManifestError> {
-    toml::from_str(text).map_err(|source| ManifestError::Parse { path: path.to_owned(), source })
+    toml::from_str(text).map_err(|source| ManifestError::Parse { path: path.to_owned(), source: Box::new(source), text: text.into() })
 }
 
 #[cfg(test)]

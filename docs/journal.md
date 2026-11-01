@@ -18849,3 +18849,27 @@ whose import dirs hold the file.
 Checked 2026-11-01: `cargo test --workspace --profile quick`, 2060 passed;
 `fmt-check` at widths 100, 80, 60, 40 and 25, 405/405; `fast.sh --lint loop` green,
 every ratchet +0/−0.
+
+## A flaky test that was a real race — 2026-11-01
+
+`a_dependency_s_refused_manifest_is_marked` failed on a pull request that touched
+no Rust: `fixed, its mark goes: ["unknown edition 9.9…"]`. It passed on re-run,
+and would have kept doing so. The failure was the server's. Placing a mark, `refused`
+read the manifest again for the text its span indexes, so a save between the load
+and that read paired the old error's offset with the new text. The range gave it
+away: line 2 column 0, the end of the fixed file, or line 0 column 0, a file caught
+truncated. A different place compares as a new problem, so the mark was published
+ahead of the reload that was about to clear it. Now the error carries the text it
+refused (`ManifestError::text`), and nothing reads the file twice.
+
+The test takes 2 ms, so a race in it is cheap to measure. Interleaved, three rounds,
+`seq 1 30000 | xargs -P 48 -n1` over a wrapper running the test binary with `--exact`,
+2026-11-01: the old build failed 3174, 2005 and 1652 of 30,000, and the new one 0, 0
+and 0. Below ~16 parallel it hardly shows (1 of 800), and the rate moves tenfold with
+the machine's load, so a sample at one load says little: two earlier fixes looked
+good at 7 of 30,000 until the next round said 33.
+
+Moved in the same change, unmeasured: `report_manifests` takes its lock before it reads
+the list, so a list read before a reload cannot be sent after the reload's. The A/B
+gives that no credit (0 of 90,000 with or without it); it is there because the order
+was wrong.

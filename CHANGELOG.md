@@ -23,6 +23,9 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Fixed
 
+- A `kanagawa.toml` saved while a check was finishing could have its error
+  marked again, in the wrong place, before the fix cleared it: the mark was
+  placed by reading the file a second time.
 - Hover inside a template defined in another file said "Type not yet
   inferred": a file is answered as its own program, which instantiates
   only what the file itself uses. Where that program has no type to show,
