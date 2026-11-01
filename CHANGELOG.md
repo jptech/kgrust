@@ -21,6 +21,16 @@ Notable changes to kgrust, newest first. The format follows
   keystroke comes ~16% sooner; `float.k` and `risc-v.k` gain 2–4%, with
   memory unchanged.
 
+### Fixed
+
+- Hover inside a template defined in another file said "Type not yet
+  inferred": a file is answered as its own program, which instantiates
+  only what the file itself uses. Where that program has no type to show,
+  the hover now reads the program of another open file that imports it,
+  lists that program's instances, and names the file. That loop is read,
+  never run: with `risc-v.k` open, a hover in the library's `core.k`
+  answers in 0.88 ms (median of 50), as its "not inferred" did in 0.86.
+
 ## 0.2.0 — language editions, 2026-10-31
 
 The first release since the published state. Its headline is language
