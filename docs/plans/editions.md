@@ -300,9 +300,10 @@ diagnostic that needs resolution — while its desugaring is nothing at all:
   declarations may not), the labels must agree with every one.
 - *Tools*: `kg fmt` (`x: 1`, no space before the colon); signature help
   highlights the labelled parameter; a label's hover and go-to-definition
-  reach the parameter. (The editor's inlay hints are widths alone,
+  reach the parameter. (The editor's inlay hints were widths alone,
   `crates/kg-lsp/src/handlers/inlay_hints.rs:263`; parameter-name hints,
-  should they come, would skip a labelled argument.)
+  should they come, would skip a labelled argument. *As built:* a hint
+  also shows the defaults a call is given.)
 - *Later, its own step*: labels in any order, reordered in an early HIR
   rewrite, once the reference's argument evaluation order is read and
   cited — a reorder that changes which call's side effect happens first is

@@ -29,9 +29,10 @@ install`.
   named template arguments, `FIFO<uint8, Size: 4, DequeueBlocking: false>`,
   skipping any default — through `kg check`, `kg build`, `kg fmt`, `kg doc`
   and the language server, where a label navigates to its parameter,
-  renames with it, lights it in signature help and is offered as a
-  completion, hover shows a parameter's default, and an inlay hint shows
-  the defaults a call is given ([`docs/editions/`](docs/editions/README.md)).
+  renames with it (or the rename is refused, naming the label, where a
+  method call cannot be placed), lights it in signature help and is
+  offered as a completion, hover shows a parameter's default, and an inlay
+  hint shows the defaults a call is given ([`docs/editions/`](docs/editions/README.md)).
   Graded by a new gate, `cargo xtask editions`, which CI runs too
   (`--no-oracle`). A file that uses a feature its edition lacks is told,
   once a use, which edition has it and how to ask for it, where the

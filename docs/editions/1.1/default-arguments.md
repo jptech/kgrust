@@ -112,9 +112,11 @@ error, the function type's, and that an empty default is an error.
 | `kanagawa` | rejects a default, as the reference does |
 
 The inlay hint reads the default as the declaration spells it, so a
-default written `Step + 1` shows as `Step + 1`; it is computed only in a
-program that declares a default, whatever the edition of the file the
-call is in.
+default written `Step + 1` shows as `Step + 1`. It is computed only at a
+call spelled as a function some file declares a default for, whatever the
+edition of the file the call is in, and runs no loop and waits for none:
+a method call shows its defaults once the editor's loop has typed its
+receiver.
 
 ## How it is graded
 

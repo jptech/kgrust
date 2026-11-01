@@ -104,7 +104,7 @@ parser's the edition error and both parse errors.
 |---|---|
 | `kg check`, `kg build` | named template arguments placed and checked; the backend receives the positional instance |
 | `kg fmt`, editor formatting | `Buffer<Size: 8>`, the colon against the label |
-| language server | a label is highlighted as a parameter; go-to-definition, hover, references and highlight on a label reach the template's parameter; renaming a template's parameter renames its labels, in files nobody has open too; completion in a template's argument list offers the parameters left to name, as `Size:` |
+| language server | a label is highlighted as a type parameter, as the template's own parameters are; go-to-definition, hover, references and highlight on a label reach the template's parameter, and hover shows it as declared, `auto Size = 4`; renaming a template's parameter renames its labels, in files nobody has open too; completion in a template's argument list offers the parameters left to name, as `Size:` |
 | `kanagawa` | rejects a named template argument, as the reference does |
 
 ## How it is graded

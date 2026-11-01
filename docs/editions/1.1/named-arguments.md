@@ -128,7 +128,7 @@ as undefined, with nothing added.
 |---|---|
 | `kg check`, `kg build` | named arguments resolved and checked; the backend receives the positional call |
 | `kg fmt`, editor formatting | `f(x: 1)`, the colon against the label |
-| language server | diagnostics; a label is highlighted as a parameter; go-to-definition, hover, references and highlight on a label reach its parameter; renaming a parameter renames its labels, in files nobody has open too; signature help lights the parameter a label names; completion offers the parameters an argument could name, as `x:` |
+| language server | diagnostics; a label is highlighted as a parameter; go-to-definition, hover, references and highlight on a label reach its parameter; renaming a parameter renames its labels, in files nobody has open too, and is refused, naming the label, where a label follows a method call the search cannot place (a receiver no loop has typed, a template body whose instances call different classes' methods); signature help lights the parameter a label names, and none where it names no parameter; completion offers the parameters an argument could name, as `x:` |
 | `kg dump ir` | the lowering shows the label (`Labelled`), before the loop resolves it |
 | `kanagawa` | rejects named arguments, as the reference does |
 
