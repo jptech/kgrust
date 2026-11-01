@@ -729,6 +729,24 @@ inline void main()
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A label on a call whose callee is written with template arguments is
+    /// a use of the callee's parameter like any other: renaming `scaled`'s
+    /// `x` renames `scaled<N: 3>(x: p)`'s label, and the program still
+    /// compiles. Red with the callee's last identifier taken for its name,
+    /// the template's label `N`, which leaves that call naming no parameter.
+    #[test]
+    fn a_parameter_is_renamed_at_a_call_with_template_arguments() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "template <auto N = 2>\ninline uint8 scaled(uint8 x, uint8 shift = 1)\n{\n    return x * N << shift;\n}\n\ninline uint8 main(uint8 p)\n{\n    return scaled<N: 3>(x: p) + scaled(x: p);\n}\n";
+        let files = [("main.k", text)];
+        let (dir, state, src) = lay_out_1_1("rename-template-callee", &files);
+        let uri = open_one(&state, &src, &files, "main.k");
+        let edit = rename(&state, &params(&uri, Position::new(1, 26), "value")).unwrap().unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let at = |line, col| ("main.k".to_owned(), line, col, "value".to_owned());
+        assert_eq!(edits(edit), vec![at(1, 26), at(3, 11), at(8, 24), at(8, 39)]);
+    }
+
     /// A template's parameter is used in another file by a named template
     /// argument (edition 1.1): renaming `Size` in `helper.k` renames the
     /// label `Size:` in `main.k`, which nobody has open. Red with a template's

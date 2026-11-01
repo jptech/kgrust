@@ -5,9 +5,11 @@
 //!
 //! The *declaration*, not the type. The caret sits inside some `ARG_LIST`; its
 //! `CALL_EXPR`'s callee is resolved with [`kg_db::Db::definition_at`] on the
-//! callee's last name token — the same resolution goto-definition performs at
-//! that token, so the signature shown is the declaration a jump would land on
-//! — and the label is read off that declaration's `PARAM_LIST` as written:
+//! name the callee is called by ([`kg_db::navigate::callee_name`]: `f` of
+//! `f<N: 3>(…)`, never a token of its template arguments) — the same
+//! resolution goto-definition performs at that token, so the signature shown
+//! is the declaration a jump would land on — and the label is read off that
+//! declaration's `PARAM_LIST` as written:
 //! `uint32 x`, `[[last]] bool done`, `(uint32) -> uint32 fn`. Reading the
 //! parameters from the written declaration rather than from its type
 //! ([`kg_db::Db::ir_answer_of_definition`]) is what lets a **template** function
@@ -50,10 +52,11 @@
 //! its own) — and a callee whose declaration is not a function or a function
 //! prototype. A declined answer is `null`, which a client shows as nothing.
 
-use kg_base::{FileId, TextSize};
+use kg_base::TextSize;
 use kg_db::ModuleSource;
 use kg_db::looped::{IrAnswer, Looped};
-use kg_syntax::{AstNode, NodeOrToken, SyntaxKind, SyntaxNode, ast};
+use kg_db::navigate::{argument_slots, callee_probe, one_line};
+use kg_syntax::{AstNode, SyntaxKind, SyntaxNode, ast};
 use lsp_types::{
     Documentation, MarkupContent, MarkupKind, ParameterInformation, ParameterLabel, SignatureHelp,
     SignatureHelpParams, SignatureInformation,
@@ -75,17 +78,16 @@ pub fn signature_help(
         return Ok(None);
     };
     let Some(probe) = callee_probe(&call) else { return Ok(None) };
-    let labels = call.arg_list().map(|list| labels(&list)).unwrap_or_default();
+    let labels: Vec<Option<String>> = call
+        .arg_list()
+        .map(|list| argument_slots(list.syntax()).iter().map(|s| s.label_text().map(str::to_owned)).collect())
+        .unwrap_or_default();
 
     let help = state
         .with_db(snap.file, |db| {
             let roots = [snap.file];
             let found = db.definition_at(&roots, snap.file, probe)?;
-            if found.range.file == FileId::SYNTHETIC {
-                return None;
-            }
-            let root = db.parse(found.range.file).syntax_node();
-            let decl = declaration_at(&root, found.range.range)?;
+            let decl = db.function_declaration(&found)?;
             let signature = signature_of(&decl)?;
             let parameters = signature.params.len() as u32;
             let names = db.interner();
@@ -156,30 +158,6 @@ fn enclosing_call(root: &SyntaxNode, offset: TextSize) -> Option<(ast::CallExpr,
     None
 }
 
-/// An offset inside the callee's last name token — the token
-/// [`kg_db::Db::definition_at`] resolves for `f(…)`, `a::f(…)` and `o.f(…)`
-/// alike. Its midpoint, for the reason `handlers::references::probe` gives.
-pub(crate) fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
-    let callee = call.callee()?;
-    let name = callee
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == SyntaxKind::IDENT)
-        .last()?;
-    Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
-}
-
-/// The function declaration or prototype whose name token is `name` — the
-/// `FN_DECL`/`FN_PROTO` two levels above the token (`NAME` between).
-pub(crate) fn declaration_at(root: &SyntaxNode, name: kg_base::TextRange) -> Option<SyntaxNode> {
-    root.token_at_offset(name.start())
-        .find(|t| t.text_range() == name)
-        .and_then(|t| t.parent())
-        .and_then(|n| n.parent())
-        .filter(|n| matches!(n.kind(), SyntaxKind::FN_DECL | SyntaxKind::FN_PROTO))
-}
-
 struct Signature {
     /// The declared name, as the label begins with it.
     name: String,
@@ -216,34 +194,16 @@ fn signature_of(decl: &SyntaxNode) -> Option<Signature> {
             label.push_str(", ");
         }
         let start = utf16_len(&label);
-        label.push_str(&collapse_whitespace(param.syntax()));
+        label.push_str(&one_line(param.syntax()));
         spans.push((start, utf16_len(&label)));
         names.push(param.name().and_then(|n| n.ident_token()).map(|t| t.text().to_owned()).unwrap_or_default());
     }
     label.push(')');
     if let Some(ret) = ret {
         label.push_str(" -> ");
-        label.push_str(&collapse_whitespace(ret.syntax()));
+        label.push_str(&one_line(ret.syntax()));
     }
     Some(Signature { name, label, params: spans, names })
-}
-
-/// Each argument's label, in the order written — `None` for a positional
-/// one — one per comma-separated slot, an empty one included.
-fn labels(list: &ast::ArgList) -> Vec<Option<String>> {
-    let mut out = vec![None];
-    for element in list.syntax().children_with_tokens() {
-        match element {
-            NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => out.push(None),
-            NodeOrToken::Node(n) => {
-                if let Some(label) = ast::ArgLabel::cast(n).and_then(|l| l.ident_token()) {
-                    *out.last_mut().expect("never empty") = Some(label.text().to_owned());
-                }
-            }
-            NodeOrToken::Token(_) => {}
-        }
-    }
-    out
 }
 
 /// The parameter the `active`th argument fills, as the module docs say: the
@@ -267,25 +227,6 @@ fn active_parameter(labels: &[Option<String>], active: usize, names: &[String]) 
 
 fn utf16_len(s: &str) -> u32 {
     s.encode_utf16().count() as u32
-}
-
-/// The node's text with every run of whitespace — and every comment — reduced
-/// to one space, so a parameter declared across lines reads on one.
-pub(crate) fn collapse_whitespace(node: &SyntaxNode) -> String {
-    let mut out = String::new();
-    let mut pending_space = false;
-    for token in node.descendants_with_tokens().filter_map(|e| e.into_token()) {
-        if token.kind().is_trivia() {
-            pending_space = !out.is_empty();
-            continue;
-        }
-        if pending_space {
-            out.push(' ');
-            pending_space = false;
-        }
-        out.push_str(token.text());
-    }
-    out.trim().to_owned()
 }
 
 #[cfg(test)]
@@ -363,15 +304,32 @@ inline void main()
         assert_eq!(help(SRC, Position::new(9, 35)).map(|h| h.2), Some(Some(1)), "back in the outer call");
     }
 
-    /// [`help`]'s active parameter, the file read in edition 1.1.
-    fn active_in_1_1(tag: &str, text: &str, pos: Position) -> Option<u32> {
+    /// The signature help at `pos`, the file read in edition 1.1.
+    fn help_in_1_1(tag: &str, text: &str, pos: Position) -> Option<SignatureHelp> {
         use crate::handlers::references::tests::{lay_out_1_1, open_one};
         let files = [("sig.k", text)];
         let (dir, state, src) = lay_out_1_1(&format!("signature-{tag}"), &files);
         let uri = open_one(&state, &src, &files, "sig.k");
         let help = signature_help(&state, &params(&uri, pos)).expect("the document is open");
         std::fs::remove_dir_all(&dir).unwrap();
-        help.expect("a signature").active_parameter
+        help
+    }
+
+    /// [`help`]'s active parameter, the file read in edition 1.1.
+    fn active_in_1_1(tag: &str, text: &str, pos: Position) -> Option<u32> {
+        help_in_1_1(tag, text, pos).expect("a signature").active_parameter
+    }
+
+    /// A callee written with template arguments is resolved by its own
+    /// name, `scaled` of `scaled<N: 3>(…)`, and its signature shown, the
+    /// label's parameter lit. Red with the callee's last identifier taken
+    /// for its name: the template's label `N`, which names no function.
+    #[test]
+    fn a_callee_with_template_arguments_has_its_signature() {
+        let text = "template <auto N = 2>\ninline uint8 scaled(uint8 x, uint8 shift = 1)\n{\n    return x * N << shift;\n}\n\ninline uint8 main()\n{\n    return scaled<N: 3>(x: 1, shift: 2);\n}\n";
+        let help = help_in_1_1("template-callee", text, Position::new(8, 31)).expect("a signature");
+        assert_eq!(help.signatures[0].label, "scaled(uint8 x, uint8 shift = 1) -> uint8");
+        assert_eq!(help.active_parameter, Some(1), "on `shift: 2`");
     }
 
     /// A named argument lights the parameter its label names, not the one

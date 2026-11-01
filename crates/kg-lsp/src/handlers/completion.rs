@@ -388,6 +388,25 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A call whose callee is written with template arguments is offered
+    /// the function's parameters, `scaled<N: 3>(1, |` as `scaled(1, |`.
+    /// Red with the callee's last identifier taken for its name — the
+    /// template's label `N`, which names no function.
+    #[test]
+    fn a_call_with_template_arguments_is_offered_its_parameters() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "template <auto N = 2>\ninline uint8 scaled(uint8 x, uint8 shift = 1)\n{\n    return x * N << shift;\n}\n\ninline uint8 main()\n{\n    return scaled<N: 3>(1, );\n}\n";
+        let files = [("main.k", text)];
+        let (dir, state, src) = lay_out_1_1("complete-template-callee", &files);
+        let uri = open_one(&state, &src, &files, "main.k");
+        let shown: Vec<String> = match completion(&state, &params(&uri, Position::new(8, 27))).expect("open") {
+            Some(CompletionResponse::Array(out)) => out.into_iter().map(|i| i.label).filter(|l| l.ends_with(':')).collect(),
+            other => panic!("expected an array, got {other:?}"),
+        };
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(shown, ["shift:"]);
+    }
+
     /// An unopened document is `NoFile`, never an empty list pretending to
     /// have looked.
     #[test]

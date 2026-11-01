@@ -135,6 +135,25 @@ fn a_label_that_names_no_parameter_lands_nowhere() {
     assert_eq!(lands(&db, file, text, "z)", 0).as_deref(), Some("8:11"));
 }
 
+/// A callee written with template arguments is named by its own name, never
+/// by an identifier of its arguments: `scaled<N: 3>(x: p)`'s `x` is
+/// `scaled`'s, as it is after a type argument, `pass<Byte>(x: p)`, and after
+/// `.template`. Every label feature asks the callee here — signature help,
+/// completion, the defaults hint, a rename's search, which left such a call
+/// naming a parameter renamed away. Red with the callee's last identifier
+/// taken for its name, which is `N`, or `Byte`.
+#[test]
+fn a_label_after_template_arguments_is_its_callee_s_parameter() {
+    let text = "using Byte = uint8;\n\ntemplate <auto N = 2>\ninline uint8 scaled(uint8 x, uint8 shift = 1)\n{\n    return x * N << shift;\n}\n\ntemplate <typename T>\ninline T pass(T x)\n{\n    return x;\n}\n\nclass C\n{\npublic:\n    template <auto N>\n    uint8 times(uint8 x) { return x * N; }\n}\n\nclass Top\n{\nprivate:\n    C _c;\n\npublic:\n    uint8 run(uint8 p)\n    {\n        return scaled<N: 3>(x: p) + pass<Byte>(x: p) + _c.template times<N: 2>(x: p);\n    }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(errors_of(&db, file, text), Vec::<String>::new());
+    assert_eq!(lands(&db, file, text, "x: p", 0).as_deref(), Some("4:27"), "after a named template argument");
+    assert_eq!(lands(&db, file, text, "x: p", 1).as_deref(), Some("10:17"), "after a type argument");
+    assert_eq!(lands(&db, file, text, "x: p", 2).as_deref(), Some("19:23"), "after `.template`");
+    assert_eq!(lands(&db, file, text, "N: 3", 0).as_deref(), Some("3:16"), "the template's own label");
+}
+
 /// A call short of arguments is given each default it leaves out, in the
 /// parameter's place, whether the arguments it gives are positional or
 /// named, and to a function or a method; every parameter is a type no other

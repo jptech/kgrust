@@ -149,7 +149,7 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
                 _ => name,
             };
             // A parameter's default (edition 1.1), as declared: `uint8 shift = 1`.
-            let name = match (found.len(), parameter_default(db, first)) {
+            let name = match (found.len(), db.parameter_default(first)) {
                 (1, Some(default)) => format!("{name} = {default}"),
                 _ => name,
             };
@@ -176,20 +176,6 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
         range: kg_db::navigate::identifier_at(&snap.parse.syntax_node(), offset)
             .map(|token| convert::range(snap.line_index(), state.encoding(), token.text_range())),
     }))
-}
-
-/// The default `def` declares, written as it is, where `def` is a parameter
-/// with one.
-fn parameter_default(db: &kg_db::Db, def: &Definition) -> Option<String> {
-    use kg_syntax::AstNode;
-    if def.kind != DefKind::FuncParam || def.range.file == kg_base::FileId::SYNTHETIC {
-        return None;
-    }
-    let root = db.parse(def.range.file).syntax_node();
-    let name = root.token_at_offset(def.range.range.start()).find(|t| t.text_range() == def.range.range)?;
-    let param = name.parent_ancestors().find_map(kg_syntax::ast::Param::cast)?;
-    param.eq_token()?;
-    Some(crate::handlers::signature_help::collapse_whitespace(param.expr()?.syntax()))
 }
 
 /// The tooltip `shown`, and under a rule the documentation, where there is

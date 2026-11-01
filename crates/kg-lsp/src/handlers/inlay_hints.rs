@@ -210,15 +210,11 @@ fn default_hints(
     }
     let mut out = Vec::new();
     for call in calls {
-        let (Some(probe), Some(at), Some(list)) = (super::signature_help::callee_probe(call), close_of(call), call.arg_list()) else {
+        let (Some(probe), Some(at), Some(list)) = (kg_db::navigate::callee_probe(call), close_of(call), call.arg_list()) else {
             continue;
         };
         let Some(found) = db.definition_at(&roots, file, probe) else { continue };
-        if found.range.file == kg_base::FileId::SYNTHETIC {
-            continue;
-        }
-        let root = db.parse(found.range.file).syntax_node();
-        let Some(decl) = super::signature_help::declaration_at(&root, found.range.range) else { continue };
+        let Some(decl) = db.function_declaration(&found) else { continue };
         let params = ast::FnDecl::cast(decl.clone())
             .and_then(|f| f.param_list())
             .or_else(|| ast::FnProto::cast(decl).and_then(|f| f.param_list()));
@@ -235,29 +231,17 @@ fn default_hints(
 /// default as declared — or none, where one it leaves out has no default
 /// (an error, which the diagnostics say) or it leaves out none.
 fn default_hint(list: &ast::ArgList, params: &[ast::Param], at: TextSize, index: &LineIndex, enc: PositionEncoding) -> Option<InlayHint> {
-    let name_of = |p: &ast::Param| p.name().and_then(|n| n.ident_token()).map(|t| t.text().to_owned());
-    let mut filled = vec![false; params.len()];
-    let mut label = None;
-    let mut position = 0;
-    for element in list.syntax().children() {
-        if let Some(l) = ast::ArgLabel::cast(element.clone()) {
-            label = l.ident_token().map(|t| t.text().to_owned());
-            continue;
-        }
-        let slot = match label.take() {
-            Some(l) => params.iter().position(|p| name_of(p).as_deref() == Some(&l)),
-            None => Some(position),
-        };
-        position += 1;
-        if let Some(f) = slot.and_then(|i| filled.get_mut(i)) {
-            *f = true;
-        }
-    }
+    let names: Vec<String> =
+        params.iter().map(|p| p.name().and_then(|n| n.ident_token()).map(|t| t.text().to_owned()).unwrap_or_default()).collect();
+    let named: Vec<&str> = names.iter().map(String::as_str).collect();
+    let filled = kg_db::navigate::filled_parameters(&kg_db::navigate::argument_slots(list.syntax()), &named);
     let mut given = Vec::new();
-    for (param, _) in params.iter().zip(&filled).filter(|(_, f)| !**f) {
-        param.eq_token()?;
-        let default = super::signature_help::collapse_whitespace(param.expr()?.syntax());
-        given.push(format!("{}: {default}", name_of(param)?));
+    for ((param, name), _) in params.iter().zip(&names).zip(&filled).filter(|(_, f)| !**f) {
+        let default = kg_db::navigate::written_default(param.syntax())?;
+        if name.is_empty() {
+            return None;
+        }
+        given.push(format!("{name}: {}", kg_db::navigate::one_line(&default)));
     }
     if given.is_empty() {
         return None;
@@ -804,6 +788,25 @@ mod tests {
         assert_eq!(labels, [": uint8"]);
     }
 
+    /// The defaults hints over the whole of `name`, opened in a project of
+    /// `files` in edition 1.1 or, with `edition_1_1` false, the reference —
+    /// each as `(line, column, label)`.
+    fn defaults_shown(tag: &str, edition_1_1: bool, files: &[(&str, &str)], name: &str) -> Vec<(u32, u32, String)> {
+        use crate::handlers::references::tests::{lay_out, lay_out_1_1, open_one};
+        let (dir, state, src) = if edition_1_1 { lay_out_1_1(tag, files) } else { lay_out(tag, files) };
+        let uri = open_one(&state, &src, files, name);
+        let hints = inlay_hints(&state, &params(&uri, whole_file())).expect("open");
+        std::fs::remove_dir_all(&dir).unwrap();
+        hints
+            .into_iter()
+            .filter(|h| h.kind == Some(InlayHintKind::PARAMETER))
+            .map(|h| match h.label {
+                InlayHintLabel::String(s) => (h.position.line, h.position.character, s),
+                other => panic!("expected a plain label, got {other:?}"),
+            })
+            .collect()
+    }
+
     /// A call short of arguments shows the defaults it is given, as declared,
     /// where the next argument would be written — after the positional
     /// arguments, around the named ones, with no comma after a trailing one or
@@ -813,7 +816,6 @@ mod tests {
     /// always or never written.
     #[test]
     fn a_short_call_shows_the_defaults_it_is_given() {
-        use crate::handlers::references::tests::{lay_out_1_1, open_one};
         let text = "\
 inline uint8 scale(uint8 value = 0, uint8 shift = 1, bool round = false)
 {
@@ -836,27 +838,28 @@ inline uint8 main(uint8 p)
     return a + b + c + d + e + f;
 }
 ";
-        let files = [("hints.k", text)];
-        let (dir, state, src) = lay_out_1_1("inlay-defaults", &files);
-        let uri = open_one(&state, &src, &files, "hints.k");
-        let hints = inlay_hints(&state, &params(&uri, whole_file())).expect("open");
-        std::fs::remove_dir_all(&dir).unwrap();
-        let shown: Vec<(u32, u32, String)> = hints
-            .into_iter()
-            .filter(|h| h.kind == Some(InlayHintKind::PARAMETER))
-            .map(|h| match h.label {
-                InlayHintLabel::String(s) => (h.position.line, h.position.character, s),
-                other => panic!("expected a plain label, got {other:?}"),
-            })
-            .collect();
         assert_eq!(
-            shown,
+            defaults_shown("inlay-defaults", true, &[("hints.k", text)], "hints.k"),
             [
                 (12, 21, ", shift: 1, round: false".to_owned()),
                 (13, 34, ", shift: 1".to_owned()),
                 (14, 30, "value: 0, round: false".to_owned()),
                 (15, 20, "value: 0, shift: 1, round: false".to_owned()),
             ]
+        );
+    }
+
+    /// A callee written with template arguments is resolved by its own
+    /// name, and a call of it short of an argument shows the default, as
+    /// the same call with none does. Red with the callee's last identifier
+    /// taken for its name: the template's label `N`, which names no
+    /// function.
+    #[test]
+    fn a_callee_with_template_arguments_shows_its_defaults() {
+        let text = "template <auto N = 2>\ninline uint8 scaled(uint8 x, uint8 shift = 1)\n{\n    return x * N << shift;\n}\n\ninline uint8 main(uint8 p)\n{\n    return scaled<N: 3>(x: p) + scaled(p);\n}\n";
+        assert_eq!(
+            defaults_shown("inlay-template-callee", true, &[("main.k", text)], "main.k"),
+            [(8, 28, ", shift: 1".to_owned()), (8, 40, ", shift: 1".to_owned())]
         );
     }
 }

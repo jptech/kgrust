@@ -75,7 +75,7 @@
 
 use kg_base::{FileId, FileRange, FxHashMap, Symbol, SymbolPath, TextRange, TextSize};
 use kg_resolve::{DefId, DefKind, Item, ItemId, ItemTree, ModuleSource, SymbolsConfig};
-use kg_syntax::{AstNode, SyntaxKind, SyntaxNode, SyntaxToken, ast};
+use kg_syntax::{AstNode, NodeOrToken, SyntaxKind, SyntaxNode, SyntaxToken, ast};
 use kg_ty::Ty;
 
 use crate::Db;
@@ -374,7 +374,7 @@ impl Db {
     /// The parameters of the function `def` is, in their order — through a
     /// `template <…>` to the function it wraps, whose parameters are its own
     /// items — and none where `def` is no function.
-    pub(crate) fn parameters_of(&self, def: &Definition) -> Vec<Definition> {
+    pub fn parameters_of(&self, def: &Definition) -> Vec<Definition> {
         let tree = self.item_tree(def.def.module);
         let is_function = |kind: DefKind| matches!(kind, DefKind::Function | DefKind::FunctionDecl);
         let functions: Vec<ItemId> = match def.kind {
@@ -398,7 +398,7 @@ impl Db {
     /// The parameters of the template `def` is — or wraps, where `def` is the
     /// class or function a `template <…>` declares — in their order, and none
     /// where it is no template.
-    pub(crate) fn template_parameters_of(&self, def: &Definition) -> Vec<Definition> {
+    pub fn template_parameters_of(&self, def: &Definition) -> Vec<Definition> {
         let tree = self.item_tree(def.def.module);
         let template = match def.kind {
             DefKind::Template => Some(def.def.item),
@@ -413,6 +413,38 @@ impl Db {
             })
             .map(|i| Definition::new(def.def.module, i, tree.get(i)))
             .collect()
+    }
+
+    /// The node that declares `def`, the one its name is the `NAME` of —
+    /// a `FN_DECL`, a `PARAM`, a `VALUE_PARAM`, … — or `None` in a generated
+    /// module, which has no text, and for a name no `NAME` holds (a lambda's
+    /// capture).
+    pub fn declaring_node(&self, def: &Definition) -> Option<SyntaxNode> {
+        if def.range.file == FileId::SYNTHETIC {
+            return None;
+        }
+        let root = self.parse(def.range.file).syntax_node();
+        let name = root.token_at_offset(def.range.range.start()).find(|t| t.text_range() == def.range.range)?;
+        name.parent().filter(|n| n.kind() == SyntaxKind::NAME)?.parent()
+    }
+
+    /// The function `def` names, as written: its `FN_DECL` or `FN_PROTO` —
+    /// where signature help reads a parameter list and the defaults hint its
+    /// defaults — or `None` where `def` is no function's declaration.
+    pub fn function_declaration(&self, def: &Definition) -> Option<SyntaxNode> {
+        self.declaring_node(def).filter(|n| matches!(n.kind(), SyntaxKind::FN_DECL | SyntaxKind::FN_PROTO))
+    }
+
+    /// The default the parameter `def` declares, written on one line
+    /// ([`one_line`]) — a function's (`uint8 shift = 1`, edition 1.1) or a
+    /// template's (`auto Size = 4`) — or `None` where `def` is no parameter
+    /// or declares none.
+    pub fn parameter_default(&self, def: &Definition) -> Option<String> {
+        if !matches!(def.kind, DefKind::FuncParam | DefKind::TemplateParam) {
+            return None;
+        }
+        let param = self.declaring_node(def)?;
+        Some(one_line(&written_default(&param)?))
     }
 
     /// The loop navigation reads for `roots`' program: the one the
@@ -834,18 +866,143 @@ pub(crate) fn labelled_template_name(token: &SyntaxToken) -> Option<TextSize> {
     Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
 }
 
-/// Where `call`'s callee is named: the midpoint of its last identifier, the
-/// token [`Db::definition_at`] resolves for `f(…)`, `a::f(…)` and `o.f(…)`
-/// alike.
-pub(crate) fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
-    let name = call
-        .callee()?
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == SyntaxKind::IDENT)
-        .last()?;
+/// The identifier `call`'s callee is named by: the `NAME_REF` its path's
+/// last segment holds, or its `.` selects — `f` of `f(…)`, `a::f(…)`,
+/// `scaled<N: 3>(…)`, `o.f(…)` and `o.template f<N: 1>(…)` alike, and
+/// through parentheses, `(f)(…)`. Never a token of the template argument
+/// list the name carries, which is a label or a type of its own; and `None`
+/// for a callee no name names — a call's result, an index, a lambda — whose
+/// last identifier is some other declaration's.
+pub fn callee_name(call: &ast::CallExpr) -> Option<SyntaxToken> {
+    let mut callee = call.callee()?.syntax().clone();
+    while callee.kind() == SyntaxKind::PAREN_EXPR {
+        callee = callee.children().next()?;
+    }
+    let owner = match callee.kind() {
+        SyntaxKind::PATH => callee.children().filter(|c| c.kind() == SyntaxKind::PATH_SEGMENT).last()?,
+        // The selector is the last `NAME_REF` or `PATH_SEGMENT` child, as
+        // [`selector_base`] reads it; the base is a node of its own.
+        SyntaxKind::FIELD_EXPR => callee
+            .children()
+            .filter(|c| matches!(c.kind(), SyntaxKind::NAME_REF | SyntaxKind::PATH_SEGMENT))
+            .last()?,
+        _ => return None,
+    };
+    let name_ref = match owner.kind() {
+        SyntaxKind::NAME_REF => owner,
+        _ => owner.children().find(|c| c.kind() == SyntaxKind::NAME_REF)?,
+    };
+    name_ref.first_token().filter(|t| t.kind() == SyntaxKind::IDENT)
+}
+
+/// Where `call`'s callee is named ([`callee_name`]): the midpoint of the
+/// name, the offset [`Db::definition_at`] resolves it at — for the reason
+/// `kg-lsp`'s `references::probe` gives.
+pub fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
+    let name = callee_name(call)?;
     Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
+}
+
+/// One comma-separated place of an argument list — a call's `(…)` or a
+/// template's `<…>` — as written: the label that names it (`x` of `x: 1`,
+/// edition 1.1) and its argument, each `None` where nothing is written yet.
+#[derive(Clone, Debug, Default)]
+pub struct ArgumentSlot {
+    pub label: Option<SyntaxToken>,
+    pub argument: Option<SyntaxNode>,
+}
+
+impl ArgumentSlot {
+    /// The label's name.
+    pub fn label_text(&self) -> Option<&str> {
+        self.label.as_ref().map(|t| t.text())
+    }
+}
+
+/// Every slot of `list`, an `ARG_LIST` or a `TEMPLATE_ARG_LIST`, in order:
+/// one more than it has commas, so the empty one after a trailing comma, or
+/// in `()`, is among them. One reading of a list for every feature that
+/// asks which argument is which — completion, signature help, the defaults
+/// a call is given — so that no two of them count a list apart.
+pub fn argument_slots(list: &SyntaxNode) -> Vec<ArgumentSlot> {
+    let mut out = vec![ArgumentSlot::default()];
+    for element in list.children_with_tokens() {
+        match element {
+            NodeOrToken::Token(t) if t.kind() == SyntaxKind::COMMA => out.push(ArgumentSlot::default()),
+            NodeOrToken::Node(n) => {
+                let slot = out.last_mut().expect("never empty");
+                match ast::ArgLabel::cast(n.clone()) {
+                    Some(label) => {
+                        if let Some(name) = label.ident_token() {
+                            slot.label = Some(name);
+                        }
+                    }
+                    None => {
+                        slot.argument.get_or_insert(n);
+                    }
+                }
+            }
+            NodeOrToken::Token(_) => {}
+        }
+    }
+    out
+}
+
+/// Which of the parameters named `names`, in their order, the arguments
+/// written in `slots` fill, as `kg_sem::named` places them: a positional
+/// argument the parameter its position among the arguments gives, a named
+/// one the parameter it names. A slot with no argument written fills none,
+/// and a label that names no parameter fills none.
+pub fn filled_parameters(slots: &[ArgumentSlot], names: &[&str]) -> Vec<bool> {
+    let mut filled = vec![false; names.len()];
+    let mut position = 0;
+    for slot in slots.iter().filter(|s| s.argument.is_some()) {
+        let at = match slot.label_text() {
+            Some(label) => names.iter().position(|n| *n == label),
+            None => Some(position),
+        };
+        position += 1;
+        if let Some(f) = at.and_then(|i| filled.get_mut(i)) {
+            *f = true;
+        }
+    }
+    filled
+}
+
+/// `node`'s text on one line: every run of whitespace, and every comment,
+/// one space — a parameter declared across lines, or a default with a
+/// comment in it, as a signature or a hint shows it.
+pub fn one_line(node: &SyntaxNode) -> String {
+    let mut out = String::new();
+    let mut pending_space = false;
+    for token in node.descendants_with_tokens().filter_map(|e| e.into_token()) {
+        if token.kind().is_trivia() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        out.push_str(token.text());
+    }
+    out.trim().to_owned()
+}
+
+/// The default a parameter's declaration writes after its `=` — a
+/// function's `PARAM` (`uint8 shift = 1`, edition 1.1) or a template's
+/// `VALUE_PARAM` or `TYPE_PARAM` (`auto Size = 4`) — or `None` where it
+/// writes none.
+pub fn written_default(param: &SyntaxNode) -> Option<SyntaxNode> {
+    let mut after_eq = false;
+    for element in param.children_with_tokens() {
+        match element {
+            NodeOrToken::Token(t) if t.kind() == SyntaxKind::EQ => after_eq = true,
+            NodeOrToken::Node(n) if after_eq => return Some(n),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Whether `token` names a member after a `.` — the `f` of `a.f` — which
