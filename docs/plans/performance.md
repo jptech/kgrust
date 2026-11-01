@@ -129,6 +129,13 @@ Removes most of the 25%. Risk: a declaration-changing rewrite not marked —
 the identity gate, plus a debug-build assertion that recomputes a module's
 map when it is *not* dirty and compares.
 
+*Built otherwise* (§10: W5.4, 2026-10-10; 2026-11-01). The map is kept
+per subtree, not per module (`symbols::Filed`), and a build walks only the
+nodes made since the last. A write in place walks again the records that
+reach the node written, unless `symbols::unbounded` says no record bounds
+it. `KG_SYMBOLS_CHECK=1` is the assertion, against the whole walk at every
+build.
+
 ### 3.3 Walk only what can still change
 
 The core step. A subtree need not be revisited when nothing in it can
@@ -656,6 +663,49 @@ testing loop every later step uses.
   `array.k` within noise; under the stage's own settings, a smaller
   program, unchanged (`risc-v.k`'s first answer 325 and 322 → 327 and
   321 ms).
+- **The kept symbol maps, repaired rather than discarded, 2026-11-01**
+  (§13, option 5; journal, "A cache its own writer threw away").
+  - *Where the time was.* Most of what `symbols::Filed`'s builds walked
+    rather than copied was not new. A write in place that changed what
+    its subtree files discarded the module's whole store under all three
+    configs, and inference's folds are such writes: an `if` taken for its
+    branch, a `for` unrolled. The next builds walked the module whole:
+    93% of the nodes walked on `array.k`, 50% on `risc-v.k`, 59% on
+    `float.k`.
+  - *The repair.* Such a write now walks again only the records that
+    reach the node written: its own, at every place it lies; the template
+    that reads it as its declaration; and every record enclosing one.
+    That is exact because what a subtree files is a function of its nodes
+    alone. `symbols::unbounded` names the writes no record bounds, which
+    still discard the store: a name's identifier or a `Typename`, which a
+    parent reads, and a subtree that filed nothing coming to file
+    something.
+  - *The table.* The assembled map is sized for its entries before they
+    go in. Grown from empty, it rehashed at every build: nearly a third
+    of what the builds then spent on `array.k`.
+  - *Results.* Nodes walked in one `kg check`: `array.k` 6.49 M → 0.86 M,
+    `risc-v.k` 3.59 M → 2.20 M, `float.k` 1.63 M → 0.74 M. No store is
+    discarded on any of the three. `kg check` against `main` (`094fefc`),
+    six interleaved runs, medians: `array.k` 0.860 → 0.710 s, `float.k`
+    0.680 → 0.650 s, `risc-v.k` 1.785 → 1.735 s; peak RSS within 5 MiB.
+    The editor under its recorded settings (`bench --filter
+    keystroke-phases --recorded`, two interleaved runs each):
+    - `array.k`'s last answer after a keystroke 903 and 897 → 752 and
+      767 ms, its first 226 and 223 → 218 and 218;
+    - `risc-v.k`'s within noise: the first 784 and 781 → 759 and 777,
+      the last 1829 and 1815 → 1784 and 1848.
+
+    `cargo xtask mem`'s footprints are flat: `risc-v.k` checked 726 →
+    724 MiB, opened 839 → 843, after five edits 1421 → 1384; `array.k`
+    checked 290 → 291, opened 283 either way. After five edits it read
+    465, 467 and 482 on `main` and 481, 480 and 488 here, within that
+    case's spread: the stores hold 2.3 MB in all at the end of
+    `array.k`'s check.
+  - *Exactness.* `scripts/identity.sh 094fefc`, 304 roots identical.
+    `infer-identity` with `KG_SYMBOLS_CHECK=1`, every kept map against
+    the whole walk's at every build of every root: 304 identical. With
+    the repair broken (a record hit, but kept), 153 roots differ and the
+    check panics.
 - **The shipped binaries, 2026-10-12.** `cargo xtask dist` builds the
   `ship` profile, `release` with `lto = "fat"` and `codegen-units = 1`:
   `kg check` 6–10% faster in an interleaved A/B, `kg` 30% smaller, its
@@ -1059,8 +1109,19 @@ module's walk when nothing in it needs walking (13 ms at most).
    before each node must be shown order-free), instantiation, resolution,
    the wrappers, `closureCalls` — each algebra audited for what it hands
    back as it came. Some 5% of the check.
-5. **The symbol maps merged, not rebuilt** (`loop-across-edits.md` §6
-   step 4): 6% of inference here, 12% of `array.k`'s deduction.
+5. **The symbol maps merged, not rebuilt — taken, as a repair** (§10,
+   2026-11-01). Re-measured after options 1 and 3, the builds were 10%
+   of `risc-v.k`'s loop, 17% of `float.k`'s and 31% of `array.k`'s.
+   Little of that was the merging. Most was walking modules whose kept
+   store one of inference's folds had discarded, and a table rehashed as
+   it grew. A write is now bounded by the records it reaches, and the table
+   is sized first: `array.k`'s check 0.86 → 0.71 s. What is left:
+   - the nodes the round's passes mint, walked once per config (2.2 M on
+     `risc-v.k`);
+   - the assembly, about a fifth of the builds. On `array.k` two thirds
+     of its entries lie in modules that changed, so merging per key
+     (`loop-across-edits.md` §6 step 4) would save at most a third of
+     it there.
 6. **Threads**, item 1 below: the prefix, 9%.
 
 The confirming walks after a unit changed (42,144) are the reference's

@@ -14,6 +14,12 @@ Notable changes to kgrust, newest first. The format follows
   takes 1.94 → 1.73 s and peaks at 786 → 753 MiB; in the editor, with the
   full base library, the last answer after a keystroke comes 2.07 →
   1.82 s, and opening the file takes ~5% less memory.
+- The symbol maps the loop builds again and again are repaired rather than
+  rebuilt when inference folds a constant in place, with identical
+  results: a fold walks again only what can reach it. `kg check` of
+  `array.k` takes 0.86 → 0.71 s, and its last answer in the editor after a
+  keystroke comes ~16% sooner; `float.k` and `risc-v.k` gain 2–4%, with
+  memory unchanged.
 
 ## 0.2.0 — language editions, 2026-10-31
 
