@@ -304,24 +304,25 @@ fn callee_name(arena: &ExpArena, function: ExpId, t: &Ty, interner: &Interner) -
 }
 
 /// A default as the argument a call written whole would pass: its literal,
-/// or an enum's constant by its name — the enum's own, from the parameter's
-/// type, so that the name finds the constant from wherever the call stands
-/// — which inference folds as it folds a written one. Made at the call's
+/// or an enum's constant by its absolute name, so that the name finds the
+/// constant from wherever the call stands — which inference folds as it
+/// folds a written one. Made at the call's
 /// arguments, so an error in it is reported at the call — but for its
 /// conversion to the parameter's type, which `crate::check` judges at the
 /// default's declaration and knows the call's given default from a written
 /// argument by.
-fn default_argument(rw: &mut Rewriter<'_>, args: ExpId, function: ExpId, v: &ConstValue, ty: &Ty) -> Option<ExpId> {
+fn default_argument(rw: &mut Rewriter<'_>, args: ExpId, function: ExpId, v: &ConstValue) -> Option<ExpId> {
     let exp = match v {
         ConstValue::Int { ty, value } => Exp::IntLiteral { ty: *ty, value: value.clone() },
         ConstValue::Bool(b) => Exp::BoolLiteral(*b),
         ConstValue::Float(f) => Exp::FloatLiteral(*f),
+        // The constant's absolute name, its enum's and its own
+        // (`crate::infer`'s `default_of`), whatever the parameter's type:
+        // an integer parameter takes an enum's constant too.
         ConstValue::Enum { name, .. } => {
-            let Ty::Enum(enum_name, _) = &ty.un_const() else { return None };
-            let constant = *name.segments().last()?;
             let scope = crate::deduce::Cx::scope_of(rw.arena, function)?;
             let mut chain = None;
-            for &segment in enum_name.segments().iter().chain([&constant]) {
+            for &segment in name.segments() {
                 let ident = rw.donate(args, Exp::Identifier(segment));
                 chain = Some(rw.donate(args, Exp::ScopedName { scope: scope.clone(), prefix: chain, ident }));
             }
@@ -555,7 +556,7 @@ impl Cx<'_> {
                 Some(a) => a,
                 None => {
                     let Some(TDefault::Value(v)) = &params[slot].default else { unreachable!("a slot left empty has a default") };
-                    let Some(value) = default_argument(rw, args, function, v, &params[slot].ty) else {
+                    let Some(value) = default_argument(rw, args, function, v) else {
                         return Placed::Waiting(unchanged);
                     };
                     Arg { item: value, value, written: None }

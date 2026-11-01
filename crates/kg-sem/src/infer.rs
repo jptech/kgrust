@@ -1795,11 +1795,20 @@ impl Cx<'_> {
     /// the value its expression has folded to — an enum's constant named,
     /// so a call is given the constant and not its number — or
     /// [`TDefault::Unfolded`] while it is none a call could be given.
+    ///
+    /// The constant is named absolutely, by its enum's own name: a call far
+    /// from the declaration spells it so, and a parameter whose type is no
+    /// enum — `uint8 m = Mode::Run`, which an integer parameter takes as it
+    /// takes the argument (`TypeCheck.hs:155-156`) — has no type to read
+    /// the enum's name from.
     fn default_of(&self, d: ExpId) -> TDefault {
         let value = match self.exp(d) {
-            Exp::EnumValue { ty, .. } => match self.node_value(d) {
-                Some(ConstValue::Int { value, .. }) => {
-                    Some(ConstValue::Enum { name: SymbolPath::new(kg_hir::sort::spine_qualname(self.arena, *ty)), value })
+            Exp::EnumValue { ty, .. } => match (self.node_value(d), self.ty(d).un_const()) {
+                (Some(ConstValue::Int { value, .. }), Ty::Enum(enum_name, _)) => {
+                    kg_hir::sort::spine_qualname(self.arena, *ty).last().map(|&constant| ConstValue::Enum {
+                        name: SymbolPath::new(enum_name.segments().iter().copied().chain([constant])),
+                        value,
+                    })
                 }
                 _ => None,
             },
