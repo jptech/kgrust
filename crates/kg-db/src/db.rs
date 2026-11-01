@@ -133,6 +133,8 @@ struct Memo {
     keeper: Arc<crate::snapshot::Keeper>,
     /// Keyed by what the lowering read, by value — `crate::sorted::SortedMemo`.
     sorted: RwLock<FxHashMap<ModuleSource, Arc<crate::sorted::SortedMemo>>>,
+    /// [`Db::defaulting_functions`], with the parse each was read off.
+    defaulting: RwLock<FxHashMap<ModuleSource, DefaultingMemo>>,
 }
 
 impl Default for Memo {
@@ -147,6 +149,7 @@ impl Default for Memo {
             flights: Mutex::default(),
             keeper: Arc::default(),
             sorted: RwLock::default(),
+            defaulting: RwLock::default(),
         }
     }
 }
@@ -265,6 +268,10 @@ struct ParseMemo {
     /// many reads a request makes of one parse.
     read_at: Revision,
 }
+
+/// The functions a module declares with a default, and the parse they
+/// were read off, compared by pointer.
+type DefaultingMemo = (Arc<Parse>, Arc<[String]>);
 
 #[derive(Clone, Debug)]
 struct ItemTreeMemo {
@@ -664,6 +671,29 @@ impl Db {
         }
         parses.insert(module, ParseMemo { value: value.clone(), stamp, parse_docs, features, read_at });
         value
+    }
+
+    /// The names of the functions `module` declares with a parameter that
+    /// has a default (edition 1.1, `docs/editions/1.1/default-arguments.md`),
+    /// sorted; none in a module whose language has no defaults, where one is
+    /// a parse error. Read once per parse: the defaults hint asks it of every
+    /// module of the program on each request, and resolves only a call
+    /// spelled as one of these (`kg-lsp`'s `inlay_hints`).
+    pub fn defaulting_functions(&self, module: ModuleSource) -> Arc<[String]> {
+        use kg_base::language::Feature;
+        let parse = self.parse_module(module);
+        if let Some((read, names)) = self.memo.defaulting.read().unwrap().get(&module)
+            && Arc::ptr_eq(read, &parse)
+        {
+            return names.clone();
+        }
+        let names: Arc<[String]> = if parse.features().has(Feature::DefaultArguments) {
+            crate::navigate::defaulting_functions(&parse.syntax_node()).into()
+        } else {
+            Arc::new([])
+        };
+        self.memo.defaulting.write().unwrap().insert(module, (parse, names.clone()));
+        names
     }
 
     /// The last sorted lowering of `module`, for `crate::sorted` to validate
