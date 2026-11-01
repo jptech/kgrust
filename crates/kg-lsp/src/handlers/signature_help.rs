@@ -5,9 +5,11 @@
 //!
 //! The *declaration*, not the type. The caret sits inside some `ARG_LIST`; its
 //! `CALL_EXPR`'s callee is resolved with [`kg_db::Db::definition_at`] on the
-//! callee's last name token — the same resolution goto-definition performs at
-//! that token, so the signature shown is the declaration a jump would land on
-//! — and the label is read off that declaration's `PARAM_LIST` as written:
+//! name the callee is called by ([`kg_db::navigate::callee_name`]: `f` of
+//! `f<N: 3>(…)`, never a token of its template arguments) — the same
+//! resolution goto-definition performs at that token, so the signature shown
+//! is the declaration a jump would land on — and the label is read off that
+//! declaration's `PARAM_LIST` as written:
 //! `uint32 x`, `[[last]] bool done`, `(uint32) -> uint32 fn`. Reading the
 //! parameters from the written declaration rather than from its type
 //! ([`kg_db::Db::ir_answer_of_definition`]) is what lets a **template** function
@@ -16,7 +18,20 @@
 //!
 //! The active parameter is the number of commas the caret is past, clamped to
 //! the last parameter, so a caret in an over-long call keeps the last one lit
-//! rather than none.
+//! rather than none. A named argument (edition 1.1: `docs/editions/1.1.md`)
+//! lights the parameter its label names, and none where it names none; an
+//! argument not yet named after one that is — `sub(y: 1, |` — lights the
+//! first parameter no argument fills, the one left to name.
+//!
+//! "None" has one spelling every client reads so. LSP 3.17 has none for
+//! `activeParameter`: omitted, or out of the signature's range, it "defaults
+//! to 0 if the active signature has parameters", and VS Code's client
+//! (`vscode-languageclient` 9) turns a missing one into 0; 3.18's `null`
+//! needs a capability `lsp-types` 0.97 neither reads nor can send. What 3.17
+//! does say is that a signature with no parameters ignores it. So a label
+//! that names none is answered with the signature's label and no
+//! `parameters` — which carry nothing but the spans the lit one is
+//! underlined by — and no `activeParameter`.
 //!
 //! # The instance a call compiles
 //!
@@ -47,9 +62,10 @@
 //! its own) — and a callee whose declaration is not a function or a function
 //! prototype. A declined answer is `null`, which a client shows as nothing.
 
-use kg_base::{FileId, TextSize};
+use kg_base::TextSize;
 use kg_db::ModuleSource;
 use kg_db::looped::{IrAnswer, Looped};
+use kg_db::navigate::{argument_slots, callee_probe, one_line};
 use kg_syntax::{AstNode, SyntaxKind, SyntaxNode, ast};
 use lsp_types::{
     Documentation, MarkupContent, MarkupKind, ParameterInformation, ParameterLabel, SignatureHelp,
@@ -72,16 +88,16 @@ pub fn signature_help(
         return Ok(None);
     };
     let Some(probe) = callee_probe(&call) else { return Ok(None) };
+    let labels: Vec<Option<String>> = call
+        .arg_list()
+        .map(|list| argument_slots(list.syntax()).iter().map(|s| s.label_text().map(str::to_owned)).collect())
+        .unwrap_or_default();
 
     let help = state
         .with_db(snap.file, |db| {
             let roots = [snap.file];
             let found = db.definition_at(&roots, snap.file, probe)?;
-            if found.range.file == FileId::SYNTHETIC {
-                return None;
-            }
-            let root = db.parse(found.range.file).syntax_node();
-            let decl = declaration_at(&root, found.range.range)?;
+            let decl = db.function_declaration(&found)?;
             let signature = signature_of(&decl)?;
             let parameters = signature.params.len() as u32;
             let names = db.interner();
@@ -92,21 +108,24 @@ pub fn signature_help(
                     value: instance_documentation(looped.looped(), &answer, &signature.name, names),
                 }))
             });
+            // `Some(None)` where the argument's label names no parameter:
+            // none is lit, which the protocol can say only of a signature
+            // whose parameters it is not told (the module docs).
+            let lit = (parameters > 0).then(|| active_parameter(&labels, active as usize, &signature.names));
+            let spans = signature
+                .params
+                .into_iter()
+                .map(|(start, end)| ParameterInformation {
+                    label: ParameterLabel::LabelOffsets([start, end]),
+                    documentation: None,
+                })
+                .collect();
             Some(SignatureHelp {
-                active_parameter: (parameters > 0).then(|| active.min(parameters - 1)),
+                active_parameter: lit.flatten(),
                 signatures: vec![SignatureInformation {
                     label: signature.label,
                     documentation,
-                    parameters: Some(
-                        signature
-                            .params
-                            .into_iter()
-                            .map(|(start, end)| ParameterInformation {
-                                label: ParameterLabel::LabelOffsets([start, end]),
-                                documentation: None,
-                            })
-                            .collect(),
-                    ),
+                    parameters: (lit != Some(None)).then_some(spans),
                     active_parameter: None,
                 }],
                 active_signature: Some(0),
@@ -152,30 +171,6 @@ fn enclosing_call(root: &SyntaxNode, offset: TextSize) -> Option<(ast::CallExpr,
     None
 }
 
-/// An offset inside the callee's last name token — the token
-/// [`kg_db::Db::definition_at`] resolves for `f(…)`, `a::f(…)` and `o.f(…)`
-/// alike. Its midpoint, for the reason `handlers::references::probe` gives.
-fn callee_probe(call: &ast::CallExpr) -> Option<TextSize> {
-    let callee = call.callee()?;
-    let name = callee
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| t.kind() == SyntaxKind::IDENT)
-        .last()?;
-    Some(name.text_range().start() + TextSize::new(name.text().len() as u32 / 2))
-}
-
-/// The function declaration or prototype whose name token is `name` — the
-/// `FN_DECL`/`FN_PROTO` two levels above the token (`NAME` between).
-fn declaration_at(root: &SyntaxNode, name: kg_base::TextRange) -> Option<SyntaxNode> {
-    root.token_at_offset(name.start())
-        .find(|t| t.text_range() == name)
-        .and_then(|t| t.parent())
-        .and_then(|n| n.parent())
-        .filter(|n| matches!(n.kind(), SyntaxKind::FN_DECL | SyntaxKind::FN_PROTO))
-}
-
 struct Signature {
     /// The declared name, as the label begins with it.
     name: String,
@@ -183,6 +178,8 @@ struct Signature {
     /// `[start, end)` of each parameter inside `label`, in UTF-16 units as the
     /// protocol's `ParameterLabel::LabelOffsets` counts them.
     params: Vec<(u32, u32)>,
+    /// Each parameter's name, which a label names it by.
+    names: Vec<String>,
 }
 
 /// `name(p1, p2) -> ret`, each parameter spelled as written with its
@@ -204,43 +201,45 @@ fn signature_of(decl: &SyntaxNode) -> Option<Signature> {
     let mut label = name.clone();
     label.push('(');
     let mut spans = Vec::new();
+    let mut names = Vec::new();
     for (i, param) in params.params().enumerate() {
         if i > 0 {
             label.push_str(", ");
         }
         let start = utf16_len(&label);
-        label.push_str(&collapse_whitespace(param.syntax()));
+        label.push_str(&one_line(param.syntax()));
         spans.push((start, utf16_len(&label)));
+        names.push(param.name().and_then(|n| n.ident_token()).map(|t| t.text().to_owned()).unwrap_or_default());
     }
     label.push(')');
     if let Some(ret) = ret {
         label.push_str(" -> ");
-        label.push_str(&collapse_whitespace(ret.syntax()));
+        label.push_str(&one_line(ret.syntax()));
     }
-    Some(Signature { name, label, params: spans })
+    Some(Signature { name, label, params: spans, names })
+}
+
+/// The parameter the `active`th argument fills, as the module docs say: the
+/// one its label names — none where it names none — and after a named
+/// argument, the first no argument fills; else the one its position gives,
+/// clamped.
+fn active_parameter(labels: &[Option<String>], active: usize, names: &[String]) -> Option<u32> {
+    let index = |label: &str| names.iter().position(|n| n == label);
+    if let Some(Some(label)) = labels.get(active) {
+        return index(label).map(|i| i as u32);
+    }
+    if labels[..active.min(labels.len())].iter().any(Option::is_some) {
+        let positional = labels.iter().take_while(|l| l.is_none()).count();
+        let named: Vec<usize> = labels.iter().flatten().filter_map(|l| index(l)).collect();
+        if let Some(free) = (positional..names.len()).find(|i| !named.contains(i)) {
+            return Some(free as u32);
+        }
+    }
+    Some((active as u32).min(names.len().saturating_sub(1) as u32))
 }
 
 fn utf16_len(s: &str) -> u32 {
     s.encode_utf16().count() as u32
-}
-
-/// The node's text with every run of whitespace — and every comment — reduced
-/// to one space, so a parameter declared across lines reads on one.
-fn collapse_whitespace(node: &SyntaxNode) -> String {
-    let mut out = String::new();
-    let mut pending_space = false;
-    for token in node.descendants_with_tokens().filter_map(|e| e.into_token()) {
-        if token.kind().is_trivia() {
-            pending_space = !out.is_empty();
-            continue;
-        }
-        if pending_space {
-            out.push(' ');
-            pending_space = false;
-        }
-        out.push_str(token.text());
-    }
-    out.trim().to_owned()
 }
 
 #[cfg(test)]
@@ -316,6 +315,57 @@ inline void main()
         assert_eq!(help(SRC, Position::new(9, 24)).map(|h| h.2), Some(Some(0)), "inside add(2, …)");
         assert_eq!(help(SRC, Position::new(9, 27)).map(|h| h.2), Some(Some(1)), "inside add(2, false)");
         assert_eq!(help(SRC, Position::new(9, 35)).map(|h| h.2), Some(Some(1)), "back in the outer call");
+    }
+
+    /// The signature help at `pos`, the file read in edition 1.1.
+    fn help_in_1_1(tag: &str, text: &str, pos: Position) -> Option<SignatureHelp> {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let files = [("sig.k", text)];
+        let (dir, state, src) = lay_out_1_1(&format!("signature-{tag}"), &files);
+        let uri = open_one(&state, &src, &files, "sig.k");
+        let help = signature_help(&state, &params(&uri, pos)).expect("the document is open");
+        std::fs::remove_dir_all(&dir).unwrap();
+        help
+    }
+
+    /// [`help`]'s active parameter, the file read in edition 1.1.
+    fn active_in_1_1(tag: &str, text: &str, pos: Position) -> Option<u32> {
+        help_in_1_1(tag, text, pos).expect("a signature").active_parameter
+    }
+
+    /// A callee written with template arguments is resolved by its own
+    /// name, `scaled` of `scaled<N: 3>(…)`, and its signature shown, the
+    /// label's parameter lit. Red with the callee's last identifier taken
+    /// for its name: the template's label `N`, which names no function.
+    #[test]
+    fn a_callee_with_template_arguments_has_its_signature() {
+        let text = "template <auto N = 2>\ninline uint8 scaled(uint8 x, uint8 shift = 1)\n{\n    return x * N << shift;\n}\n\ninline uint8 main()\n{\n    return scaled<N: 3>(x: 1, shift: 2);\n}\n";
+        let help = help_in_1_1("template-callee", text, Position::new(8, 31)).expect("a signature");
+        assert_eq!(help.signatures[0].label, "scaled(uint8 x, uint8 shift = 1) -> uint8");
+        assert_eq!(help.active_parameter, Some(1), "on `shift: 2`");
+    }
+
+    /// A named argument lights the parameter its label names, not the one
+    /// its position would; and an argument not yet named after a named one
+    /// lights the parameter left to fill. Red with the commas counted alone.
+    ///
+    /// One that names none lights none: the signature, without the
+    /// parameters a client would light one of. Corrected 2026-10-31: this
+    /// asserted `Some(3)`, the count, out of range — which LSP 3.17 says
+    /// "defaults to 0", the first parameter lit (`SignatureHelp`'s
+    /// `activeParameter`; the module docs). Red with the parameters sent,
+    /// or the count.
+    #[test]
+    fn a_named_argument_lights_the_parameter_it_names() {
+        let text = "inline uint8 sub(uint8 x, uint8 y, uint8 z)\n{\n    return x - y - z;\n}\n\ninline uint8 main()\n{\n    return sub(z: 1, x: 2, );\n}\n";
+        assert_eq!(active_in_1_1("z", text, Position::new(7, 16)), Some(2), "on `z: 1`");
+        assert_eq!(active_in_1_1("x", text, Position::new(7, 22)), Some(0), "on `x: 2`");
+        assert_eq!(active_in_1_1("next", text, Position::new(7, 27)), Some(1), "the slot after: `y` is left");
+        let wrong = text.replace("x: 2", "w: 2");
+        let none = help_in_1_1("none", &wrong, Position::new(7, 22)).expect("a signature");
+        assert_eq!(none.active_parameter, None, "`w` names no parameter");
+        assert_eq!(none.signatures[0].label, "sub(uint8 x, uint8 y, uint8 z) -> uint8");
+        assert_eq!(none.signatures[0].parameters, None, "a client lights one of the parameters it is told");
     }
 
     /// Off any argument list — on the callee's name, on a declaration — the

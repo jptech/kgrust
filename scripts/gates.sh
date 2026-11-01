@@ -177,6 +177,7 @@ $X conformance $R > $T/conformance.log 2>&1 & p_conf=$!
 $X conformance $R --strict > $T/strict.log 2>&1 & p_strict=$!
 $X errors $R > $T/errors.log 2>&1 & p_err=$!
 $X corpus $R > $T/corpus.log 2>&1 & p_corpus=$!
+$X editions $R > $T/editions.log 2>&1 & p_ed=$!
 wait $p_fmt; note fmt-check $? "$(tail -1 $T/fmt.log)"
 wait $p_conf; rc=$?; note conformance $rc "$(grep 'decidable assertions pass' $T/conformance.log)"
 grep FAIL $T/conformance.log | head -5
@@ -185,6 +186,8 @@ wait $p_strict
 wait $p_err; rc=$?; note errors $rc "$(sed -nE 's/^  (agree|ours silent) +([0-9]+).*/\1 \2,/p' $T/errors.log | tr '\n' ' ')"
 grep -E "NEWLY FAILING|GRADED FEWER|^Error" $T/errors.log | head -10
 wait $p_corpus; note corpus $? "$(tail -1 $T/corpus.log | tr -s ' ')"
+wait $p_ed; note editions $? "$(grep -E '^(claims|twins|rejections):' $T/editions.log | cut -d' ' -f1-2 | tr '\n' ' ')"
+grep -E "^FAIL" $T/editions.log | head -10
 
 # The per-assertion ledger checks itself against both scoreboard logs above,
 # so it starts after them, beside `ir`.

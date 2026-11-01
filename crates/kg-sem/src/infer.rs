@@ -23,7 +23,7 @@
 use kg_base::{FxHashMap, Interner, Symbol, SymbolPath};
 use kg_const::{BinOp, ConstInt, ConstValue, UnOp};
 use kg_hir::{Exp, ExpArena, ExpId, ModuleIr};
-use kg_ty::{FunctionKind, TAttr, TAttrSet, TFuncParam, Ty, TyRef};
+use kg_ty::{FunctionKind, TAttr, TAttrSet, TDefault, TFuncParam, Ty, TyRef};
 
 use crate::reads::Asked;
 use crate::symbols::{Decl, Symbols, declared_name};
@@ -90,6 +90,9 @@ pub struct Program<'i> {
     /// Where a recorded run's passes show what each module reads across
     /// its boundary ([`crate::reads`]); none otherwise.
     pub(crate) door: Option<&'i crate::reads::Door>,
+    /// Per module, what `crate::named`'s last run over it read, where that
+    /// run changed nothing ([`crate::named::Quiet`]).
+    pub(crate) named_quiet: Vec<Option<crate::named::Quiet>>,
 }
 
 /// A program cancelled mid-run (`kg_base::cancel`) is freed on another
@@ -126,6 +129,7 @@ impl<'i> Program<'i> {
             filed: crate::symbols::Filed::default(),
             snapshots: Vec::new(),
             door: None,
+            named_quiet: Vec::new(),
         }
     }
 
@@ -239,6 +243,7 @@ impl<'i> Program<'i> {
                     snapshots: Vec::new(),
                     // The check's walk is not the run's: it reads nothing in.
                     door: None,
+                    named_quiet: Vec::new(),
                 };
                 let lengths: Vec<usize> = self.modules.iter().map(|m| m.ir.arena.len()).collect();
                 shadow.iterate(rounds, &mut None, &mut None, true);
@@ -529,7 +534,7 @@ impl<'i> Program<'i> {
                 kind: FunctionKind::FreeFunction,
                 attrs: TAttrSet::new(),
                 ret: TyRef::new(ret),
-                params: params.into_iter().map(|t| TFuncParam { attrs: TAttrSet::new(), ty: TyRef::new(t), name: None }).collect(),
+                params: params.into_iter().map(|t| TFuncParam { attrs: TAttrSet::new(), ty: TyRef::new(t), name: None, default: None }).collect(),
             };
             let ty = match &*interner.resolve(only) {
                 "__print" => f(Ty::Void, vec![Ty::Str]),
@@ -1597,6 +1602,9 @@ impl Cx<'_> {
             Exp::ParamInt(x) => self.natural(*x).map_or(Ty::Unresolved, |w| tt(Ty::Signed(w))),
             Exp::ParamUint(x) => self.natural(*x).map_or(Ty::Unresolved, |w| tt(Ty::Unsigned(w))),
             Exp::Positional { index, value } => Ty::Positional(*index, TyRef::new(self.ty(*value).un_const())),
+            // A later edition's named argument is its value until
+            // `crate::named` puts it in its place (`docs/editions/1.1.md`).
+            Exp::Labelled { value, .. } => self.ty(*value),
             Exp::Reference(a) => tt(Ty::Reference(SymbolPath::new(kg_hir::sort::spine_qualname(self.arena, *a)))),
             Exp::Return(None) => Ty::Void,
             Exp::Return(Some(a)) => self.ty(*a).un_const(),
@@ -1765,14 +1773,48 @@ impl Cx<'_> {
                     if t == Ty::Void {
                         return None;
                     }
-                    Some(TFuncParam { attrs: self.flags(*attr), ty: TyRef::new(t), name: name.and_then(|n| self.name_of(n)) })
+                    Some(TFuncParam {
+                        attrs: self.flags(*attr),
+                        ty: TyRef::new(t),
+                        name: name.and_then(|n| self.name_of(n)),
+                        default: None,
+                    })
                 }
-                Exp::FuncParam { attr, name, .. } => {
-                    Some(TFuncParam { attrs: self.flags(*attr), ty: TyRef::new(self.ty(p)), name: self.name_of(*name) })
-                }
+                Exp::FuncParam { attr, name, default, .. } => Some(TFuncParam {
+                    attrs: self.flags(*attr),
+                    ty: TyRef::new(self.ty(p)),
+                    name: self.name_of(*name),
+                    default: default.map(|d| Box::new(self.default_of(d))),
+                }),
                 _ => None,
             })
             .collect()
+    }
+
+    /// Edition 1.1's default argument as the parameter's type carries it:
+    /// the value its expression has folded to — an enum's constant named,
+    /// so a call is given the constant and not its number — or
+    /// [`TDefault::Unfolded`] while it is none a call could be given.
+    ///
+    /// The constant is named absolutely, by its enum's own name: a call far
+    /// from the declaration spells it so, and a parameter whose type is no
+    /// enum — `uint8 m = Mode::Run`, which an integer parameter takes as it
+    /// takes the argument (`TypeCheck.hs:155-156`) — has no type to read
+    /// the enum's name from.
+    fn default_of(&self, d: ExpId) -> TDefault {
+        let value = match self.exp(d) {
+            Exp::EnumValue { ty, .. } => match (self.node_value(d), self.ty(d).un_const()) {
+                (Some(ConstValue::Int { value, .. }), Ty::Enum(enum_name, _)) => {
+                    kg_hir::sort::spine_qualname(self.arena, *ty).last().map(|&constant| ConstValue::Enum {
+                        name: SymbolPath::new(enum_name.segments().iter().copied().chain([constant])),
+                        value,
+                    })
+                }
+                _ => None,
+            },
+            _ => self.node_value(d).filter(|v| Self::literal_exp(v).is_some()),
+        };
+        value.map_or(TDefault::Unfolded, TDefault::Value)
     }
 
     /// `fields` (`Type.hs:1343-1348`) of a body in this module's tree.

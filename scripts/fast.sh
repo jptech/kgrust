@@ -4,7 +4,7 @@
 # run — it is what `output`, `repoint`, `ir` and the bench need; this
 # takes a minute or two.
 #
-#   scripts/fast.sh [--lint]          diagnostics: conformance, errors, strict, lint, cli (~35 s)
+#   scripts/fast.sh [--lint]          diagnostics: conformance, errors, strict, lint, cli, editions (~35 s)
 #   scripts/fast.sh [--lint] walk     … and the walk: ptdiff, then backend (~80 s)
 #   scripts/fast.sh [--lint] loop     … the walk, `infer-identity`, `loop-left`, `resilience`
 #                                     and a quarter of `edit-identity`'s roots, its editor row
@@ -44,17 +44,21 @@ $X lint > $T/lint.log 2>&1 & p_lint=$!
 # Upstream's CLI tests and every mode's help against the reference binary
 # (~2 s); it needs the reference's build, absent is red.
 $X cli $R --build-dir $KANAGAWA_BUILD > $T/cli.log 2>&1 & p_cli=$!
+# The language beyond the reference (~6 s): pass/fail, no ledger.
+$X editions $R > $T/editions.log 2>&1 & p_ed=$!
 CLIPPY=0
 if (( LINT )); then
   cargo clippy --workspace --all-targets -- -D warnings > $T/clippy.log 2>&1 & p_clippy=$!
 fi
 wait $p_conf $p_err $p_sl $p_lint $p_cli
+wait $p_ed; EDITIONS=$?
 if (( LINT )); then wait $p_clippy; CLIPPY=$?; fi
 echo "### conformance"; grep -E "decidable assertions" $T/conformance.log | tail -1; grep FAIL $T/conformance.log | head -5
 echo "### errors"; grep -E "^\s+(agree|ours silent)\s" $T/errors.log
 echo "### strict"; grep -E "^strict:" $T/strict-ledger.log
 echo "### lint"; grep -E "^  [a-z-]+ +[0-9]+" $T/lint.log | awk '{printf "  %s %s", $1, $2} END {print ""}'
 echo "### cli"; grep -E "^cli:|^fail |^Error" $T/cli.log | head -6
+echo "### editions"; grep -E "^(editions|FAIL|Error)" $T/editions.log | head -6
 if (( LINT )); then
   echo "### clippy: $(grep -cE '^(warning|error)' $T/clippy.log) diagnostics"; grep -E "^(warning|error)" $T/clippy.log | sort | uniq -c | head
 fi
@@ -87,5 +91,6 @@ RC=${pipestatus[1]}
 # infer-identity has no ledger: its verdict is its exit code.
 if [[ $TIER == loop ]] && (( IDENTITY != 0 )); then echo "### infer-identity: FAIL"; exit 1; fi
 if [[ $TIER == loop ]] && (( EDITS != 0 )); then echo "### edit-identity: FAIL"; exit 1; fi
+if (( EDITIONS != 0 )); then echo "### editions: FAIL"; exit 1; fi
 if (( CLIPPY != 0 )); then echo "### clippy: FAIL"; exit 1; fi
 exit $RC

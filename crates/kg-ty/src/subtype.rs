@@ -1139,7 +1139,7 @@ mod tests {
             ret: r(ret),
             params: params
                 .into_iter()
-                .map(|t| TFuncParam { attrs: TAttrSet::new(), ty: r(t), name: None })
+                .map(|t| TFuncParam { attrs: TAttrSet::new(), ty: r(t), name: None, default: None })
                 .collect(),
         }
     }
@@ -1246,6 +1246,7 @@ mod tests {
                 attrs: TAttrSet::new(),
                 ty: r(Ty::Unsigned(3)),
                 name: Some(i.intern("x")),
+                default: None,
             }],
         };
         let anon = func(vec![Ty::Unsigned(3)], Ty::Void);

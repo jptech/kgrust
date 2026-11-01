@@ -6,6 +6,7 @@
 
 pub mod cancel;
 mod interner;
+pub mod language;
 mod line_index;
 mod name;
 mod src;

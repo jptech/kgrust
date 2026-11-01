@@ -178,6 +178,7 @@ pub fn formatting(state: &GlobalState, params: &DocumentFormattingParams) -> Ans
         snap.line_index(),
         state.encoding(),
         &snap.settings.fmt,
+        snap.parse.features(),
         None,
     ))
 }
@@ -193,6 +194,7 @@ pub fn range_formatting(
         snap.line_index(),
         state.encoding(),
         &snap.settings.fmt,
+        snap.parse.features(),
         Some(range),
     ))
 }
@@ -226,8 +228,9 @@ pub fn publish_diagnostics(
 /// Sound as an early answer because it is a subset of the late one: a file
 /// with a parse error gets its load and parse-stage errors from
 /// `Db::diagnostics` and nothing else (`Main.hs:73-75`), and the snapshot's
-/// parse is the default-options parse, whose errors the database's own parse
-/// includes. A clean parse publishes nothing: an empty list would clear the
+/// parse is the file's language with the default options, whose errors the
+/// database's own parse — the same language, documentation comments perhaps
+/// parsed — includes. A clean parse publishes nothing: an empty list would clear the
 /// semantic errors on screen and claim a clean file until the check lands.
 pub fn parse_diagnostics(state: &GlobalState, uri: &Uri) -> Option<PublishDiagnosticsParams> {
     let snap = state.snapshot(uri).ok()?;

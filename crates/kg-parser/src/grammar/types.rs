@@ -306,9 +306,36 @@ pub(crate) fn at_fn_type(p: &Parser<'_>) -> bool {
                 Some(n) => n,
                 None => return false,
             },
+            // A default, which a function type's parameter takes in no
+            // edition (`fn_type_param` says so, once): skipped to the next
+            // `,` or the closing `)`, so the list is still read as the
+            // function type it is written as. No program the reference
+            // accepts has a `=` here: a function's and a lambda's parameters
+            // are not read through this scan.
+            EQ => match skip_default(p, i + 1) {
+                Some(n) => n,
+                None => return false,
+            },
             k if IN_FN_TYPE_PARAMS.contains(k) => i + 1,
             _ => return false,
         };
+    }
+}
+
+/// The index of the `,` or `)` that ends a default starting at `i`, at its
+/// own bracket depth; `None` past a `;` or the end.
+fn skip_default(p: &Parser<'_>, mut i: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    loop {
+        match p.nth(i) {
+            k if !k.is_token() => return None,
+            SEMICOLON => return None,
+            L_PAREN | L_BRACK | L_CURLY => depth += 1,
+            COMMA | R_PAREN | R_BRACK | R_CURLY if depth == 0 => return Some(i),
+            R_PAREN | R_BRACK | R_CURLY => depth -= 1,
+            _ => {}
+        }
+        i += 1;
     }
 }
 
@@ -350,7 +377,7 @@ fn fn_type_rest(p: &mut Parser<'_>, m: crate::Marker) -> CompletedMarker {
                     break;
                 }
             }
-            if !p.eat(COMMA) {
+            if !p.eat_list_comma(R_PAREN) {
                 break;
             }
         }
@@ -370,6 +397,17 @@ fn fn_type_param(p: &mut Parser<'_>) {
     fn_type_param_type(p);
     if p.at(IDENT) {
         paths::name(p);
+    }
+    // A default, as a function's parameter takes in edition 1.1: one error
+    // in any edition — a function type's parameter takes none, its value's
+    // own defaults being no call's through it — and the expression skipped
+    // as an error, rather than the cascade of a `=` the list cannot hold.
+    if p.at(EQ) {
+        p.error("a function type's parameter takes no default");
+        let e = p.start();
+        p.bump(EQ);
+        super::exprs::expr(p, super::ExprMode::Full);
+        e.complete(p, ERROR);
     }
     m.complete(p, FN_TYPE_PARAM);
 }

@@ -5,6 +5,7 @@
 //! be cached and handed between threads; the red tree that accessors walk is
 //! built per-thread and is O(1) to create.
 
+use kg_base::language::Features;
 use kg_base::{FileId, FileRange, TextRange};
 use kg_diag::Diagnostic;
 use kg_parser::{LexedStr, Step};
@@ -21,6 +22,12 @@ use crate::{SyntaxNode, ast};
 pub struct Parse {
     green: GreenNode,
     errors: Vec<SyntaxError>,
+    /// The language the file was parsed as. Part of the parse's identity:
+    /// `kg_db` keeps an equal re-parse's old value, and the item tree, the
+    /// sorted lowering and the kept loop are keyed on it, so a file whose
+    /// language changed must never be "the same parse" even where its text
+    /// parses to the same tree.
+    features: Features,
 }
 
 /// A syntax error with the offset it was detected at.
@@ -48,6 +55,11 @@ impl Parse {
 
     pub fn errors(&self) -> &[SyntaxError] {
         &self.errors
+    }
+
+    /// What the file was parsed as accepting beyond the reference.
+    pub fn features(&self) -> Features {
+        self.features
     }
 
     /// The source text, reconstructed from the tree.
@@ -81,6 +93,10 @@ pub struct ParseOptions {
     /// Off by default, like the reference's `--parse-docs`
     /// (`Options/CmdArgs.hs:66`), where every comment is whitespace.
     pub parse_docs: bool,
+    /// The language beyond the reference the file may use
+    /// (`kg_base::language`): its package's edition and features. Empty —
+    /// the reference — unless the file's own manifest opts in.
+    pub features: Features,
 }
 
 /// Parses a whole source file with the default [`ParseOptions`].
@@ -102,6 +118,7 @@ pub fn parse_file_with(text: &str, options: ParseOptions) -> Parse {
 fn parse_with(text: &str, options: ParseOptions) -> Parse {
     let lexed = LexedStr::new(text);
     let mut input = kg_parser::Input::from_lexed(&lexed);
+    input.set_features(options.features);
     let mut parse = build(&lexed, kg_parser::parse_input(&input), options);
 
     // The binding-aware re-read (`reread.rs`): every `name <` the angle scan
@@ -176,7 +193,7 @@ fn build(lexed: &LexedStr<'_>, events: Vec<kg_parser::Event>, options: ParseOpti
     }
 
     errors.sort_by_key(|e| e.range.start());
-    Parse { green, errors }
+    Parse { green, errors, features: options.features }
 }
 
 /// Parses a file and asserts the round-trip property.

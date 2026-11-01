@@ -787,6 +787,273 @@ fn a_manifest_edit_reaches_the_open_files_diagnostics() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// Reads diagnostics for `uri` until a publish `settled` accepts — a check
+/// that lands after another publish for the same text, a parse's or the
+/// last state's, settles there.
+fn settles(
+    client: &Client,
+    seen: &mut Vec<Notification>,
+    uri: &Uri,
+    settled: impl Fn(&[&str]) -> bool,
+) -> PublishDiagnosticsParams {
+    loop {
+        let published = client.diagnostics_for(uri, seen);
+        if settled(&errors(&published)) {
+            return published;
+        }
+    }
+}
+
+/// How many edits `textDocument/formatting` answers for `uri`.
+fn formatted(client: &mut Client, seen: &mut Vec<Notification>, uri: &Uri) -> usize {
+    let id = client.request::<req::Formatting>(lsp_types::DocumentFormattingParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        options: lsp_types::FormattingOptions { tab_size: 4, insert_spaces: true, ..Default::default() },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    });
+    let edits: Option<Vec<lsp_types::TextEdit>> = result(client.response(&id, seen));
+    edits.map_or(0, |e| e.len())
+}
+
+/// A buffer is read in the edition its manifest names, and follows the
+/// manifest as it is edited — 1.0, then 1.1, then 1.0 again — with nothing
+/// reopened: `sub(y: 1, x: 3)` is a parse error in 1.0 and a call in 1.1,
+/// in the diagnostics (the database's parse) and in what the buffer's own
+/// parse answers — formatting, which declines a file with a syntax error
+/// and lays out one without. Red with the buffer's parse kept across a
+/// change of its language (`GlobalState::snapshot_of`).
+#[test]
+fn a_buffer_follows_its_manifest_s_edition_and_back() {
+    let dir = std::env::temp_dir().join(format!("kg-lsp-e2e-edition-{}", std::process::id()));
+    let root = camino::Utf8PathBuf::from_path_buf(dir.clone()).unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    let manifest = root.join("kanagawa.toml");
+    let write_manifest = |package: &str| {
+        let text = format!("{package}[project]\nimport-dirs = [\"src\"]\nimplicit-base = false\n");
+        std::fs::write(&manifest, text).unwrap();
+    };
+    write_manifest("");
+
+    let mut client = Client::start();
+    let mut seen = Vec::new();
+    let folder = lsp_types::WorkspaceFolder { uri: kg_lsp::uri::path_to_uri(&root).unwrap(), name: "edition".to_owned() };
+    let id = client.request::<req::Initialize>(InitializeParams {
+        workspace_folders: Some(vec![folder]),
+        ..InitializeParams::default()
+    });
+    let _: serde_json::Value = result(client.response(&id, &mut seen));
+    client.notify::<notif::Initialized>(InitializedParams {});
+    let changed = |client: &Client| {
+        client.notify::<notif::DidChangeWatchedFiles>(lsp_types::DidChangeWatchedFilesParams {
+            changes: vec![lsp_types::FileEvent {
+                uri: kg_lsp::uri::path_to_uri(&manifest).unwrap(),
+                typ: lsp_types::FileChangeType::CHANGED,
+            }],
+        });
+    };
+
+    // Indented past where the formatter puts it, so that a file it lays
+    // out is one it edits.
+    let text = "inline uint8 sub(uint8 x, uint8 y)\n{\n    return x - y;\n}\n\ninline uint8 main()\n{\n        return sub(y: 1, x: 3);\n}\n";
+    let main = kg_lsp::uri::path_to_uri(&root.join("main.k")).unwrap();
+    client.notify::<notif::DidOpenTextDocument>(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem { uri: main.clone(), language_id: "kanagawa".to_owned(), version: 1, text: text.to_owned() },
+    });
+    let named = |errors: &[&str]| errors.iter().any(|e| e.starts_with("named arguments need edition 1.1"));
+    settles(&client, &mut seen, &main, named);
+    assert_eq!(formatted(&mut client, &mut seen, &main), 0, "edition 1.0: a syntax error, not laid out");
+
+    write_manifest("[package]\nedition = \"1.1\"\n\n");
+    changed(&client);
+    settles(&client, &mut seen, &main, |errors| errors.is_empty());
+    assert_eq!(formatted(&mut client, &mut seen, &main), 1, "edition 1.1: a call, laid out");
+
+    write_manifest("");
+    changed(&client);
+    settles(&client, &mut seen, &main, named);
+    assert_eq!(formatted(&mut client, &mut seen, &main), 0, "edition 1.0 again");
+
+    let id = client.request::<req::Shutdown>(());
+    let _ = client.response(&id, &mut seen);
+    client.notify::<notif::Exit>(());
+    assert_eq!(client.finish(&mut Vec::new()), kg_lsp::ExitCode::Ok);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A manifest the server refuses is shown the user, not only logged: a
+/// diagnostic on `kanagawa.toml` at the value refused, and a message once —
+/// on the reload that broke it, not the one after. Fixed, its mark goes.
+/// A refused `edition` leaves the files in 1.0, where a 1.1 program's
+/// errors would otherwise be all the user saw.
+#[test]
+fn a_refused_manifest_is_marked_where_it_is_wrong() {
+    let dir = std::env::temp_dir().join(format!("kg-lsp-e2e-refused-{}", std::process::id()));
+    let root = camino::Utf8PathBuf::from_path_buf(dir.clone()).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
+    let manifest = root.join("kanagawa.toml");
+    let write_manifest = |edition: &str| {
+        let text = format!("[package]\nedition = \"{edition}\"\n\n[project]\nimplicit-base = false\n");
+        std::fs::write(&manifest, text).unwrap();
+    };
+    let manifest_uri = kg_lsp::uri::path_to_uri(&manifest).unwrap();
+    let changed = |client: &Client| {
+        client.notify::<notif::DidChangeWatchedFiles>(lsp_types::DidChangeWatchedFilesParams {
+            changes: vec![lsp_types::FileEvent { uri: manifest_uri.clone(), typ: lsp_types::FileChangeType::CHANGED }],
+        });
+    };
+    let said = |seen: &[Notification]| seen.iter().filter(|n| n.method == notif::ShowMessage::METHOD).count();
+    write_manifest("1.1");
+
+    let mut client = Client::start();
+    let mut seen = Vec::new();
+    let folder = lsp_types::WorkspaceFolder { uri: kg_lsp::uri::path_to_uri(&root).unwrap(), name: "refused".to_owned() };
+    let id = client.request::<req::Initialize>(InitializeParams {
+        workspace_folders: Some(vec![folder]),
+        ..InitializeParams::default()
+    });
+    let _: serde_json::Value = result(client.response(&id, &mut seen));
+    client.notify::<notif::Initialized>(InitializedParams {});
+
+    let main = kg_lsp::uri::path_to_uri(&root.join("main.k")).unwrap();
+    client.notify::<notif::DidOpenTextDocument>(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: main.clone(),
+            language_id: "kanagawa".to_owned(),
+            version: 1,
+            text: "class A {}\n".to_owned(),
+        },
+    });
+    let _ = client.diagnostics_for(&main, &mut seen);
+    assert_eq!(said(&seen), 0, "a manifest that loads says nothing");
+
+    write_manifest("9.9");
+    changed(&client);
+    let marked = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert_eq!(errors(&marked), ["unknown edition `9.9`: this kg knows 1.0, 1.1"]);
+    assert_eq!(marked.diagnostics[0].range, Range::new(Position::new(1, 10), Position::new(1, 15)), "at `\"9.9\"`");
+    // The message follows the mark from the main loop, so it is the next
+    // of the main loop's own; a file's diagnostics, from a worker, may come
+    // between.
+    let message = loop {
+        match client.recv() {
+            Message::Notification(n) if n.method == notif::ShowMessage::METHOD => break n,
+            Message::Notification(n) => seen.push(n),
+            other => panic!("unexpected message while awaiting the message: {other:?}"),
+        }
+    };
+    let message: lsp_types::ShowMessageParams = serde_json::from_value(message.params).unwrap();
+    assert!(message.message.contains("unknown edition `9.9`") && message.message.contains("in edition 1.0"), "{}", message.message);
+
+    // Read again and still broken the same way: marked, not said again. The
+    // fix's reload is behind it on the main loop, so once its mark is taken
+    // off, anything this reload said has arrived.
+    changed(&client);
+    // A request is dispatched after every notification before it, so its
+    // answer means the reload has read the manifest still broken.
+    let id = client.request::<req::DocumentSymbolRequest>(DocumentSymbolParams {
+        text_document: TextDocumentIdentifier { uri: main.clone() },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    });
+    let _ = client.response(&id, &mut seen);
+    // Edited and saved, still broken the same way: the mark moves with the
+    // value, and nothing is said again — the message once said it all.
+    let text = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(&manifest, format!("# a comment, a line above\n{text}")).unwrap();
+    changed(&client);
+    let moved = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert_eq!(moved.diagnostics[0].range, Range::new(Position::new(2, 10), Position::new(2, 15)), "the mark moved");
+    write_manifest("1.0");
+    changed(&client);
+    let cleared = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert!(cleared.diagnostics.is_empty(), "fixed, its mark goes: {:?}", errors(&cleared));
+    assert_eq!(said(&seen), 0, "said once, not on every reload");
+
+    let id = client.request::<req::Shutdown>(());
+    let _ = client.response(&id, &mut seen);
+    client.notify::<notif::Exit>(());
+    assert_eq!(client.finish(&mut Vec::new()), kg_lsp::ExitCode::Ok);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A dependency's manifest that does not load — read only for its files'
+/// language, as the project's import reaches them — is marked and said as
+/// the project's own is, and its mark goes once it is fixed. It used to read
+/// the dependency in 1.0 without a word.
+#[test]
+fn a_dependency_s_refused_manifest_is_marked() {
+    let dir = std::env::temp_dir().join(format!("kg-lsp-e2e-dependency-{}", std::process::id()));
+    let root = camino::Utf8PathBuf::from_path_buf(dir.clone()).unwrap();
+    let write = |rel: &str, text: &str| {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    write("app/kanagawa.toml", "[project]\nimport-dirs = [\"../lib\"]\nimplicit-base = false\n");
+    let main = write("app/main.k", "import lib\n\ninline uint8 g(uint8 p) { return pick(p); }\n");
+    let manifest = write("lib/kanagawa.toml", "[package]\nedition = \"9.9\"\n");
+    write("lib/lib.k", "module lib { pick }\n\ninline uint8 pick(uint8 x) { return x; }\n");
+    let manifest_uri = kg_lsp::uri::path_to_uri(&manifest).unwrap();
+    let said = |seen: &[Notification]| seen.iter().filter(|n| n.method == notif::ShowMessage::METHOD).count();
+
+    let mut client = Client::start();
+    let mut seen = Vec::new();
+    let app = kg_lsp::uri::path_to_uri(&root.join("app")).unwrap();
+    let folder = lsp_types::WorkspaceFolder { uri: app, name: "app".to_owned() };
+    let id = client.request::<req::Initialize>(InitializeParams { workspace_folders: Some(vec![folder]), ..InitializeParams::default() });
+    let _: serde_json::Value = result(client.response(&id, &mut seen));
+    client.notify::<notif::Initialized>(InitializedParams {});
+    let main = kg_lsp::uri::path_to_uri(&main).unwrap();
+    client.notify::<notif::DidOpenTextDocument>(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: main.clone(),
+            language_id: "kanagawa".to_owned(),
+            version: 1,
+            text: "import lib\n\ninline uint8 g(uint8 p) { return pick(p); }\n".to_owned(),
+        },
+    });
+    let marked = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert_eq!(errors(&marked), ["unknown edition `9.9`: this kg knows 1.0, 1.1"]);
+    assert_eq!(marked.diagnostics[0].range, Range::new(Position::new(1, 10), Position::new(1, 15)), "at `\"9.9\"`");
+    // Said from the same lane, right after the mark.
+    let message = loop {
+        match client.recv() {
+            Message::Notification(n) if n.method == notif::ShowMessage::METHOD => break n,
+            Message::Notification(n) => seen.push(n),
+            other => panic!("unexpected message while awaiting the message: {other:?}"),
+        }
+    };
+    let message: lsp_types::ShowMessageParams = serde_json::from_value(message.params).unwrap();
+    assert!(message.message.contains("lib/kanagawa.toml") && message.message.contains("unknown edition `9.9`"), "{}", message.message);
+
+    let changed = |client: &Client| {
+        client.notify::<notif::DidChangeWatchedFiles>(lsp_types::DidChangeWatchedFilesParams {
+            changes: vec![lsp_types::FileEvent { uri: manifest_uri.clone(), typ: lsp_types::FileChangeType::CHANGED }],
+        });
+    };
+    // Edited and still broken: the reload keeps the mark — moved with the
+    // value — rather than taking it off until a check reads it again, and
+    // says nothing.
+    std::fs::write(&manifest, "# still wrong\n[package]\nedition = \"9.9\"\n").unwrap();
+    changed(&client);
+    let moved = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert_eq!(moved.diagnostics.len(), 1, "still marked across the reload");
+    assert_eq!(moved.diagnostics[0].range, Range::new(Position::new(2, 10), Position::new(2, 15)), "the mark moved");
+
+    std::fs::write(&manifest, "[package]\nedition = \"1.1\"\n").unwrap();
+    changed(&client);
+    let cleared = client.diagnostics_for(&manifest_uri, &mut seen);
+    assert!(cleared.diagnostics.is_empty(), "fixed, its mark goes: {:?}", errors(&cleared));
+    assert_eq!(said(&seen), 0, "said once");
+
+    let id = client.request::<req::Shutdown>(());
+    let _ = client.response(&id, &mut seen);
+    client.notify::<notif::Exit>(());
+    assert_eq!(client.finish(&mut Vec::new()), kg_lsp::ExitCode::Ok);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// A source changed on disk under an open file — a branch switched, a pull
 /// — reaches its diagnostics without a restart: `helper.k`, never opened,
 /// stops exposing `twice`, the client's watcher says so, and `main.k`'s

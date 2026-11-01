@@ -587,6 +587,35 @@ testing loop every later step uses.
   over stdio on a copy of `risc-v.k` under a manifest importing
   `library/`, ~1.35 → ~0.95 s an edit. What would bring that under
   400 ms is the library's inference carried across edits — W7.5d again.
+- **The editor's searches and a parameter's size, 2026-11-01** (PR #8).
+  References, highlight and rename answered every use alone, each answer
+  reading the file again — for a name bound at the top of the file, a scan
+  of the whole file per use; one `Db::resolver` per file reads it once,
+  answers identical at every 11th identifier of `risc-v.k` and every 7th
+  of `float32.k` over stdio. Highlight of `Trap` in `risc-v.k` (177 uses)
+  635 → 5.6 ms warm, its references 680 → 17 ms. And edition 1.1's
+  default, inline in `TFuncParam`, had grown every parameter of every
+  function type from 40 bytes to 112; boxed, 48: `kg check` of `risc-v.k`
+  801 → 787 MiB peak RSS (`cargo xtask mem`'s footprint 801 → 774),
+  `array.k` 284 → 279, time unchanged; `scripts/identity.sh 536d825`, 304
+  roots identical. A survey of every other request on `risc-v.k` and
+  `float32.k` (60 identifiers each, warm) found none past 20 ms.
+- **Inside the loop, by cause, 2026-11-01** (PR #8; §13). A profile of
+  `risc-v.k` to the call: two thirds of inference's unit walks change
+  nothing, half of those because a rebuilt symbol map gave a lookup a
+  re-minted declaration. Two exact changes taken. `moveFunctions`' two
+  catas over a body go through `desugar_touching`, which passes on each
+  node of a shape the algebra hands back as it came instead of cloning
+  and comparing it: the pass's samples −14%. And the parse-time table's
+  scopes are read once a run (`Scopes`), not once per mention at every
+  enclosing node: the CST passes 0.114 → 0.060 s on `risc-v.k`, 0.079 →
+  0.060 on `float.k`, `kg check` of `risc-v.k` 1.93 → 1.86 s (eight
+  interleaved runs), the editor's first answer after a keystroke 364–370
+  → 319 ms (`bench --filter keystroke-phases`, two interleaved runs each).
+  Peak RSS unchanged (786 MiB). Rejected for their memory: an owner-set
+  mark per node (−3.7% of the loop, +22 MiB) and the units' roots dense
+  (−0.7%, +18 MiB). `scripts/identity.sh 07562eb`, 304
+  roots identical; `fast.sh --lint loop` green, every ratchet +0/−0.
 - **The shipped binaries, 2026-10-12.** `cargo xtask dist` builds the
   `ship` profile, `release` with `lto = "fat"` and `codegen-units = 1`:
   `kg check` 6–10% faster in an interleaved A/B, `kg` 30% smaller, its
@@ -885,6 +914,111 @@ ms a round), rebuilding the symbol maps (1–5 ms) and settling inference
 reference's (`loop-left` 321/321), so a round cannot be skipped; each can
 be made cheaper.
 
+### Inside the loop, by cause (2026-11-01)
+
+Where the 91% that does not split goes, measured on PR #8's head
+(`07562eb`, the release build) and its profile: `KG_PHASES=1
+KG_LOOP_PROFILE=1 kg check`, `KG_INFER_TIME=1` for inference's iterations,
+macOS `sample` at 1 ms over six runs of `risc-v.k` (four each of `array.k`
+and `float.k`) for the call tree, and counters patched in for one run and
+taken out again for what the walk does.
+
+**`risc-v.k`'s check, 1.95 s**: the loop 1.62 s, the copies' check 0.12,
+the CST passes 0.11, parsing, item trees, lowering and the rest 0.09. The loop's
+1.53 s by pass: inference 0.90; instantiation and resolution 0.15;
+deduction 0.14 and its symbol map and snapshot 0.03; the prefix 0.13; the
+wrappers 0.06 and theirs 0.05; `closureCalls` 0.03; the census 0.02.
+
+**Inference is 265 iterations** over the 17 rounds' 51 fixpoints: the
+walks 623 ms, the count that is `sig` 137, the symbol maps rebuilt 95. In
+the call tree, inside the iterations:
+
+| | share |
+|---|---:|
+| the rules (`apply`: `evaluateConstexpr` 12%, `inferExpType` 10%, writes 4%) | 37% |
+| `sig`'s count over the spines and the units it no longer holds (`Units::count`) | 14% |
+| owner sets, at every node walked and counted (`Owners::add`) | 13% |
+| child lists (`Exp::children`, at each node walked, owned and counted) | 12% |
+| the arena's first touch of a node (`ExpArena::index`, exclusive) | 9% |
+| lookups (`Symbols::in_scope`) | 7% |
+| the symbol maps rebuilt | 6% |
+
+**Two thirds of the walks change nothing.** Of `risc-v.k`'s 269,663 unit
+walks, 179,761 write no type and replace no node; outermost, they hold
+4.9 M of the 7.1 M nodes inference visits. `array.k` 43,042 of 84,536,
+`float.k` 36,791 of 71,049. What marked them, `risc-v.k`:
+
+| marked by | walks that changed nothing | walks that changed something |
+|---|---:|---:|
+| a rebuilt map answering a lookup otherwise (`Units::ask_again`) | **87,510** | **24** |
+| a walk on the way down to a unit inside it | 47,253 | 11,177 |
+| a node it owns changed (`settle`) | 42,144 | 21,097 |
+| a node it read changed | 1,404 | 9,341 |
+| new | 1,450 | 48,263 |
+| a write earlier in the same pass (`touch`) | 0 | 0 |
+
+The rebuilt map is the first iteration of a fixpoint, after the round's
+other passes: they mint a new node for every declaration above anything
+they changed, so a lookup answered by a function, a class or a variable
+gets a new id, and its asker is walked — 15,613 of 23,453 units at one
+rebuild. At none of the 71 rebuilds was a re-minted declaration its old
+expression and type over again: a body, a child or a type differs. Yet
+24 of the 87,534 walks it caused found anything new — what the askers
+read of a declaration had not changed. `everything` (a change no walk
+owns) never fired; the walks of modules nothing in needed walking cost
+13 ms of the 623.
+
+**The rewrite passes** spend a fifth of their time in the cata itself:
+each visited node cloned, handed to the algebra and compared
+(`kg_hir::rewrite::rebuild`, 28% of the check inclusive). The prefix pass
+was mostly `moveFunctions`' two catas over a whole body, each time it
+moves a declaration out of one (6% of the check).
+
+**Taken** (both exact; §10):
+
+- `desugar_touching`, a cata told which shapes its algebra changes, for
+  `moveFunctions`' two body catas: that pass's samples −14%, ~10 ms.
+- The parse-time table's scopes read once a run (`Scopes`): the CST
+  passes 0.114 → 0.060 s on `risc-v.k`.
+
+**Measured and not taken**: a per-node mark of the unit an owner set last
+took (−61 ms of the loop, +22 MiB peak) and the units' roots as a dense
+vector (−11 ms, +18 MiB) — the owner sets hold 1.7 M nodes three times
+over, so any per-node side table costs what it saves; and skipping a
+module's walk when nothing in it needs walking (13 ms at most).
+
+**Options, by what they would save** (none built):
+
+1. **Re-askable reads, for inference's own lookups.** Ask a rebuilt map's
+   new answer what its askers read of the old one — the declaration's
+   type, its parameters — instead of comparing node ids. Bounded by the
+   87,510 walks above: about half of the wasted visits on `risc-v.k`,
+   some 0.3 s of its check by the walks' cost a visit (an estimate, not a
+   measurement); little on `array.k` and `float.k` (5,000–7,000 walks
+   each). This is `loop-across-edits.md` §8 lever 3 serving
+   a batch compile as well as the editor; the hardest part of the
+   engine, so a written design first.
+2. **The walk down to a unit**: walk only the path to the unit that needs
+   it, and apply an ancestor's rules only where a child changed. Needs
+   the proof that an ancestor's rules read nothing a recorded read does
+   not cover.
+3. **Owner sets that forget dead units.** A node keeps every unit it was
+   ever owned by, each round's re-minted ones included (eight on average
+   at an add that gets past the first); forgetting units no fixpoint
+   reached would shrink `Owners::add`, `count`'s recounts and the ~80 MB
+   the sets hold.
+4. **`desugar_touching` for the other passes**: deduction (its `sync`
+   before each node must be shown order-free), instantiation, resolution,
+   the wrappers, `closureCalls` — each algebra audited for what it hands
+   back as it came. Some 5% of the check.
+5. **The symbol maps merged, not rebuilt** (`loop-across-edits.md` §6
+   step 4): 6% of inference here, 12% of `array.k`'s deduction.
+6. **Threads**, item 1 below: the prefix, 9%.
+
+The confirming walks after a unit changed (42,144) are the reference's
+own iteration — a unit that moved is walked again to see it settle — and
+stay.
+
 ### Optimisation opportunities, triaged (2026-10-11; nothing decided)
 
 Frontend, ours; ordered by what the numbers say a user would feel:
@@ -901,15 +1035,41 @@ Frontend, ours; ordered by what the numbers say a user would feel:
    per module), inference reading other modules mid-iteration, the
    interner's one `Mutex`. Measure the headroom (which passes split
    cleanly, and their share) before designing.
+   *Measured 2026-11-01, deferred* (`KG_LOOP_PROFILE=1 kg check`, the
+   release build of PR #8's head): the loop is 1.51 s of `risc-v.k`'s 1.94 s, inference
+   0.89 s of it (its walks 0.63 s), instantiation 0.16, deduction 0.14,
+   the prefix 0.14, the wrappers 0.06. Only the prefix splits as the code
+   stands — each module rewritten in place, the interner shared — and it
+   is 9% of `risc-v.k`'s loop and 0.5–2% of `array.k`'s, `float.k`'s and
+   `cache.k`'s: at most 1.1× on one program, nothing on the rest, not worth
+   a flag. Inference cannot: each module's walk reads every other
+   module's live arena and types as they stood when the iteration began,
+   through overlays of what the iteration overwrote in place
+   (`crates/kg-sem/src/infer.rs`, `Program::iterate`), and the walks share
+   the incremental bookkeeping (`Units`) and the read door's record.
+   Walks on threads need a frozen view of the other modules per
+   iteration: a copy, which is what the overlays replaced (1.3 s of
+   `array.k`'s 17 s in 2026-09, §10), or every write buffered per module
+   until the iteration ends, which changes how a walk reads its own
+   module. Deduction, instantiation and the wrappers read the program's
+   symbols and the other modules' snapshots, and mint ids in order. So
+   `kg` stays on one thread with no option to ask for more; the
+   prerequisite is the frozen view, which the editor's re-askable reads
+   (`loop-across-edits.md` §8) would want too.
 2. **The tail rounds' floor** (above): the symbol maps merged
    incrementally rather than rebuilt (`loop-across-edits.md` §6 step 4,
    which then pays in a batch run too: ~17% of `array.k`'s loop), and
    deduction visiting only what a round changed.
 3. **The editor's reuse** (`loop-across-edits.md` §8): re-askable reads
    for the library's passes; reuse inside the edited module, whose share
-   of `risc-v.k`'s loop is the 36% above.
+   of `risc-v.k`'s loop is the 36% above. *2026-11-01*: re-askable reads
+   for inference's own lookups would serve a batch compile too — half of
+   `risc-v.k`'s walks that change nothing ("Inside the loop, by cause",
+   above).
 4. **Outside the loop**: the CST passes and the copies' check, 0.04–0.24
-   s (12% of `risc-v.k`'s `kg check`).
+   s (12% of `risc-v.k`'s `kg check`). *2026-11-01*: the parse-time
+   table's scopes read once a run, the CST passes on `risc-v.k` 0.114 →
+   0.060 s (§10).
 
 The backend: numbers only for now. A whole build is 92–98% backend, so
 its time is the user's; if the owner later takes it up, the first

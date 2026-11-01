@@ -49,7 +49,7 @@ pub mod ty;
 pub mod width;
 
 pub use ty::{
-    Attribute, Flag, FunctionKind, Name, QualifiedName, TArg, TAttr, TAttrSet, TFuncParam, Ty,
+    Attribute, Flag, FunctionKind, Name, QualifiedName, TArg, TAttr, TAttrSet, TDefault, TFuncParam, Ty,
     TyRef, hash_strict,
 };
 

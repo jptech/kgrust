@@ -18,6 +18,10 @@ pub struct Input<'a> {
     /// Indices of `<` tokens the caller has proven are comparisons — see
     /// [`Input::mark_comparison`]. Sorted, and almost always empty.
     comparisons: Vec<usize>,
+    /// What the file may use beyond the reference (`kg_base::language`):
+    /// empty for every file whose package opts into nothing, and then no
+    /// rule reaches a branch the reference does not have.
+    features: kg_base::language::Features,
 }
 
 impl<'a> Input<'a> {
@@ -61,6 +65,17 @@ impl<'a> Input<'a> {
         self.kind.push(kind);
         self.text.push(text);
         self.glued.push(glued_to_next);
+    }
+
+    /// Lets the grammar accept the language beyond the reference that
+    /// `features` names.
+    pub fn set_features(&mut self, features: kg_base::language::Features) {
+        self.features = features;
+    }
+
+    #[inline]
+    pub fn features(&self) -> kg_base::language::Features {
+        self.features
     }
 
     /// Kind of the `idx`-th token, or `EOF` past the end.

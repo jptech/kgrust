@@ -99,8 +99,8 @@ set `KG_REQUIRE_CORPUS=1`) and the backend's sources. To run your build as the
    reference's own compiler into `target/reference` (GHC 9.6.7 and cabal,
    via ghcup).
 3. `oracle/build.sh`: `kg-oracle`, the reference frontend as a library
-   ([`oracle/README.md`](oracle/README.md)); `errors`, `ir` and `loop-left`
-   need it.
+   ([`oracle/README.md`](oracle/README.md)); `errors`, `ir`, `loop-left`
+   and `editions` need it (`editions --no-oracle` grades the rest without).
 4. `cargo xtask ptrace`: records the reference's runs (~17.5 min). Its keys
    carry absolute paths, so a moved checkout re-records. `risc-v.k` needs a
    larger budget: `KG_CHILD_SECS=4500 KG_CHILD_MEM_MB=20000 cargo xtask
@@ -143,7 +143,7 @@ the documentation's own rules close [`docs/README.md`](docs/README.md).
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs as two jobs —
 on Linux for every push and pull request, on macOS for `main` — sized for
 GitHub's free runners: `test` (the quick tests, `corpus`, `conformance`,
-`fmt-check`, `lint`, `codegen --check`) and `lint` (clippy,
+`fmt-check`, `lint`, `editions --no-oracle`, `codegen --check`) and `lint` (clippy,
 `check-links.py`), over the workspace but `kg-ptrace`. It covers this
 repository's Rust code, and builds neither the backend nor the reference
 — keep it that way; the parity gates stay local. `scripts/ci.sh` runs the
@@ -161,7 +161,7 @@ nested inside the primary checkout needs `CARGO_WORKSPACE_DIR=$PWD` with
 |---|---|---|
 | `scripts/probe.sh <program>` | every verdict for one program: conformance and `--strict`, `errors`, `ptdiff`'s first divergence, both compilers through the backend, `output` for a corpus file | ~10 s |
 | `scripts/quick.sh <filter>` | one test filter over kg-db, kg-ty, kg-hir, kg-sem and kg-ptbridge, then `conformance` and `errors` | ~30 s |
-| `scripts/fast.sh` | `conformance`, `errors`, `strict-ledger`, `lint`, `cli`, then their ratchets | ~35 s |
+| `scripts/fast.sh` | `conformance`, `errors`, `strict-ledger`, `lint`, `cli`, `editions`, then their ratchets | ~35 s |
 | `scripts/fast.sh walk` | … and `ptdiff`, `backend` (replayed from the cache) | ~80 s |
 | `scripts/fast.sh loop` | … and `infer-identity`, `loop-left`, `resilience`, every fourth root of `edit-identity` — any change to inference, the loop, a memo or the editor's answers | ~4 min |
 | `scripts/gates.sh [--snapshot]` | everything ([`docs/gates.md`](docs/gates.md)) — before a merge, a deletion, a bless of `output` or `repoint` | ~6 min warm; 15–30 min cold |
@@ -184,6 +184,7 @@ Details, blind spots and drivers: [`docs/gates.md`](docs/gates.md).
 |---|---|---|---|
 | tests, clippy, `codegen --check` | the workspace, `--profile quick`; `-D warnings`; generated files current | pass/fail | yes |
 | `corpus`, `fmt-check` | every corpus file round-trips and parses clean; the formatter is idempotent and layout-only | pass/fail | yes |
+| `editions` | the language beyond the reference: every feature neutral over the corpus, its fixtures claimed by no reference program, walked as their twins, rejected as listed | pass/fail | yes |
 | `conformance` | accept/reject and `Error N` per assertion; `--strict` grades the same, and must fail nothing | 100%; `strict` ratchet | yes |
 | `errors` | first error's position and message against `kg-oracle --errors` | ratchet | yes |
 | `ir` | lowering totality, round trip, provenance, the oracle diff | pass/fail | yes |
@@ -207,7 +208,12 @@ commit; `cargo xtask pin-reference --write`; `cargo xtask ratchet --rebase
 reference and the oracle (`scripts/build-backend.sh --reference`,
 `oracle/build.sh`); `cargo xtask ptrace --force`. `output`'s stored side and
 the backend cache go cold on their own. Then the full gates, blessing what
-moved in the commit that moves the pin.
+moved in the commit that moves the pin; an `editions` claim the new pin
+accepts means upstream gave that syntax a meaning — settle it there
+([`docs/editions/1.0.md`](docs/editions/1.0.md)) — and a library
+parameter upstream renamed breaks every 1.1 call that names it, which no
+gate sees: read the library's diff for renamed parameters, and say so in
+the changelog.
 
 **Releasing.** Set the version in `Cargo.toml`'s `[workspace.package]`; full
 gates green on `main`; `scripts/build-backend.sh`; `cargo xtask dist`;

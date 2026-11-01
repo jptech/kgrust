@@ -1371,6 +1371,16 @@ warning switches and 27 (28) of the 90 other flags are exercised; 7 warning swit
 >   compat binary's for the same options. Any other `-Z` key is refused.
 > * `kg fmt` overrides `[fmt]` with `--line-width`, `--indent`,
 >   `--use-tabs`, `--newline`, `--sort-imports`; `--check`, `--stdout`.
+> * The language (2026-10-31; [`../editions/`](../editions/README.md)):
+>   `check`, `build`, `doc`, `fmt` and `dump` take `--edition <VERSION>`
+>   and `--feature <NAME>` (repeatable), which replace the project's
+>   `[package] edition` and add to its `[language] features` for one run,
+>   for the files under the project's root alone. `--no-manifest` reads no
+>   manifest for the language either: the files under the first input's
+>   directory are in the flags' language, every other in `1.0`. A
+>   dependency's manifest that does not load is reported by `check`,
+>   `build` and `doc`, which exit 2. The `kanagawa` binary reads no
+>   manifest and takes neither flag: it is always edition `1.0`.
 
 ### 9.1 Shape
 
@@ -1404,6 +1414,10 @@ hidden clap alias, so existing CMake glue keeps working; the canonical modern sp
 what `--help` shows.
 
 ### 9.2 Shared source-resolution options (`build`, `check`, `fmt`, `doc`, `lsp` via manifest)
+
+As built, `--edition <VERSION>` and `--feature <NAME>` join these, with
+`package.edition` and `language.features` as their manifest keys (§9's
+box); they have no legacy spelling.
 
 | `kg` flag | Legacy flag | Manifest key |
 |---|---|---|
@@ -1541,7 +1555,8 @@ Every `compile`-mode flag is accounted for exactly once.
 >
 > | Table | Keys (default) |
 > |---|---|
-> | `[package]` | `name`, `version`, `edition` — all optional; `name` titles `kg doc`'s site, `edition` is reserved |
+> | `[package]` | `name`, `version`, `edition` — all optional; `name` titles `kg doc`'s site; `edition` (`"1.0"`, the reference, or `"1.1"`, a string) is the language the package's files are in, an unknown one an error ([`../editions/`](../editions/README.md), 2026-10-31) |
+> | `[language]` | `features` (`[]`): single language features beside the edition — `"named-arguments"`, `"trailing-commas"`, `"default-arguments"`, `"named-template-arguments"`; an unknown one an error. Not reachable from a profile; `--edition` and `--feature` override for one run |
 > | `[project]` | `sources` (`[]`), `exclude` (`[]`, read by nothing yet), `import-dirs` (`[]`, order significant), `target-device` (`"mock"`), `base-library` (unset: `base.k`, found on the import path), `implicit-base` (`true`), `parse-docs` (`false`), `[project.defines]`, `[project.using]` |
 > | `[warnings]` | `all` (`false`), `error` (`false`), and one key per kind — `conversion`, `deprecated`, `initializer-overrides`, `redundant-import`, `shadow`, `transaction-size` — as `"allow"`, `"warn"` or `"deny"` (`deny` enables the warning; only `error = true` makes warnings errors) |
 > | `[fmt]` | `line-width` (`100`), `indent` (`4`), `use-tabs` (`false`), `newline` (`"lf"`), `final-newline` (`true`), `group-imports` (`true`), `sort-imports` (`false`) — `ribbon`, `layout` and `tab-width` were not built |
@@ -1582,7 +1597,7 @@ implicitly imports — §4.4), (4) the base library and whether it is implicit,
 [package]
 name    = "my-design"        # optional, informational
 version = "0.1.0"            # optional
-edition = "2026"             # reserved: language-version selector
+edition = "1.0"              # the language: 1.0 (the reference, default) or 1.1
 
 [project]
 # --- source set -------------------------------------------------------------

@@ -85,6 +85,7 @@ pub fn deduce_template_args(program: &mut Program<'_>) {
             door,
             versions: &versions,
             read: std::cell::RefCell::default(),
+            fault: std::cell::RefCell::default(),
         };
         let mut rw = Rewriter::new(&mut module.ir.arena, interner);
         let types = &mut module.types;
@@ -144,6 +145,10 @@ pub(crate) struct Cx<'a> {
     /// The templates of another module the deductions under way read, in
     /// order ([`Cx::deduce_instance`]).
     read: std::cell::RefCell<Vec<Decl>>,
+    /// A later edition's call whose labels its function template's
+    /// parameters cannot take — the argument at fault, and why — which no
+    /// deduction can be made of ([`Cx::by_parameter`]).
+    fault: std::cell::RefCell<Option<(usize, String)>>,
 }
 
 /// A template, read off its module's snapshot.
@@ -285,7 +290,7 @@ impl<'a> Cx<'a> {
                 let Exp::FunctionSpecifier { receiver: x, function: y } = m.rw.arena[b].exp.clone() else {
                     return Exp::Designator { name: a, value: b };
                 };
-                let y2 = self.deduce_instance(m, &[], y);
+                let y2 = self.deduce_instance(m, &[], &[], y);
                 if y2 == y {
                     return Exp::Designator { name: a, value: b };
                 }
@@ -296,8 +301,40 @@ impl<'a> Cx<'a> {
                 let Exp::FunctionSpecifier { receiver: x, function: y } = m.rw.arena[b].exp.clone() else {
                     return Exp::FunctionCall { attr, function: b, args: c };
                 };
-                let arg_types: Vec<Ty> = Self::items(m.rw.arena, c).iter().map(|&i| m.types.get(i)).collect();
-                let y2 = self.deduce_instance(m, &arg_types, y);
+                let items = Self::items(m.rw.arena, c);
+                // A call a fault was reported at is deduced no more
+                // ([`crate::named::faulted_label`]).
+                if items.iter().any(|&i| crate::named::faulted_label(m.rw.arena, i)) {
+                    return Exp::FunctionCall { attr, function: b, args: c };
+                }
+                let arg_types: Vec<Ty> = items.iter().map(|&i| m.types.get(i)).collect();
+                // A later edition's labels, which name the template's own
+                // parameters until `crate::named` can read its instance's.
+                let labels: Vec<Option<Symbol>> = items
+                    .iter()
+                    .map(|&i| match m.rw.arena[i].exp {
+                        Exp::Labelled { label, .. } => Some(label),
+                        _ => None,
+                    })
+                    .collect();
+                let labels = if labels.iter().any(Option::is_some) { labels } else { Vec::new() };
+                let y2 = self.deduce_instance(m, &arg_types, &labels, y);
+                // A label the template's function cannot take is an error at
+                // it, as `crate::named` reports one for a function, and the
+                // call is left undeduced: its labels kept, so that no
+                // argument stands in another's place, and the faulted one's
+                // value the error, which no later round deduces or reports
+                // again.
+                if let Some((at, message)) = self.fault.borrow_mut().take() {
+                    let Exp::Labelled { label, .. } = m.rw.arena[items[at]].exp else {
+                        return Exp::FunctionCall { attr, function: b, args: c };
+                    };
+                    let error = m.copy_note(items[at], Exp::Error(kg_hir::ErrorNote::new(message)));
+                    let mut items = items;
+                    items[at] = m.copy_note(items[at], Exp::Labelled { label, value: error });
+                    let c = m.copy_note(c, Exp::Seq(items));
+                    return Exp::FunctionCall { attr, function: b, args: c };
+                }
                 if y2 == y {
                     return Exp::FunctionCall { attr, function: b, args: c };
                 }
@@ -305,13 +342,13 @@ impl<'a> Cx<'a> {
                 Exp::FunctionCall { attr, function: b, args: c }
             }
             Exp::NamedValue(a) if matches!(m.rw.arena[a].exp, Exp::QualifiedIdentifier(_)) && !m.types.resolved(a) => {
-                Exp::NamedValue(self.deduce_instance(m, &[], a))
+                Exp::NamedValue(self.deduce_instance(m, &[], &[], a))
             }
             Exp::TypeIdentifier(s, t) if matches!(m.rw.arena[t].exp, Exp::TemplateInstance { .. }) => {
-                Exp::TypeIdentifier(s, self.deduce_instance(m, &[], t))
+                Exp::TypeIdentifier(s, self.deduce_instance(m, &[], &[], t))
             }
             Exp::ScopedName { scope, prefix: Some(t), ident } if matches!(m.rw.arena[t].exp, Exp::TemplateInstance { .. }) => {
-                Exp::ScopedName { scope, prefix: Some(self.deduce_instance(m, &[], t)), ident }
+                Exp::ScopedName { scope, prefix: Some(self.deduce_instance(m, &[], &[], t)), ident }
             }
             e => e,
         }
@@ -351,13 +388,16 @@ impl<'a> Cx<'a> {
     /// it changed the module ([`crate::reads::Door::tentative`]): a
     /// deduction a later round makes again of a call it already rewrote
     /// reads the template's signature and changes nothing.
-    fn deduce_instance(&self, m: &mut Mint<'_, '_>, arg_types: &[Ty], x: ExpId) -> ExpId {
-        let Some(door) = self.door else { return self.deduce_instance_reading(m, arg_types, x) };
+    fn deduce_instance(&self, m: &mut Mint<'_, '_>, arg_types: &[Ty], labels: &[Option<Symbol>], x: ExpId) -> ExpId {
+        let Some(door) = self.door else { return self.deduce_instance_reading(m, arg_types, labels, x) };
         let before = (m.rw.arena.len(), m.rw.arena.writes(), m.types.writes());
         let read = self.read.borrow().len();
         door.tentative();
-        let out = self.deduce_instance_reading(m, arg_types, x);
-        let changed = out != x || before != (m.rw.arena.len(), m.rw.arena.writes(), m.types.writes());
+        let out = self.deduce_instance_reading(m, arg_types, labels, x);
+        // A fault the call is rewritten for read the signature too.
+        let changed = out != x
+            || before != (m.rw.arena.len(), m.rw.arena.writes(), m.types.writes())
+            || self.fault.borrow().is_some();
         // The templates this deduction read, shown only where it changed
         // the module: a signature is spelled for what it moved, never for a
         // deduction made again of a call already rewritten.
@@ -374,7 +414,7 @@ impl<'a> Cx<'a> {
         out
     }
 
-    fn deduce_instance_reading(&self, m: &mut Mint<'_, '_>, arg_types: &[Ty], x: ExpId) -> ExpId {
+    fn deduce_instance_reading(&self, m: &mut Mint<'_, '_>, arg_types: &[Ty], labels: &[Option<Symbol>], x: ExpId) -> ExpId {
         if get_name(m.rw.arena, x).is_none_or(|name| !self.templates.contains(&name)) {
             return x;
         }
@@ -385,16 +425,20 @@ impl<'a> Cx<'a> {
         };
         match t.arena[decl].exp.clone() {
             Exp::Function { scope, ret, params, .. } | Exp::FunctionDecl { scope, ret, params, .. } => {
-                self.deduce_from_signature(m, &t, &scope, ret, params, arg_types, x)
+                self.deduce_from_signature(m, &t, &scope, ret, params, arg_types, labels, x)
             }
             _ => {
                 let Exp::TemplateInstance { base: typ, args: a } = m.rw.arena[x].exp.clone() else { return x };
                 let args = Self::items(m.rw.arena, a);
+                if Self::labelled(m.rw.arena, &args) {
+                    return self.place_class_template_args(m, &t, x, typ, a, &args);
+                }
                 if args.len() >= t.params.len() {
                     return x;
                 }
                 let unresolved: Deduced = (args.len()..t.params.len()).map(|i| (i, None)).collect();
-                let Some(resolved) = self.resolve_template_args(m, x, &t, &args, &unresolved) else { return x };
+                let placed = args.iter().copied().enumerate().collect();
+                let Some(resolved) = self.resolve_template_args(m, x, &t, &placed, &unresolved) else { return x };
                 let seq = m.copy_note(a, Exp::Seq(resolved));
                 m.copy_note(x, Exp::TemplateInstance { base: typ, args: seq })
             }
@@ -403,16 +447,19 @@ impl<'a> Cx<'a> {
 
     /// `resolveTemplateArgs` (`Type.hs:1405-1428`): the explicit arguments,
     /// the deduced ones spelled, the defaults of the rest substituted —
-    /// `None` where any stays unresolved (`fromMaybe args`).
+    /// `None` where any stays unresolved (`fromMaybe args`). The explicit
+    /// ones by the parameter each fills: the reference's are a prefix, and
+    /// a later edition's named template arguments may leave holes, each
+    /// filled as a parameter past the prefix is.
     fn resolve_template_args(
         &self,
         m: &mut Mint<'_, '_>,
         donor: ExpId,
         t: &Template<'_>,
-        args: &[ExpId],
+        args: &BTreeMap<usize, ExpId>,
         deduced: &Deduced,
     ) -> Option<Vec<ExpId>> {
-        let mut resolved: BTreeMap<usize, Option<ExpId>> = args.iter().enumerate().map(|(i, &a)| (i, Some(a))).collect();
+        let mut resolved: BTreeMap<usize, Option<ExpId>> = args.iter().map(|(&i, &a)| (i, Some(a))).collect();
         for (&i, d) in deduced {
             if resolved.contains_key(&i) {
                 continue;
@@ -493,6 +540,7 @@ impl<'a> Cx<'a> {
         ret: ExpId,
         func_params: ExpId,
         arg_types: &[Ty],
+        labels: &[Option<Symbol>],
         q: ExpId,
     ) -> ExpId {
         let Exp::QualifiedIdentifier(ident) = m.rw.arena[q].exp.clone() else { return q };
@@ -500,22 +548,45 @@ impl<'a> Cx<'a> {
             Exp::TemplateInstance { base, args } => (base, Some(args), Self::items(m.rw.arena, args)),
             _ => (ident, None, Vec::new()),
         };
-        if args.len() > t.params.len() {
-            return q;
-        }
+        let labelled = Self::labelled(m.rw.arena, &args);
+        let placed: BTreeMap<usize, ExpId> = if labelled {
+            match self.place_template_args(m.rw.arena, t, &self.template_name(m.rw.arena, ident), &args) {
+                Ok(placed) => placed,
+                Err((item, message)) => {
+                    let Some(seq) = args_seq else { return q };
+                    let seq = Self::faulted(m, seq, &args, item, message);
+                    let instance = m.copy_note(ident, Exp::TemplateInstance { base: func, args: seq });
+                    return m.copy_note(q, Exp::QualifiedIdentifier(instance));
+                }
+            }
+        } else {
+            if args.len() > t.params.len() {
+                return q;
+            }
+            args.iter().copied().enumerate().collect()
+        };
         let mut d = Deduction {
             cx: self,
             t,
             scope,
-            state: (args.len()..t.params.len()).map(|i| (i, None)).collect(),
+            state: (0..t.params.len()).filter(|i| !placed.contains_key(i)).map(|i| (i, None)).collect(),
             how: How::Supertype,
         };
-        for (&p, ty) in Self::items(t.arena, func_params).iter().zip(arg_types) {
-            if let Exp::FuncParam { ty: pt, .. } = &t.arena[p].exp {
+        let params = Self::items(t.arena, func_params);
+        let by_param = match self.by_parameter(t.arena, &params, arg_types, labels, &self.template_name(m.rw.arena, ident)) {
+            Ok(by_param) => by_param,
+            Err(fault) => {
+                *self.fault.borrow_mut() = Some(fault);
+                return q;
+            }
+        };
+        for (&p, ty) in params.iter().zip(&by_param) {
+            if let (Exp::FuncParam { ty: pt, .. }, Some(ty)) = (&t.arena[p].exp, ty) {
                 d.deduce_type(Pat::of(*pt), ty);
             }
         }
-        for (&p, &a) in t.params.iter().zip(&args) {
+        for (&i, &a) in &placed {
+            let p = t.params[i];
             if let Exp::TemplateParam { kind, .. } = &t.arena[p].exp
                 && matches!(t.arena[*kind].exp, Exp::FunctionType { .. })
             {
@@ -536,7 +607,13 @@ impl<'a> Cx<'a> {
                 state.iter().map(|(i, v)| (i, v.as_ref().map(|(_, a, _)| format!("{a:?}").chars().take(80).collect::<String>()))).collect::<Vec<_>>()
             );
         }
-        let resolved_prime = self.resolve_template_args(m, q, t, &args, &state).unwrap_or_else(|| args.clone());
+        // Named template arguments wait, labelled, for a round that resolves
+        // every parameter: the reference's partial instance is positional.
+        let resolved_prime = match self.resolve_template_args(m, q, t, &placed, &state) {
+            Some(resolved) => resolved,
+            None if labelled => return q,
+            None => args.clone(),
+        };
         // `zipWith deduceInstanceFromTemplateParam params resolvedArgs'`.
         let mut items = Vec::with_capacity(resolved_prime.len().min(t.params.len()));
         for (&p, &e) in t.params.iter().zip(&resolved_prime) {
@@ -566,6 +643,153 @@ impl<'a> Cx<'a> {
         m.copy_note(q, Exp::QualifiedIdentifier(instance))
     }
 
+    /// Whether any of a template's written arguments is labelled — edition
+    /// 1.1's named template arguments (`docs/editions/1.1/named-template-arguments.md`).
+    fn labelled(arena: &ExpArena, args: &[ExpId]) -> bool {
+        args.iter().any(|&a| matches!(arena[a].exp, Exp::Labelled { .. }))
+    }
+
+    /// `` `Buffer` `` for the template `x` names.
+    fn template_name(&self, arena: &ExpArena, x: ExpId) -> String {
+        get_name(arena, x).map_or_else(|| "the template".to_owned(), |n| format!("`{}`", self.interner.resolve(n)))
+    }
+
+    /// Edition 1.1's named template arguments: the parameter each written
+    /// argument fills — by position, or by the name its label gives the
+    /// template's own parameter — with the label taken off. `Err` names the
+    /// argument at fault, and why: a label naming no parameter, a parameter
+    /// given twice, more arguments than parameters.
+    fn place_template_args(
+        &self,
+        arena: &ExpArena,
+        t: &Template<'_>,
+        name: &str,
+        args: &[ExpId],
+    ) -> Result<BTreeMap<usize, ExpId>, (ExpId, String)> {
+        let param_name = |i: usize| match &t.arena[t.params[i]].exp {
+            Exp::TemplateParam { name, .. } => self.interner.resolve(*name).to_string(),
+            _ => format!("#{}", i + 1),
+        };
+        let mut placed = BTreeMap::new();
+        for (written, &item) in args.iter().enumerate() {
+            let (slot, value) = match arena[item].exp {
+                Exp::Labelled { label, value } => {
+                    let found = t.params.iter().position(|&p| matches!(t.arena[p].exp, Exp::TemplateParam { name, .. } if name == label));
+                    let Some(slot) = found else {
+                        return Err((item, format!("{name} has no template parameter named `{}`", self.interner.resolve(label))));
+                    };
+                    (slot, value)
+                }
+                _ => (written, item),
+            };
+            if slot >= t.params.len() {
+                let n = t.params.len();
+                return Err((item, format!("{name} takes {n} template argument{}", if n == 1 { "" } else { "s" })));
+            }
+            if placed.insert(slot, value).is_some() {
+                return Err((item, format!("the template parameter `{}` is given an argument twice", param_name(slot))));
+            }
+        }
+        Ok(placed)
+    }
+
+    /// A class template's named arguments placed, each parameter left out
+    /// given its default as `resolveTemplateArgs` gives one past the
+    /// written prefix — so a default reads the arguments before it however
+    /// they were written. A parameter left out with no default is an error
+    /// at the instance; any other fault, at its argument.
+    fn place_class_template_args(
+        &self,
+        m: &mut Mint<'_, '_>,
+        t: &Template<'_>,
+        x: ExpId,
+        typ: ExpId,
+        a: ExpId,
+        args: &[ExpId],
+    ) -> ExpId {
+        let name = self.template_name(m.rw.arena, x);
+        let placed = match self.place_template_args(m.rw.arena, t, &name, args) {
+            Ok(placed) => placed,
+            Err((item, message)) => {
+                let seq = Self::faulted(m, a, args, item, message);
+                return m.copy_note(x, Exp::TemplateInstance { base: typ, args: seq });
+            }
+        };
+        let missing: Vec<String> = t
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !placed.contains_key(i))
+            .filter_map(|(_, &p)| match &t.arena[p].exp {
+                Exp::TemplateParam { name, default: None, .. } => Some(format!("`{}`", self.interner.resolve(*name))),
+                _ => None,
+            })
+            .collect();
+        if !missing.is_empty() {
+            let message = format!("{name} is missing a template argument for {}", missing.join(", "));
+            return m.copy_note(x, Exp::Error(kg_hir::ErrorNote::new(message)));
+        }
+        let unresolved: Deduced = (0..t.params.len()).filter(|i| !placed.contains_key(i)).map(|i| (i, None)).collect();
+        let Some(resolved) = self.resolve_template_args(m, x, t, &placed, &unresolved) else { return x };
+        let seq = m.copy_note(a, Exp::Seq(resolved));
+        m.copy_note(x, Exp::TemplateInstance { base: typ, args: seq })
+    }
+
+    /// The arguments with the faulted one an error at its label, reported
+    /// there, and every other one's label taken off, so that no later round
+    /// meets them labelled and reports the fault again.
+    fn faulted(m: &mut Mint<'_, '_>, a: ExpId, args: &[ExpId], fault: ExpId, message: String) -> ExpId {
+        let items: Vec<ExpId> = args
+            .iter()
+            .map(|&item| {
+                if item == fault {
+                    return m.copy_note(item, Exp::Error(kg_hir::ErrorNote::new(message.clone())));
+                }
+                match m.rw.arena[item].exp {
+                    Exp::Labelled { value, .. } => value,
+                    _ => item,
+                }
+            })
+            .collect();
+        m.copy_note(a, Exp::Seq(items))
+    }
+
+    /// Each parameter's argument type: positionally, as the reference zips
+    /// them (`zipWithM_ deduceFromFuncParam`, `Type.hs:1477`), or — a later
+    /// edition's labelled arguments — by the parameter each names. `Err`
+    /// where a label names no parameter, or two arguments one: the argument
+    /// at fault and why, in the words `crate::named` has for a function.
+    fn by_parameter<'t>(
+        &self,
+        arena: &ExpArena,
+        params: &[ExpId],
+        arg_types: &'t [Ty],
+        labels: &[Option<Symbol>],
+        name: &str,
+    ) -> Result<Vec<Option<&'t Ty>>, (usize, String)> {
+        if labels.is_empty() {
+            return Ok(arg_types.iter().map(Some).collect());
+        }
+        let param_name = |p: ExpId| match &arena[p].exp {
+            Exp::FuncParam { name, .. } => kg_hir::rewrite::ident_sym(arena, *name),
+            _ => None,
+        };
+        let mut out: Vec<Option<&Ty>> = vec![None; params.len().max(arg_types.len())];
+        for (i, (ty, label)) in arg_types.iter().zip(labels).enumerate() {
+            let slot = match label {
+                None => i,
+                Some(l) => params.iter().position(|&p| param_name(p) == Some(*l)).ok_or_else(|| {
+                    (i, format!("{name} has no parameter named `{}`", self.interner.resolve(*l)))
+                })?,
+            };
+            if out[slot].replace(ty).is_some() {
+                let shown = params.get(slot).and_then(|&p| param_name(p)).map_or_else(|| format!("#{}", slot + 1), |n| self.interner.resolve(n).to_string());
+                return Err((i, format!("the parameter `{shown}` is given an argument twice")));
+            }
+        }
+        Ok(out)
+    }
+
     /// `deduceInstanceFromType` (`Type.hs:1468-1471`): a function named as
     /// the argument of a function-typed parameter is deduced against that
     /// type's parameters.
@@ -586,7 +810,7 @@ impl<'a> Cx<'a> {
         if m.types.resolved(b) {
             return e;
         }
-        let b2 = self.deduce_instance(m, &params, b);
+        let b2 = self.deduce_instance(m, &params, &[], b);
         if b2 == b {
             return e;
         }

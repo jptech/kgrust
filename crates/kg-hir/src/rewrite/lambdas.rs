@@ -421,7 +421,7 @@ fn lambda_def(rw: &mut Rewriter, l: ExpId) -> (ExpId, ExpId) {
     let param_attr = rw.donate(l, Exp::Seq(Vec::new()));
     let cap_param = rw.donate(
         l,
-        Exp::FuncParam { scope: sig_scope, attr: param_attr, ty: cap_ty, name: cap_param_name },
+        Exp::FuncParam { scope: sig_scope, attr: param_attr, ty: cap_ty, name: cap_param_name, default: None },
     );
 
     // `captureParam \`cons\` funcParams` (`:248`) — prepend, params `Seq`

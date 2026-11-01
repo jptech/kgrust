@@ -67,6 +67,8 @@ pub(crate) struct Whole<'a> {
     /// Every module's tree, in `Program::files` order — for pass 9's
     /// question whether any file declares a name ([`declared_anywhere`]).
     pub(crate) roots: &'a [ast::SourceFile],
+    /// This module's scopes, each read once for the run ([`Scopes`]).
+    pub(crate) scopes: &'a Scopes,
 }
 
 impl<'a> Whole<'a> {
@@ -293,7 +295,7 @@ pub(crate) fn parse_time_find_symbol(root: &ast::SourceFile, w: &Whole<'_>, d: &
 
         let mut hits: Vec<kg_base::FileRange> = Vec::new();
         let mut unique_by_scope = false;
-        match innermost_in_parse_table(&node, token.text()) {
+        match innermost_in_parse_table(w.scopes, &node, token.text()) {
             Some((scope, decl)) if scope.kind() == SyntaxKind::SOURCE_FILE => {
                 // An alias, a variable or a plain function is in the table
                 // only once it has been parsed whole: `parseSymbol p` runs
@@ -368,7 +370,7 @@ pub(crate) fn parse_time_find_symbol(root: &ast::SourceFile, w: &Whole<'_>, d: &
         }
         let Some(import) = imports.iter().find(|i| i.alias == Some(name)) else { continue };
         let found = if unique_by_scope {
-            innermost_in_parse_table(&node, token.text())
+            innermost_in_parse_table(w.scopes, &node, token.text())
                 .map(|(_, decl)| kg_base::FileRange::new(file, decl.text_range()))
         } else {
             hits.first().copied()
@@ -475,7 +477,7 @@ fn not_a_template_yet(root: &ast::SourceFile, w: &Whole<'_>, d: &mut Sink) {
         // `inline void x()` reads the function, not the local being
         // declared (difffuzz 2026-10-10, the re-run's `type-check.k::22`
         // mutant).
-        let rejected = match innermost_in_parse_table(&node, name) {
+        let rejected = match innermost_in_parse_table(w.scopes, &node, name) {
             Some((scope, decl)) if scope.kind() == SyntaxKind::SOURCE_FILE => {
                 !imported()
                     && (decl.text_range().start() > node.text_range().start()
@@ -503,7 +505,7 @@ fn not_a_template_yet(root: &ast::SourceFile, w: &Whole<'_>, d: &mut Sink) {
             // A name declared nowhere is most likely a misspelling: offer
             // what pass 9 would (`hintMsg`, `Frontend.hs:110-155`) — the
             // reference's own rejection is a bare parse error.
-            let hint = match (innermost_declaring_scope(&node, name), w.tree(w.module)) {
+            let hint = match (innermost_declaring_scope(w.scopes, &node, name), w.tree(w.module)) {
                 (None, Some(tree)) if !declared(name) => {
                     hints(w, w.interner.intern(name), in_type, &use_scope(w, tree, &node), &node, &[])
                 }
@@ -598,7 +600,7 @@ fn template_template_default_not_a_template(root: &ast::SourceFile, w: &Whole<'_
         }
         let Some(token) = segment.name_ref().and_then(|n| n.ident_token()) else { continue };
         let name = token.text();
-        let not_a_template = match innermost_declaring_scope(path.syntax(), name) {
+        let not_a_template = match innermost_declaring_scope(w.scopes, path.syntax(), name) {
             Some((scope, decl)) if scope.kind() == SyntaxKind::SOURCE_FILE => {
                 decl.kind() != SyntaxKind::TEMPLATE_DECL || decl.text_range().start() > path.syntax().text_range().start()
             }
@@ -648,7 +650,7 @@ fn function_template_as_a_type(root: &ast::SourceFile, w: &Whole<'_>, d: &mut Si
         let Some(token) = segment.name_ref().and_then(|n| n.ident_token()) else { continue };
         let name = token.text();
         let hits = w.program.graph.find_in_imports(w.module, &SymbolPath::single(w.interner.intern(name)));
-        let function_template = match innermost_declaring_scope(&node, name) {
+        let function_template = match innermost_declaring_scope(w.scopes, &node, name) {
             Some((scope, decl)) if scope.kind() == SyntaxKind::SOURCE_FILE => {
                 hits.is_empty()
                     && decl.kind() == SyntaxKind::TEMPLATE_DECL
@@ -715,8 +717,8 @@ fn receiver_not_yet_a_class(root: &ast::SourceFile, w: &Whole<'_>, d: &mut Sink)
         else {
             continue;
         };
-        let rejected = match innermost_declaring_scope(receiver.syntax(), name) {
-            Some((_, decl)) => declared_type_is_a_typename(&decl),
+        let rejected = match innermost_declaring_scope(w.scopes, receiver.syntax(), name) {
+            Some((_, decl)) => declared_type_is_a_typename(w.scopes, &decl),
             None => {
                 let bare = SymbolPath::single(w.interner.intern(name));
                 w.program.graph.find_in_imports(w.module, &bare).is_empty()
@@ -731,7 +733,7 @@ fn receiver_not_yet_a_class(root: &ast::SourceFile, w: &Whole<'_>, d: &mut Sink)
 
 /// Whether a variable declaration's written type is a bare `typename`
 /// parameter of an enclosing template.
-fn declared_type_is_a_typename(decl: &SyntaxNode) -> bool {
+fn declared_type_is_a_typename(scopes: &Scopes, decl: &SyntaxNode) -> bool {
     let Some(ast::Type::PathType(ty)) = decl.children().find_map(ast::Type::cast) else { return false };
     let Some(path) = ty.path() else { return false };
     let mut segments = path.path_segments();
@@ -741,7 +743,7 @@ fn declared_type_is_a_typename(decl: &SyntaxNode) -> bool {
     }
     let Some(name) = segment.name_ref().and_then(|n| n.ident_token()) else { return false };
     matches!(
-        innermost_declaring_scope(ty.syntax(), name.text()),
+        innermost_declaring_scope(scopes, ty.syntax(), name.text()),
         Some((_, param)) if param.kind() == SyntaxKind::TYPE_PARAM
             && param.children_with_tokens().any(|c| c.kind() == SyntaxKind::TYPENAME_KW)
             && !param.children().any(|c| c.kind() == SyntaxKind::TEMPLATE_PARAM_LIST)
@@ -773,8 +775,8 @@ fn declared_only_in_other_blocks(root: &ast::SourceFile, name: &str, at: &Syntax
 /// children, or in a parameter, template-parameter or capture list among
 /// them — and the declaring node. The parse-time scope stack, read off the
 /// tree: a `SOURCE_FILE` answer is a module-scope declaration.
-fn innermost_declaring_scope(from: &SyntaxNode, name: &str) -> Option<(SyntaxNode, SyntaxNode)> {
-    innermost_declaring_scope_where(from, name, |_, _| true)
+fn innermost_declaring_scope(scopes: &Scopes, from: &SyntaxNode, name: &str) -> Option<(SyntaxNode, SyntaxNode)> {
+    innermost_declaring_scope_where(scopes, from, name, |_, _| true)
 }
 
 /// [`innermost_declaring_scope`], skipping a nested declaration the
@@ -798,77 +800,124 @@ fn innermost_declaring_scope(from: &SyntaxNode, name: &str) -> Option<(SyntaxNod
 /// Every other nested declaration counts wherever it is, as it did before
 /// this was asked: a template parameter and an induction variable are
 /// parsed before anything that can name them.
-fn innermost_in_parse_table(from: &SyntaxNode, name: &str) -> Option<(SyntaxNode, SyntaxNode)> {
+fn innermost_in_parse_table(scopes: &Scopes, from: &SyntaxNode, name: &str) -> Option<(SyntaxNode, SyntaxNode)> {
     let at = from.text_range().start();
-    innermost_declaring_scope_where(from, name, |scope, decl| {
-        let member_of = |kinds: &[SyntaxKind]| {
-            scope.kind() == SyntaxKind::DECL_LIST && scope.parent().is_some_and(|p| kinds.contains(&p.kind()))
-        };
-        match decl.kind() {
-            SyntaxKind::VAR_DECL if member_of(&[SyntaxKind::STRUCT_DECL, SyntaxKind::UNION_DECL]) => false,
-            SyntaxKind::VAR_DECL if member_of(&[SyntaxKind::CLASS_DECL]) => true,
-            SyntaxKind::VAR_DECL | SyntaxKind::PARAM | SyntaxKind::FN_DECL | SyntaxKind::FN_PROTO => {
-                scope.kind() == SyntaxKind::SOURCE_FILE || decl.text_range().end() <= at
-            }
-            _ => true,
+    innermost_declaring_scope_where(scopes, from, name, |scope, decl| in_parse_table_at(at, scope, decl))
+}
+
+/// Whether the parse-time table holds `decl`, declared in `scope`, when the
+/// parser reaches `at` ([`innermost_in_parse_table`]).
+fn in_parse_table_at(at: kg_base::TextSize, scope: &SyntaxNode, decl: &SyntaxNode) -> bool {
+    let member_of = |kinds: &[SyntaxKind]| {
+        scope.kind() == SyntaxKind::DECL_LIST && scope.parent().is_some_and(|p| kinds.contains(&p.kind()))
+    };
+    match decl.kind() {
+        SyntaxKind::VAR_DECL if member_of(&[SyntaxKind::STRUCT_DECL, SyntaxKind::UNION_DECL]) => false,
+        SyntaxKind::VAR_DECL if member_of(&[SyntaxKind::CLASS_DECL]) => true,
+        SyntaxKind::VAR_DECL | SyntaxKind::PARAM | SyntaxKind::FN_DECL | SyntaxKind::FN_PROTO => {
+            scope.kind() == SyntaxKind::SOURCE_FILE || decl.text_range().end() <= at
         }
-    })
+        _ => true,
+    }
 }
 
 fn innermost_declaring_scope_where(
+    scopes: &Scopes,
     from: &SyntaxNode,
     name: &str,
     held: impl Fn(&SyntaxNode, &SyntaxNode) -> bool,
 ) -> Option<(SyntaxNode, SyntaxNode)> {
-    let declares = |n: &SyntaxNode| -> bool {
-        let named = |child: SyntaxNode| {
-            child.kind() == SyntaxKind::NAME
-                && child.first_token().is_some_and(|t| t.text() == name)
-        };
-        match n.kind() {
-            // `import a.b as m` binds a qualifier, not a symbol
-            // (`SymbolTable.hs:276-278`); it is in no scope's table.
-            SyntaxKind::IMPORT_DECL => false,
-            SyntaxKind::TEMPLATE_DECL => n
-                .children()
-                .find(|c| c.kind() != SyntaxKind::TEMPLATE_PARAM_LIST)
-                .is_some_and(|decl| decl.children().any(named)),
-            SyntaxKind::CAPTURE => n.children().any(|c| {
-                c.kind() == SyntaxKind::NAME_REF && c.first_token().is_some_and(|t| t.text() == name)
-            }),
-            _ => n.children().any(named),
-        }
-    };
     for ancestor in from.ancestors().skip(1) {
-        for child in ancestor.children() {
-            let candidates: Vec<SyntaxNode> = match child.kind() {
-                SyntaxKind::PARAM_LIST
-                | SyntaxKind::TEMPLATE_PARAM_LIST
-                | SyntaxKind::CAPTURE_LIST => child.children().collect(),
-                _ => vec![child.clone()],
+        for c in scopes.declaring(&ancestor, name) {
+            // A template's wrapped declaration is `symbol`-ed into the
+            // scope the `template` keyword was written in
+            // (`Parser.hs:352-375`); only its parameters live inside.
+            // Its location is the template's — `symbolLoc` prints
+            // the `template` keyword's line for it.
+            let (scope, decl) = if ancestor.kind() == SyntaxKind::TEMPLATE_DECL
+                && !matches!(c.kind(), SyntaxKind::TYPE_PARAM | SyntaxKind::VALUE_PARAM)
+            {
+                (ancestor.parent().unwrap_or_else(|| ancestor.clone()), ancestor.clone())
+            } else {
+                (ancestor.clone(), c)
             };
-            for c in candidates {
-                if declares(&c) {
-                    // A template's wrapped declaration is `symbol`-ed into the
-                    // scope the `template` keyword was written in
-                    // (`Parser.hs:352-375`); only its parameters live inside.
-                    // Its location is the template's — `symbolLoc` prints
-                    // the `template` keyword's line for it.
-                    let (scope, decl) = if ancestor.kind() == SyntaxKind::TEMPLATE_DECL
-                        && !matches!(c.kind(), SyntaxKind::TYPE_PARAM | SyntaxKind::VALUE_PARAM)
-                    {
-                        (ancestor.parent().unwrap_or_else(|| ancestor.clone()), ancestor.clone())
-                    } else {
-                        (ancestor.clone(), c)
-                    };
-                    if held(&scope, &decl) {
-                        return Some((scope, decl));
-                    }
-                }
+            if held(&scope, &decl) {
+                return Some((scope, decl));
             }
         }
     }
     None
+}
+
+/// Each scope's direct declarations by name, read off one module's tree
+/// once a run. [`innermost_declaring_scope_where`] asks at every enclosing
+/// node of every mention, and reading a node's children and theirs at each
+/// ask was quadratic in a file: a mention at the top of a file read every
+/// top-level declaration, and `risc-v.k` spent half this run there, 40 ms
+/// of every `kg check` and every edit's diagnostics (2026-11-01).
+///
+/// Keyed by node, so only for nodes of the tree it was made for: a node of
+/// another parse is another node, but one its index never saw.
+#[derive(Default)]
+pub(crate) struct Scopes {
+    of: std::cell::RefCell<kg_base::FxHashMap<SyntaxNode, kg_base::FxHashMap<String, Vec<SyntaxNode>>>>,
+}
+
+impl Scopes {
+    /// The nodes that declare `name` directly in `scope` — its children,
+    /// and the members of a parameter, template-parameter or capture list
+    /// among them — in the tree's order.
+    fn declaring(&self, scope: &SyntaxNode, name: &str) -> Vec<SyntaxNode> {
+        let mut of = self.of.borrow_mut();
+        let index = of.entry(scope.clone()).or_insert_with(|| index_scope(scope));
+        index.get(name).cloned().unwrap_or_default()
+    }
+}
+
+/// [`Scopes::declaring`] for every name `scope` declares at once.
+fn index_scope(scope: &SyntaxNode) -> kg_base::FxHashMap<String, Vec<SyntaxNode>> {
+    let mut index: kg_base::FxHashMap<String, Vec<SyntaxNode>> = kg_base::FxHashMap::default();
+    let mut names = Vec::new();
+    for child in scope.children() {
+        let candidates: Vec<SyntaxNode> = match child.kind() {
+            SyntaxKind::PARAM_LIST | SyntaxKind::TEMPLATE_PARAM_LIST | SyntaxKind::CAPTURE_LIST => {
+                child.children().collect()
+            }
+            _ => vec![child.clone()],
+        };
+        for c in candidates {
+            names.clear();
+            declared_names(&c, &mut names);
+            for (i, name) in names.iter().enumerate() {
+                // A node is a declaring node of each of its names once.
+                if !names[..i].contains(name) {
+                    index.entry(name.clone()).or_default().push(c.clone());
+                }
+            }
+        }
+    }
+    index
+}
+
+/// The names `n` declares directly, as the parse-time table files them.
+fn declared_names(n: &SyntaxNode, out: &mut Vec<String>) {
+    let named = |parent: &SyntaxNode, kind: SyntaxKind, out: &mut Vec<String>| {
+        out.extend(
+            parent.children().filter(|c| c.kind() == kind).filter_map(|c| c.first_token()).map(|t| t.text().to_owned()),
+        );
+    };
+    match n.kind() {
+        // `import a.b as m` binds a qualifier, not a symbol
+        // (`SymbolTable.hs:276-278`); it is in no scope's table.
+        SyntaxKind::IMPORT_DECL => {}
+        SyntaxKind::TEMPLATE_DECL => {
+            if let Some(decl) = n.children().find(|c| c.kind() != SyntaxKind::TEMPLATE_PARAM_LIST) {
+                named(&decl, SyntaxKind::NAME, out);
+            }
+        }
+        SyntaxKind::CAPTURE => named(n, SyntaxKind::NAME_REF, out),
+        _ => named(n, SyntaxKind::NAME, out),
+    }
 }
 
 /// `symbolLoc` (`Error.hs:108-112`): `name:line:col`, 1-based, for a
@@ -983,7 +1032,7 @@ fn parse_time_receiver_fails(w: &Whole<'_>, type_of: &dyn Fn(&SyntaxNode) -> kg_
         && segment.template_arg_list().is_none()
         && let Some(name) = segment.name_ref().and_then(|n| n.ident_token())
     {
-        match innermost_in_parse_table(base, name.text()) {
+        match innermost_in_parse_table(w.scopes, base, name.text()) {
             Some((_, decl)) if matches!(decl.kind(), SyntaxKind::PARAM | SyntaxKind::VALUE_PARAM) => {
                 let written = decl.children().find_map(ast::Type::cast);
                 let args = written.is_none_or(|t| t.syntax().descendants().any(|n| n.kind() == SyntaxKind::TEMPLATE_ARG_LIST));
@@ -1034,7 +1083,7 @@ fn parse_time_receiver_fails(w: &Whole<'_>, type_of: &dyn Fn(&SyntaxNode) -> kg_
 /// [`parse_time_find_symbol`] reads it), or any import exposing the name —
 /// an ambiguity included, which is a rejection of its own.
 fn type_name_held_at(w: &Whole<'_>, at: &SyntaxNode, name: &str) -> bool {
-    match innermost_in_parse_table(at, name) {
+    match innermost_in_parse_table(w.scopes, at, name) {
         Some((scope, decl)) if scope.kind() == SyntaxKind::SOURCE_FILE => {
             let visible_from = match decl.kind() {
                 SyntaxKind::ALIAS_DECL | SyntaxKind::VAR_DECL | SyntaxKind::FN_DECL => decl.text_range().end(),
@@ -1737,5 +1786,155 @@ mod member_and_export_tests {
         let e = errors("inline void main()\n{\n    const (uint32 x, uint32 x) -> void f = main;\n}\n");
         assert!(e.iter().any(|m| m.starts_with("`x`: symbol redefinition")), "{e:?}");
         accepts("inline void Go(uint32 a)\n{\n}\n\ninline void Go2(uint32 a, uint32 b)\n{\n}\n\ninline void main()\n{\n    const (uint32 x, uint32 y) -> void f = Go2;\n    const (uint32 x) -> void g = Go;\n}\n");
+    }
+}
+
+#[cfg(test)]
+mod scopes_tests {
+    use kg_syntax::{SyntaxKind, SyntaxNode};
+
+    use super::{Scopes, in_parse_table_at, innermost_declaring_scope, innermost_in_parse_table};
+
+    /// The scan [`Scopes`] replaced (2026-11-01), as it was: every enclosing
+    /// node's children, and theirs, read again at each ask — the oracle the
+    /// index is held to.
+    fn scanned(
+        from: &SyntaxNode,
+        name: &str,
+        held: impl Fn(&SyntaxNode, &SyntaxNode) -> bool,
+    ) -> Option<(SyntaxNode, SyntaxNode)> {
+        let declares = |n: &SyntaxNode| -> bool {
+            let named = |child: SyntaxNode| {
+                child.kind() == SyntaxKind::NAME
+                    && child.first_token().is_some_and(|t| t.text() == name)
+            };
+            match n.kind() {
+                // `import a.b as m` binds a qualifier, not a symbol
+                // (`SymbolTable.hs:276-278`); it is in no scope's table.
+                SyntaxKind::IMPORT_DECL => false,
+                SyntaxKind::TEMPLATE_DECL => n
+                    .children()
+                    .find(|c| c.kind() != SyntaxKind::TEMPLATE_PARAM_LIST)
+                    .is_some_and(|decl| decl.children().any(named)),
+                SyntaxKind::CAPTURE => n.children().any(|c| {
+                    c.kind() == SyntaxKind::NAME_REF && c.first_token().is_some_and(|t| t.text() == name)
+                }),
+                _ => n.children().any(named),
+            }
+        };
+        for ancestor in from.ancestors().skip(1) {
+            for child in ancestor.children() {
+                let candidates: Vec<SyntaxNode> = match child.kind() {
+                    SyntaxKind::PARAM_LIST
+                    | SyntaxKind::TEMPLATE_PARAM_LIST
+                    | SyntaxKind::CAPTURE_LIST => child.children().collect(),
+                    _ => vec![child.clone()],
+                };
+                for c in candidates {
+                    if declares(&c) {
+                        // A template's wrapped declaration is `symbol`-ed into the
+                        // scope the `template` keyword was written in
+                        // (`Parser.hs:352-375`); only its parameters live inside.
+                        // Its location is the template's — `symbolLoc` prints
+                        // the `template` keyword's line for it.
+                        let (scope, decl) = if ancestor.kind() == SyntaxKind::TEMPLATE_DECL
+                            && !matches!(c.kind(), SyntaxKind::TYPE_PARAM | SyntaxKind::VALUE_PARAM)
+                        {
+                            (ancestor.parent().unwrap_or_else(|| ancestor.clone()), ancestor.clone())
+                        } else {
+                            (ancestor.clone(), c)
+                        };
+                        if held(&scope, &decl) {
+                            return Some((scope, decl));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Every mention of a name in `text` — each `NAME_REF`, asked from it
+    /// and from its parent — answered through one [`Scopes`] and by the
+    /// scan, with and without the parse-time table's rule: where the two
+    /// part, and the kinds of declaration the answers found.
+    fn parted(text: &str) -> (Vec<String>, Vec<SyntaxKind>) {
+        let root = kg_syntax::parse_file(text).syntax_node();
+        let scopes = Scopes::default();
+        let (mut parted, mut found) = (Vec::new(), Vec::new());
+        for mention in root.descendants().filter(|n| n.kind() == SyntaxKind::NAME_REF) {
+            let Some(token) = mention.first_token() else { continue };
+            let name = token.text();
+            for from in [Some(mention.clone()), mention.parent()].into_iter().flatten() {
+                let at = from.text_range().start();
+                let answers = [
+                    (innermost_declaring_scope(&scopes, &from, name), scanned(&from, name, |_, _| true)),
+                    (
+                        innermost_in_parse_table(&scopes, &from, name),
+                        scanned(&from, name, |scope, decl| in_parse_table_at(at, scope, decl)),
+                    ),
+                ];
+                for (indexed, scan) in answers {
+                    if indexed != scan {
+                        parted.push(format!("`{name}` at {:?}: indexed {indexed:?}, scanned {scan:?}", from.text_range()));
+                    }
+                    if let Some((_, decl)) = indexed
+                        && !found.contains(&decl.kind())
+                    {
+                        found.push(decl.kind());
+                    }
+                }
+            }
+        }
+        (parted, found)
+    }
+
+    #[test]
+    fn a_scope_read_once_answers_as_the_scan_at_every_mention() {
+        let fixture = "import a.b as m\n\nconst uint8 K = 1;\nconst uint8 K = 2;\n\ntemplate <typename T, auto N = K>\nclass Box\n{\n    T held;\n\n    T get(T x)\n    {\n        return x + N + held;\n    }\n}\n\nstruct S\n{\n    uint8 f;\n}\n\ntemplate <auto W>\ninline uint<W> widen(uint<W> v)\n{\n    return v + W;\n}\n\ninline uint8 twice(uint8 q)\n{\n    return q + q;\n}\n\ninline uint8 g(uint8 x, uint8 y)\n{\n    uint8 z = x + later;\n    {\n        uint8 x = z;\n        z = x + y + K;\n    }\n    const auto fn = [x, z](uint8 a) -> uint8\n    {\n        return a + x + z;\n    };\n    uint8 later = fn(y);\n    S s;\n    Box<uint8, 2> b;\n    return widen<8>(s.f) + b.get(later) + twice(z) + m::h(z);\n}\n";
+        let (parted_here, found) = parted(fixture);
+        assert_eq!(parted_here, Vec::<String>::new());
+        for kind in [
+            SyntaxKind::PARAM,
+            SyntaxKind::VAR_DECL,
+            SyntaxKind::TYPE_PARAM,
+            SyntaxKind::VALUE_PARAM,
+            SyntaxKind::CAPTURE,
+            SyntaxKind::TEMPLATE_DECL,
+            SyntaxKind::FN_DECL,
+            SyntaxKind::STRUCT_DECL,
+        ] {
+            assert!(found.contains(&kind), "the fixture reaches a {kind:?}: found {found:?}");
+        }
+
+        let root = kg_base::reference_root();
+        let library = root.join("library");
+        if !library.is_dir() {
+            kg_base::corpus_absent(&format!("no library at {}; set KANAGAWA_ROOT", library.display()));
+            return;
+        }
+        let editions = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/editions");
+        let mut dirs = vec![library, root.join("test"), editions];
+        let mut files = Vec::new();
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().map(Result::unwrap) {
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|e| e == "k") {
+                    files.push(path);
+                }
+            }
+        }
+        files.sort();
+        assert!(files.len() > 400, "the library, the corpus and the editions fixtures: {} files", files.len());
+        let mut parted_all = Vec::new();
+        for path in &files {
+            // `test/syntax/imports/binary.k` is four bytes that are no text:
+            // read lossily, it is a tree both answer alike.
+            let text = String::from_utf8_lossy(&std::fs::read(path).unwrap()).into_owned();
+            parted_all.extend(parted(&text).0.into_iter().take(3).map(|p| format!("{}: {p}", path.display())));
+        }
+        assert_eq!(parted_all, Vec::<String>::new());
     }
 }

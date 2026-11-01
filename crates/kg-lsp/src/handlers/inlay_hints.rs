@@ -1,5 +1,6 @@
 //! `textDocument/inlayHint` — the width the compiler inferred, shown where the
-//! source says `auto`.
+//! source says `auto`; and, at a call short of arguments, the defaults it is
+//! given (edition 1.1, `docs/editions/1.1/default-arguments.md`).
 //!
 //! # Why this feature and not another
 //!
@@ -60,10 +61,25 @@
 //! missing hint reads as "not inferred", which is true, while a wrong or blank
 //! one reads as a fact about the code. So this shows a type only when the
 //! frontend actually has one.
+//!
+//! # The defaults a call is given
+//!
+//! A call that leaves out a parameter with a default is compiled with the
+//! default in its place (`kg_sem::named`), and nothing on the line says
+//! which value that is. The hint says it where the argument would be
+//! written, `scale(p⟨, shift: 1⟩)`, spelled as the declaration spells the
+//! default — the callee is resolved as go to definition resolves it, and
+//! its parameter list read as written. Only at a call spelled as a function
+//! that some file of the program declares a default for, in a language that
+//! has them ([`kg_db::Db::defaulting_functions`], read once per parse): a
+//! program that declares none pays a look at each of its files per request
+//! and resolves nothing. A method's receiver is typed by a loop already
+//! run, never one the request starts or waits for, so a method call shows
+//! its defaults once the editor has a loop that types it.
 
-use kg_base::{LineIndex, TextRange, TextSize};
+use kg_base::{FxHashMap, LineIndex, TextRange, TextSize};
 use kg_db::looped::IrAnswer;
-use kg_resolve::ModuleSource;
+use kg_resolve::{DefId, ModuleSource};
 use kg_syntax::{AstNode, SyntaxKind, SyntaxNode, ast};
 use kg_ty::Ty;
 use lsp_types::{
@@ -82,9 +98,11 @@ use crate::handlers::{Answer, instances};
 /// [`kg_db::Db::type_table`] is a whole-file fixpoint. The cheap half runs
 /// first: `auto_bindings` walks only the subtrees that overlap the requested
 /// range and **returns before any database is touched** when that range holds no
-/// `auto` at all — which is most viewports of most files. Scrolling through a
-/// class body of ordinary declarations therefore costs one pruned tree walk per
-/// request and no inference.
+/// `auto` and no call at all. A range of calls alone asks the database what
+/// their callees declare — only a call spelled as a function the program
+/// declares a default for, and no further than one look at each file's
+/// declarations in a program with none — and neither runs nor waits for a
+/// loop.
 ///
 /// The pruning is a real prune, not a filter over `descendants()`: a subtree
 /// that cannot contain a hint position is never entered.
@@ -94,8 +112,10 @@ pub fn inlay_hints(state: &GlobalState, params: &InlayHintParams) -> Answer<Vec<
     let enc = state.encoding();
     let range = convert::text_range(index, enc, params.range);
 
-    let sites = auto_bindings(&snap.parse.syntax_node(), range);
-    if sites.is_empty() {
+    let root = snap.parse.syntax_node();
+    let sites = auto_bindings(&root, range);
+    let calls = calls_in(&root, range);
+    if sites.is_empty() && calls.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -106,9 +126,11 @@ pub fn inlay_hints(state: &GlobalState, params: &InlayHintParams) -> Answer<Vec<
     let hints = state.with_db(snap.file, |db| {
         let roots = [snap.file];
         let module = ModuleSource::File(snap.file);
-        let looped = db.editor_loop(&roots, snap.file);
+        // A viewport of calls alone asks for no loop: the defaults hint
+        // reads one that has run, or none.
+        let looped = if sites.is_empty() { None } else { db.editor_loop(&roots, snap.file) };
         let names = db.interner();
-        sites
+        let mut hints: Vec<InlayHint> = sites
             .iter()
             .filter_map(|site| {
                 let range = site.decl.text_range();
@@ -123,7 +145,10 @@ pub fn inlay_hints(state: &GlobalState, params: &InlayHintParams) -> Answer<Vec<
                     None => None,
                 }
             })
-            .collect()
+            .collect();
+        hints.extend(default_hints(db, snap.file, &calls, looped.as_ref(), index, enc));
+        hints.sort_by_key(|h| (h.position.line, h.position.character));
+        hints
     });
     Ok(hints.unwrap_or_default())
 }
@@ -148,6 +173,135 @@ fn copies_hint(
     let label = instances::label(types, names);
     let tooltip = instances::tooltip(types, untyped, budget_exhausted, names);
     type_hint(at, &label, Some(tooltip), index, enc)
+}
+
+/// Every call whose closing `)` lands inside `range`, pruned as
+/// [`auto_bindings`] prunes.
+fn calls_in(root: &SyntaxNode, range: TextRange) -> Vec<ast::CallExpr> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.clone()];
+    while let Some(node) = stack.pop() {
+        if let Some(call) = ast::CallExpr::cast(node.clone())
+            && close_of(&call).is_some_and(|at| range.contains_inclusive(at))
+        {
+            out.push(call);
+        }
+        stack.extend(node.children().filter(|child| {
+            let span = child.text_range();
+            span.end() >= range.start() && span.start() <= range.end()
+        }));
+    }
+    out
+}
+
+/// Where a call's `)` starts: where an argument left out would be written.
+fn close_of(call: &ast::CallExpr) -> Option<TextSize> {
+    let close = call.arg_list()?.syntax().last_token().filter(|t| t.kind() == SyntaxKind::R_PAREN)?;
+    Some(close.text_range().start())
+}
+
+/// The defaults each of `calls` is given, one hint a call — see the module
+/// docs. None where no file of the program declares one, and no call is
+/// resolved but one spelled as a function that does.
+///
+/// The callees are resolved as signature help resolves them, through one
+/// [`kg_db::Db::resolver`] for the file — which reads the file once for
+/// every call, where each call alone reads every scope it climbs — and a
+/// method's receiver typed by `looped`, the loop the type hints already
+/// waited for, or else the newest the editor has ready
+/// ([`kg_db::Db::editor_loop_ready`]): a viewport of calls waits for no
+/// loop, and a method call no loop has typed yet is given no hint.
+fn default_hints(
+    db: &kg_db::Db,
+    file: kg_base::FileId,
+    calls: &[ast::CallExpr],
+    looped: Option<&kg_db::looped::EditorLoop>,
+    index: &LineIndex,
+    enc: PositionEncoding,
+) -> Vec<InlayHint> {
+    let roots = [file];
+    if calls.is_empty() {
+        return Vec::new();
+    }
+    let defaulting: Vec<std::sync::Arc<[String]>> =
+        db.program(&roots).files.iter().map(|&m| db.defaulting_functions(m)).filter(|names| !names.is_empty()).collect();
+    if defaulting.is_empty() {
+        return Vec::new();
+    }
+    let declares_default = |name: &str| defaulting.iter().any(|names| names.binary_search_by(|n| n.as_str().cmp(name)).is_ok());
+    let resolver = db.resolver(file);
+    let ready = std::cell::OnceCell::new();
+    let looped = || looped.cloned().or_else(|| ready.get_or_init(|| db.editor_loop_ready(&roots)).clone());
+    let mut declared: FxHashMap<DefId, Option<Vec<ast::Param>>> = FxHashMap::default();
+    let mut out = Vec::new();
+    for call in calls {
+        let Some(name) = kg_db::navigate::callee_name(call) else { continue };
+        if !declares_default(name.text()) {
+            continue;
+        }
+        let (Some(probe), Some(at), Some(list)) = (kg_db::navigate::callee_probe(call), close_of(call), call.arg_list()) else {
+            continue;
+        };
+        // One declaration or none, as `Db::definition_at` answers.
+        let found = match resolver.definitions_at(&looped, &roots, probe).as_slice() {
+            [one] => one.clone(),
+            _ => continue,
+        };
+        let params = declared.entry(found.def).or_insert_with(|| {
+            let decl = db.function_declaration(&found)?;
+            let params = ast::FnDecl::cast(decl.clone())
+                .and_then(|f| f.param_list())
+                .or_else(|| ast::FnProto::cast(decl).and_then(|f| f.param_list()))?;
+            Some(params.params().collect())
+        });
+        let Some(params) = params else { continue };
+        if let Some(hint) = default_hint(&list, params, at, index, enc) {
+            out.push(hint);
+        }
+    }
+    out
+}
+
+/// The hint for one call: each parameter no argument fills, with its
+/// default as declared — or none, where one it leaves out has no default
+/// (an error, which the diagnostics say) or it leaves out none.
+fn default_hint(list: &ast::ArgList, params: &[ast::Param], at: TextSize, index: &LineIndex, enc: PositionEncoding) -> Option<InlayHint> {
+    let names: Vec<String> =
+        params.iter().map(|p| p.name().and_then(|n| n.ident_token()).map(|t| t.text().to_owned()).unwrap_or_default()).collect();
+    let named: Vec<&str> = names.iter().map(String::as_str).collect();
+    let filled = kg_db::navigate::filled_parameters(&kg_db::navigate::argument_slots(list.syntax()), &named);
+    let mut given = Vec::new();
+    for ((param, name), _) in params.iter().zip(&names).zip(&filled).filter(|(_, f)| !**f) {
+        let default = kg_db::navigate::written_default(param.syntax())?;
+        if name.is_empty() {
+            return None;
+        }
+        given.push(format!("{name}: {}", kg_db::navigate::one_line(&default)));
+    }
+    if given.is_empty() {
+        return None;
+    }
+    // After an argument, the comma that would come before the next; after a
+    // trailing comma, or in an empty list, none.
+    let after_argument = list
+        .syntax()
+        .children_with_tokens()
+        .filter(|e| !e.kind().is_trivia() && e.kind() != SyntaxKind::R_PAREN)
+        .last()
+        .is_some_and(|e| !matches!(e.kind(), SyntaxKind::COMMA | SyntaxKind::L_PAREN));
+    let given = given.join(", ");
+    Some(InlayHint {
+        position: convert::position(index, enc, at),
+        label: InlayHintLabel::String(if after_argument { format!(", {given}") } else { given }),
+        kind: Some(InlayHintKind::PARAMETER),
+        // No `text_edits`: writing the defaults in is a choice the reader
+        // makes, and the hint is what the call means either way.
+        text_edits: None,
+        tooltip: Some(InlayHintTooltip::String("the defaults this call is given, as declared".to_owned())),
+        padding_left: Some(false),
+        padding_right: Some(false),
+        data: None,
+    })
 }
 
 /// One declaration that spells its type `auto`, and where its hint goes.
@@ -667,5 +821,124 @@ mod tests {
             })
             .collect();
         assert_eq!(labels, [": uint8"]);
+    }
+
+    /// The defaults hints over the whole of `name`, opened in a project of
+    /// `files` in edition 1.1 or, with `edition_1_1` false, the reference —
+    /// each as `(line, column, label)`.
+    fn defaults_shown(tag: &str, edition_1_1: bool, files: &[(&str, &str)], name: &str) -> Vec<(u32, u32, String)> {
+        use crate::handlers::references::tests::{lay_out, lay_out_1_1, open_one};
+        let (dir, state, src) = if edition_1_1 { lay_out_1_1(tag, files) } else { lay_out(tag, files) };
+        let uri = open_one(&state, &src, files, name);
+        let hints = inlay_hints(&state, &params(&uri, whole_file())).expect("open");
+        std::fs::remove_dir_all(&dir).unwrap();
+        hints
+            .into_iter()
+            .filter(|h| h.kind == Some(InlayHintKind::PARAMETER))
+            .map(|h| match h.label {
+                InlayHintLabel::String(s) => (h.position.line, h.position.character, s),
+                other => panic!("expected a plain label, got {other:?}"),
+            })
+            .collect()
+    }
+
+    /// A call short of arguments shows the defaults it is given, as declared,
+    /// where the next argument would be written — after the positional
+    /// arguments, around the named ones, with no comma after a trailing one or
+    /// in an empty list — and a call given every argument, or one short of a
+    /// parameter with no default, shows nothing. Red with the filled slots
+    /// miscounted, a label's parameter not taken as filled, or the comma
+    /// always or never written.
+    #[test]
+    fn a_short_call_shows_the_defaults_it_is_given() {
+        let text = "\
+inline uint8 scale(uint8 value = 0, uint8 shift = 1, bool round = false)
+{
+    return round ? value >> shift : value << shift;
+}
+
+inline uint8 mix(uint8 value, uint8 by = 2)
+{
+    return value + by;
+}
+
+inline uint8 main(uint8 p)
+{
+    uint8 a = scale(p);
+    uint8 b = scale(p, round: true);
+    uint8 c = scale(shift: 3, );
+    uint8 d = scale();
+    uint8 e = scale(p, 2, true);
+    uint8 f = mix(by: 1);
+    return a + b + c + d + e + f;
+}
+";
+        assert_eq!(
+            defaults_shown("inlay-defaults", true, &[("hints.k", text)], "hints.k"),
+            [
+                (12, 21, ", shift: 1, round: false".to_owned()),
+                (13, 34, ", shift: 1".to_owned()),
+                (14, 30, "value: 0, round: false".to_owned()),
+                (15, 20, "value: 0, shift: 1, round: false".to_owned()),
+            ]
+        );
+    }
+
+    /// A callee written with template arguments is resolved by its own
+    /// name, and a call of it short of an argument shows the default, as
+    /// the same call with none does. Red with the callee's last identifier
+    /// taken for its name: the template's label `N`, which names no
+    /// function.
+    #[test]
+    fn a_callee_with_template_arguments_shows_its_defaults() {
+        let text = "template <auto N = 2>\ninline uint8 scaled(uint8 x, uint8 shift = 1)\n{\n    return x * N << shift;\n}\n\ninline uint8 main(uint8 p)\n{\n    return scaled<N: 3>(x: p) + scaled(p);\n}\n";
+        assert_eq!(
+            defaults_shown("inlay-template-callee", true, &[("main.k", text)], "main.k"),
+            [(8, 28, ", shift: 1".to_owned()), (8, 40, ", shift: 1".to_owned())]
+        );
+    }
+
+    /// A program of edition 1.0 is given no defaults: a default written
+    /// there is a parse error — the reference's parameter is a type and a
+    /// name and nothing after (`Parser.hs:379`) — and no call is resolved
+    /// for one. The same file in a project of 1.1 shows it. Red with the
+    /// defaults read off a file whose language has none.
+    #[test]
+    fn a_program_of_edition_1_0_shows_no_defaults() {
+        let text = "inline uint8 scale(uint8 v, uint8 s = 1)\n{\n    return v << s;\n}\n\ninline uint8 main(uint8 p)\n{\n    return scale(p);\n}\n";
+        assert_eq!(defaults_shown("inlay-1-0", false, &[("main.k", text)], "main.k"), []);
+        assert_eq!(defaults_shown("inlay-1-1", true, &[("main.k", text)], "main.k"), [(7, 18, ", s: 1".to_owned())]);
+    }
+
+    /// A method call's receiver is typed by a loop that has run: none has
+    /// for a buffer just opened, and the hint waits for none — no default
+    /// shown, and no loop run — and once the diagnostics' loop has run, the
+    /// method's defaults. Red with the callee resolved through
+    /// `Db::definition_at`, whose loop the first request runs.
+    #[test]
+    fn a_method_call_shows_its_defaults_once_a_loop_typed_its_receiver() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "class Scaler\n{\npublic:\n    uint8 scale(uint8 v, uint8 s = 1)\n    {\n        return v << s;\n    }\n}\n\nScaler c;\n\ninline uint8 main(uint8 p)\n{\n    return c.scale(p);\n}\n";
+        let files = [("main.k", text)];
+        let (dir, state, src) = lay_out_1_1("inlay-method", &files);
+        let uri = open_one(&state, &src, &files, "main.k");
+        let file = state.snapshot(&uri).expect("open").file;
+        let loops = || state.with_db(file, |db| db.stats().misses(kg_db::stats::Query::Looped)).expect("open");
+        let shown = || {
+            let hints = inlay_hints(&state, &params(&uri, whole_file())).expect("open");
+            hints
+                .into_iter()
+                .filter_map(|h| match h.label {
+                    InlayHintLabel::String(s) => Some((h.position.line, h.position.character, s)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let before = loops();
+        assert_eq!(shown(), [], "no loop has typed `c`");
+        assert_eq!(loops(), before, "an inlay request ran the loop");
+        state.with_db(file, |db| db.looped(&[file])).expect("open");
+        assert_eq!(shown(), [(13, 20, ", s: 1".to_owned())]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

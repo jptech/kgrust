@@ -1,0 +1,111 @@
+// A trailing comma in every list that may hold one: a module's exposure list,
+// enum constants, template parameters and arguments, a template template
+// parameter's kinds, parameters, a function type's parameters, call
+// arguments, an intrinsic's arguments (`mux`, `concat`), a lambda's
+// captures, both shapes of initializer list, and attributes. Written one
+// element a line, as a list that grows a line at a time is.
+
+module lists {
+    Mode,
+    Pair,
+    Scaler,
+    Holder,
+    apply,
+    C,
+}
+
+enum Mode : uint2
+{
+    Idle,
+    Run,
+    Halt,
+}
+
+struct Pair
+{
+    uint8 lo;
+    uint8 hi;
+}
+
+template <
+    typename T,
+    auto Scale,
+>
+class Scaler
+{
+public:
+    T scale(
+        T x,
+        T offset,
+    )
+    {
+        return x * Scale + offset;
+    }
+}
+
+template <
+    template <typename, auto,> typename S,
+>
+class Holder
+{
+public:
+    S<uint8, 2> held;
+}
+
+inline uint8 apply(
+    (uint8, uint8,) -> uint8 f,
+    uint8 x,
+)
+{
+    return f(x, 1,);
+}
+
+class C
+{
+private:
+    Holder<Scaler> _holder;
+    [[memory, non_replicated,]] uint8[4] _table;
+    Scaler<
+        uint8,
+        3,
+    > _scaler;
+
+public:
+    uint8 run(uint8 p)
+    {
+        uint8[3] xs = {
+            p,
+            1,
+            2,
+        };
+        Pair pair = {
+            .lo = p,
+            .hi = xs[1],
+        };
+        Mode m = Mode::Run;
+        uint8 a = _scaler.scale(
+            pair.lo,
+            pair.hi,
+        );
+        uint8 b = apply(
+            [](uint8 x, uint8 y,) -> uint8 { return x + y; },
+            a,
+        );
+        uint8 c = mux(
+            cast<uint1>(p),
+            a,
+            b,
+        );
+        uint16 d = concat(
+            a,
+            c,
+        );
+        auto shift = [
+            p,
+            c,
+        ](uint8 y) -> uint8 { return (p + c) >> y; };
+        return m == Mode::Run ? shift(cast<uint8>(d)) : xs[2];
+    }
+}
+
+export C;

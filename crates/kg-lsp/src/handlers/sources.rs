@@ -16,12 +16,18 @@ use kg_config::Settings;
 /// left out. Without a manifest the root is only the directory the first
 /// file was opened from ([`Settings::fallback`]), and nothing says what
 /// else is the project's, so it is not walked.
-pub(crate) fn project_sources(settings: &Settings) -> Vec<Utf8PathBuf> {
+///
+/// Every file the root's walk adds is in the project's language: the
+/// nearest manifest above it is the root's, the directories with one of
+/// their own being left out. So a search for what only some languages can
+/// write passes `root: false` in a project whose language cannot, and
+/// walks the import directories alone, whose packages may be in any.
+pub(crate) fn project_sources(settings: &Settings, root: bool) -> Vec<Utf8PathBuf> {
     let mut out = Vec::new();
     for dir in &settings.import_dirs {
         sources_under(dir, false, &mut |path| out.push(path));
     }
-    if settings.root.join(kg_config::MANIFEST_NAME).is_file() {
+    if root && settings.root.join(kg_config::MANIFEST_NAME).is_file() {
         sources_under(&settings.root, true, &mut |path| out.push(path));
     }
     out.sort();

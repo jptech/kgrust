@@ -134,8 +134,8 @@ use kg_ty::{FunctionKind, QualifiedName};
 use crate::arena::{ExpArena, ExpId};
 use crate::exp::Exp;
 use crate::rewrite::{
-    desugar, get_name, get_qualifier, ident_sym, is_abbreviated_template, is_local_scope, local_identifier,
-    scoped_qualifier, Rewriter, ShallowRewrite,
+    desugar, desugar_touching, get_name, get_qualifier, ident_sym, is_abbreviated_template, is_local_scope,
+    local_identifier, scoped_qualifier, Rewriter, ShallowRewrite,
 };
 
 /// `getSymbols''` builds `HashMap QualifiedName (NotedExp n e)`
@@ -329,8 +329,13 @@ impl MoveFunctions<'_> {
         let symbols = collect_symbols(rw.arena, rw.interner, body);
 
         // `desugar fixScopedName $ desugar qualifyName $ body parent` (`:35`)
-        // — two catas, deliberately not fused (module comment).
-        let body = desugar(rw, body, &mut |rw, _id, e| qualify_name(rw, &symbols, e));
+        // — two catas, deliberately not fused (module comment). Each
+        // algebra hands back as it came every node but its one shape, so
+        // neither clones and compares the rest: the two were most of this
+        // pass's 6% of `kg check` on `risc-v.k` (2026-11-01).
+        let body = desugar_touching(rw, body, &|e| matches!(e, Exp::QualifiedIdentifier(_)), &mut |rw, _id, e| {
+            qualify_name(rw, &symbols, e)
+        });
 
         // `selectedQualifiedNames` (`:69-70`), read off the qualified body:
         // `fixScopedName` changes none of the fields these read, so reading
@@ -348,7 +353,7 @@ impl MoveFunctions<'_> {
         // (difffuzz, 2026-09-24).
         let sel_qnames: FxHashSet<Vec<Symbol>> = sel_qnames.into_iter().collect();
         let sel_leaves: FxHashSet<Symbol> = sel_qnames.iter().filter_map(|q| q.last().copied()).collect();
-        let body = desugar(rw, body, &mut |rw, _id, e| {
+        let body = desugar_touching(rw, body, &|e| matches!(e, Exp::ScopedName { .. }), &mut |rw, _id, e| {
             fix_scoped_name(rw, &sel_qnames, &sel_leaves, &parent_qualifier, parent_name, e)
         });
 

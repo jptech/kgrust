@@ -255,6 +255,10 @@ impl<'a> Writer<'a> {
                 self.line(label, id, depth, &format!("Positional {index}"));
                 self.node("value", value, d);
             }
+            Exp::Labelled { label: name, value } => {
+                self.line(label, id, depth, &format!("Labelled {}", self.sym(name)));
+                self.node("value", value, d);
+            }
             Exp::InitializerList(e) => {
                 self.line(label, id, depth, "InitializerList");
                 self.node("items", e, d);
@@ -528,11 +532,12 @@ impl<'a> Writer<'a> {
                 self.node("name", name, d);
                 self.opt("init", init, d);
             }
-            Exp::FuncParam { scope, attr, ty, name } => {
+            Exp::FuncParam { scope, attr, ty, name, default } => {
                 self.line(label, id, depth, &format!("FuncParam scope={}", self.scope(&scope)));
                 self.node("attr", attr, d);
                 self.node("ty", ty, d);
                 self.node("name", name, d);
+                self.opt("default", default, d);
             }
             Exp::Function { scope, kind, attr, modifier, ret, name, params, body } => {
                 self.line(

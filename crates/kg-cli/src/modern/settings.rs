@@ -79,6 +79,10 @@ pub struct Overrides {
     pub no_implicit_base: bool,
     pub target_device: Option<String>,
     pub parse_docs: bool,
+    /// `--edition` and `--feature`: the project's language, over the
+    /// manifest's.
+    pub edition: Option<String>,
+    pub features: Vec<String>,
     /// `-W <name>` / `-W no-<name>` / `-W all` / `-W error`, in order.
     pub warnings: Vec<String>,
 }
@@ -148,7 +152,22 @@ pub fn resolve(
                 manifest.project.sources.iter().map(|s| join(&root, s)).collect::<Vec<_>>();
             (Settings::from_manifest(&manifest, path), sources, Some(manifest))
         }
-        None => (Settings::fallback(cwd), Vec::new(), None),
+        None => {
+            let mut settings = Settings::fallback(cwd);
+            // With no manifest the project, for its language, is where its
+            // inputs are — what `--edition` and `--feature` then reach —
+            // not where the shell stands, which roots relative paths only.
+            // `--no-manifest` reads none for the language either, a nested
+            // package's included.
+            let inputs = if start.is_dir() { start } else { start.parent().unwrap_or(start) };
+            let project = settings.language.project();
+            settings.language = if no_manifest {
+                kg_config::LanguageMap::fixed(inputs, project)
+            } else {
+                kg_config::LanguageMap::new(inputs, project)
+            };
+            (settings, Vec::new(), None)
+        }
     };
 
     apply_env(&mut settings, env);
@@ -252,6 +271,11 @@ fn apply_overrides(settings: &mut Settings, overrides: &Overrides) -> Result<(),
     }
     if overrides.parse_docs {
         settings.parse_docs = true;
+    }
+    if overrides.edition.is_some() || !overrides.features.is_empty() {
+        let language =
+            kg_config::overridden(settings.language.project(), overrides.edition.as_deref(), &overrides.features)?;
+        settings.language = settings.language.with_project(language);
     }
 
     // `-W` switches fold left over whatever the manifest resolved to, exactly

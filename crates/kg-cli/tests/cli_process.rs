@@ -31,6 +31,14 @@ impl Scratch {
     fn path(&self) -> &Path {
         &self.0
     }
+
+    /// [`Scratch::file`] at a relative path, its directories made.
+    fn file_at(&self, rel: &str, contents: &str) -> PathBuf {
+        let path = self.0.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).expect("scratch subdirectory");
+        std::fs::write(&path, contents).expect("write scratch file");
+        path
+    }
 }
 
 impl Drop for Scratch {
@@ -678,6 +686,83 @@ fn kg_help_and_version_exit_zero() {
         let run = run_in(KG, scratch.path(), &args);
         assert_eq!(run.code, 0, "{args:?}: {}", run.stderr);
         assert!(!run.stdout.is_empty(), "{args:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Editions (`docs/editions/README.md`)
+// ---------------------------------------------------------------------------
+
+const EDITION_1_1: &str = "[package]\nedition = \"1.1\"\n";
+const NAMED_CALL: &str = "inline uint8 sub(uint8 x, uint8 y) { return x - y; }\n\ninline uint8 f(uint8 p) { return sub(y: p, x: 2); }\n";
+const NEEDED: &str = "named arguments need edition 1.1";
+
+/// The compat binary is the reference's command line, and the reference
+/// reads no manifest: a file under a package of edition 1.1 is the
+/// reference's wherever the shell stands — it once read the manifest from
+/// every directory but the file's own.
+#[test]
+fn the_compat_binary_never_opts_in_wherever_it_runs() {
+    let scratch = Scratch::new("compat-edition");
+    scratch.file_at("pkg/kanagawa.toml", EDITION_1_1);
+    scratch.file_at("pkg/a.k", NAMED_CALL);
+    let env = [("KG_BACKEND_DIR", "none")];
+    for (dir, file) in [(scratch.path().to_owned(), "pkg/a.k"), (scratch.path().join("pkg"), "a.k")] {
+        let run = run_in_env(KANAGAWA, &dir, &[file], &env);
+        assert_eq!(run.code, 1, "from {}: {}{}", dir.display(), run.stdout, run.stderr);
+        assert!(run.stdout.contains("Error 1") && run.stdout.contains(NEEDED), "from {}: {}", dir.display(), run.stdout);
+    }
+}
+
+/// `--no-manifest` reads none for the language either: a nested package's
+/// manifest no longer decides, whichever path names the file.
+#[test]
+fn kg_no_manifest_reads_no_manifest_for_the_language() {
+    let scratch = Scratch::new("no-manifest-edition");
+    scratch.file_at("pkg/kanagawa.toml", EDITION_1_1);
+    scratch.file_at("pkg/a.k", NAMED_CALL);
+    for input in ["pkg/a.k", "."] {
+        let run = run_in(KG, scratch.path(), &["--no-manifest", "check", input]);
+        assert_eq!(run.code, 1, "{input}: {}{}", run.stdout, run.stderr);
+        assert!(run.stdout.contains(NEEDED), "{input}: {}", run.stdout);
+    }
+    let run = run_in(KG, scratch.path(), &["check", "."]);
+    assert_eq!(run.code, 0, "the manifest, read: {}{}", run.stdout, run.stderr);
+}
+
+/// A dependency's manifest that does not load is reported as the project's
+/// own would be, and fails the check: an unknown edition is an error, never
+/// ignored. It used to read the dependency as 1.0 and say nothing.
+#[test]
+fn kg_check_reports_a_dependency_manifest_it_cannot_read() {
+    let scratch = Scratch::new("refused-dependency");
+    scratch.file_at("app/kanagawa.toml", "[project]\nimport-dirs = [\"../lib\"]\nimplicit-base = false\n");
+    scratch.file_at("app/main.k", "import lib\n\ninline uint8 g(uint8 p) { return pick(p); }\n");
+    scratch.file_at("lib/kanagawa.toml", "[package]\nedition = \"9.9\"\n");
+    scratch.file_at("lib/lib.k", "module lib { pick }\n\ninline uint8 pick(uint8 x) { return x; }\n");
+    let run = run_in(KG, &scratch.path().join("app"), &["check", "main.k"]);
+    assert_eq!(run.code, 2, "{}{}", run.stdout, run.stderr);
+    assert!(run.stderr.contains("unknown edition `9.9`"), "{}", run.stderr);
+    assert!(run.stderr.contains("kanagawa.toml"), "{}", run.stderr);
+    std::fs::write(scratch.path().join("lib/kanagawa.toml"), EDITION_1_1).unwrap();
+    let run = run_in(KG, &scratch.path().join("app"), &["check", "main.k"]);
+    assert_eq!(run.code, 0, "fixed: {}{}", run.stdout, run.stderr);
+}
+
+/// `kg fmt` takes `--edition` and `--feature`, so a 1.1 file with no
+/// manifest can be formatted as it can be checked.
+#[test]
+fn kg_fmt_takes_the_language_flags() {
+    let scratch = Scratch::new("fmt-edition");
+    scratch.file("n.k", NAMED_CALL);
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "fmt", "--stdout", "n.k"]);
+    assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
+    assert!(run.stderr.contains(NEEDED), "{}", run.stderr);
+    for flags in [&["--edition", "1.1"][..], &["--feature", "named-arguments"]] {
+        let args: Vec<&str> = ["--no-manifest", "fmt", "--stdout"].iter().chain(flags).chain(&["n.k"]).copied().collect();
+        let run = run_in(KG, scratch.path(), &args);
+        assert_eq!(run.code, 0, "{flags:?}: {}{}", run.stdout, run.stderr);
+        assert!(run.stdout.contains("sub(y: p, x: 2)"), "{flags:?}: {}", run.stdout);
     }
 }
 

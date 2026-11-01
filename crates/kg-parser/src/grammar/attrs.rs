@@ -156,7 +156,7 @@ fn group(p: &mut Parser<'_>, permitted: &[Spec]) {
     p.bump(L_BRACK);
     loop {
         attr(p, permitted);
-        if !p.eat(COMMA) {
+        if !p.eat_list_comma(R_BRACK) {
             break;
         }
     }
@@ -236,6 +236,12 @@ fn scan_group(p: &Parser<'_>, from: usize, permitted: &[Spec]) -> Option<usize> 
         i = scan_attr(p, i, permitted)?;
         if p.nth_at(i, COMMA) {
             i += 1;
+            // A trailing comma (`Parser::eat_list_comma`), which `sepBy1`
+            // leaves the reference to reject (`Parser.hs:163`): the group is
+            // still this list's, and the parse says what a 1.0 file lacks.
+            if p.nth_at(i, R_BRACK) {
+                break;
+            }
             continue;
         }
         break;

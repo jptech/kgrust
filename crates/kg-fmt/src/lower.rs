@@ -376,6 +376,10 @@ impl<'a> Lowerer<'a> {
             TEMPLATE_DECL => self.template_decl(n, at),
             TEMPLATE_PARAM_LIST => self.template_param_list(n, at),
             PARAM_LIST | ARG_LIST => self.delim_node(n, at, paren_list_cfg()),
+            // Edition 1.1's `f(x: 1)`: the colon hugs the label, as a switch
+            // arm's does. No measurement backs it: the corpus is reference
+            // Kanagawa, which has no named arguments.
+            ARG_LABEL => self.tight(n, at),
             FN_TYPE_PARAM_LIST => self.delim_node(n, at, fn_type_list_cfg()),
             TEMPLATE_ARG_LIST | CAPTURE_LIST => self.delim_node(n, at, tight_list_cfg()),
             INIT_LIST_EXPR => self.init_list(n, at),
@@ -619,6 +623,16 @@ impl<'a> Lowerer<'a> {
         if at.item_start {
             cfg.open_breaks = false;
             cfg.indent = false;
+        }
+        // Edition 1.1's trailing comma (`docs/editions/1.1/trailing-commas.md`):
+        // a list that ends in one is laid out for it — when broken, one item a
+        // line with the comma after each and the closer on a line of its own,
+        // the layout that lets a list grow a line at a time. The house style's
+        // leading separators (`docs/spec/style.md` §3.7) would leave the last
+        // comma alone on a line. The reference writes no trailing comma, so no
+        // corpus file reaches this.
+        if !cfg.preserve && close > open + 1 && ch.kind(close - 1) == COMMA {
+            cfg = ListCfg { open_breaks: false, hug: false, leading: false, indent: false, ..cfg };
         }
         // A list that never breaks on width still breaks for a comment: a
         // `//` inside one would swallow whatever followed it.

@@ -6,7 +6,51 @@ Notable changes to kgrust, newest first. The format follows
 
 ## [Unreleased]
 
+## 0.2.0 — language editions, 2026-10-31
+
+The first release since the published state. Its headline is language
+editions: a package may opt into edition `1.1`, a preview of call sites
+that say what they mean, while every program that does not opt in reads
+exactly as the reference reads it. Also new: `kg board` and `cargo xtask
+install`.
+
 ### Added
+
+- Language editions, opt-in per package: `[package] edition` in
+  `kanagawa.toml` (`"1.0"`, the reference, by default), single features
+  under `[language] features`, and `--edition` / `--feature` for one run
+  (`check`, `build`, `doc`, `fmt`, `dump`). A file is read in its own
+  package's language, found from the nearest `kanagawa.toml` above it: the
+  standard library, which has none above it, is `1.0`, and the `kanagawa`
+  binary reads no manifest and is always `1.0`. Edition `1.1` (a preview)
+  adds trailing commas, `f(1, 2,)`, in every comma-separated list; named
+  arguments, `f(y: 2, x: 1)`, in any order; default arguments,
+  `uint8 f(uint8 x, uint8 shift = 1)`, which a call may leave out; and
+  named template arguments, `FIFO<uint8, Size: 4, DequeueBlocking: false>`,
+  skipping any default — through `kg check`, `kg build`, `kg fmt`, `kg doc`
+  and the language server, where a label navigates to its parameter,
+  renames with it (or the rename is refused, naming the label, where a
+  method call cannot be placed), lights it in signature help and is
+  offered as a completion, hover shows a parameter's default, and an inlay
+  hint shows the defaults a call is given ([`docs/editions/`](docs/editions/README.md)).
+  Named arguments are placed in their parameters' order only where no two
+  arguments could tell — a constant commutes with a call — and a reorder
+  that could change which side effect comes first is an error; a call
+  through a value of function type takes the names its declared type
+  spells, and no defaults. A default is judged where it is written.
+  Graded by a new gate, `cargo xtask editions`, which CI runs too
+  (`--no-oracle`). A file that uses a feature its edition lacks is told,
+  once a use, which edition has it and how to ask for it, where the
+  reference's cascade of parse errors said nothing of editions.
+- A dependency's `kanagawa.toml` that does not load — an unknown edition,
+  say — is reported by `kg check`, `kg build` and `kg doc`, which exit 2,
+  and marked in the editor, rather than its files read in `1.0` without a
+  word.
+- The language server marks a `kanagawa.toml` it refuses — an unknown
+  edition or feature, a syntax error, a misnamed key — at the value at
+  fault, and says so once in a message; it had only logged it, so a
+  mistyped edition left its files in 1.0 with nothing on screen saying
+  why. The message also reached the log one reload late.
 
 - `cargo xtask install`: the release archive's tree under a prefix
   (`~/.local/share/kgrust`) with `kg` and `kanagawa` linked into
@@ -85,6 +129,22 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Changed
 
+- References, highlight and rename read each file once for every use of
+  the name, rather than once a use: in `risc-v.k`, highlighting `Trap` (177
+  uses) took 635 ms and takes 6 ms, its references 680 ms and 17 ms. The
+  editor highlights at every move of the cursor.
+- `kg check`, `kg build` and the editor's diagnostics read each scope of a
+  file once for the parse-time checks, rather than every enclosing scope at
+  every name: on `risc-v.k` those checks take 60 ms rather than 114, and the
+  editor's first answer after a keystroke 319 ms rather than ~365.
+- Two programs the reference rejects as parse errors are now one error
+  each, in every edition, rather than a cascade: a label in a call of a
+  keyword (`mux`, `lutmul`, `concat`, `static`, `cast`, `fan_out`) is
+  `` `mux` takes no named arguments ``, and a default on a function type's
+  parameter is `a function type's parameter takes no default`
+  ([`docs/known-divergences.md`](docs/known-divergences.md) #42).
+- `kg fmt` leaves a broken list that ends in a trailing comma (edition
+  1.1) with its commas trailing, one item a line, rather than leading.
 - The UPduino's `blinky` and `monitor` examples use the generated core;
   `spram` keeps its own, as the example of replacing it. The UPduino's
   shell gains an SPI bus (header pins 44-47) and an I2C bus (2 and 3).

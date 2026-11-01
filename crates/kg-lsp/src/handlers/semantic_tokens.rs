@@ -210,6 +210,12 @@ fn classify_ident(token: &SyntaxToken) -> (TokenType, u32) {
         ATTR => (TokenType::Decorator, 0),
         // The `b3` of `"{x:b3}"`.
         FORMAT_SPEC => (TokenType::Modifier, 0),
+        // Edition 1.1's `f(x: 1)`: the label names one of `f`'s parameters;
+        // `Buffer<Size: 8>`'s one of the template's, which its declaration
+        // classes a type parameter. Without the `Readonly` a value's
+        // declaration carries: the label does not say which it names.
+        ARG_LABEL if parent.parent().is_some_and(|list| list.kind() == TEMPLATE_ARG_LIST) => (TokenType::TypeParameter, 0),
+        ARG_LABEL => (TokenType::Parameter, 0),
         _ => (TokenType::Variable, 0),
     }
 }
@@ -403,7 +409,12 @@ mod tests {
     ];
 
     fn tokens(text: &str) -> Vec<(String, TokenType, u32)> {
-        let parse = parse_file(text);
+        tokens_in(text, kg_base::language::Features::NONE)
+    }
+
+    /// [`tokens`] of a file in a language beyond the reference.
+    fn tokens_in(text: &str, features: kg_base::language::Features) -> Vec<(String, TokenType, u32)> {
+        let parse = kg_syntax::parse_file_with(text, kg_syntax::ParseOptions { features, ..Default::default() });
         let index = LineIndex::new(text);
         let tokens =
             semantic_tokens(&parse.syntax_node(), &index, PositionEncoding::Utf16, None);
@@ -487,6 +498,28 @@ mod tests {
         // library — and that is exactly what the modifier says.
         let (_, mods) = find("float x;", "float");
         assert_eq!(mods & Modifier::DefaultLibrary.bit(), 0, "`float` claimed to be a builtin");
+    }
+
+    /// A named argument's label is a parameter, as the callee's declaration
+    /// of it is. Red with the label left to the `variable` fallback.
+    #[test]
+    fn an_argument_label_is_a_parameter() {
+        let named = kg_base::language::Features::NONE.with(kg_base::language::Feature::NamedArguments);
+        let all = tokens_in("inline void f()\n{\n    g(x: y);\n}\n", named);
+        let kind = |name: &str| all.iter().find(|(t, ..)| t == name).map(|(_, ty, _)| *ty);
+        assert_eq!(kind("x"), Some(TokenType::Parameter));
+        assert_eq!(kind("y"), Some(TokenType::Variable));
+    }
+
+    /// A named template argument's label is a type parameter, as the
+    /// template's declaration of it is — not a function's parameter. Red with
+    /// every label classed as a call's.
+    #[test]
+    fn a_template_argument_label_is_a_type_parameter() {
+        let named = kg_base::language::Features::NONE.with(kg_base::language::Feature::NamedTemplateArguments);
+        let all = tokens_in("class Main\n{\n    Buffer<uint8, Size: 8> _b;\n}\n", named);
+        let kind = |name: &str| all.iter().find(|(t, ..)| t == name).map(|(_, ty, mods)| (*ty, *mods));
+        assert_eq!(kind("Size"), Some((TokenType::TypeParameter, 0)));
     }
 
     #[test]

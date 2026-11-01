@@ -209,6 +209,12 @@ pub enum Exp {
     This { scope: QualifiedName },
     Designator { name: ExpId, value: ExpId },
     Positional { index: u32, value: ExpId },
+    /// Edition 1.1's named argument, `label: value`, in a call's argument
+    /// list (`docs/editions/1.1.md`). No construct of the reference's: lowered
+    /// only from an `ARG_LABEL`, which only a file of a later edition parses,
+    /// and gone before the walk — the call's arguments put in its
+    /// parameters' order, or the call an error (`kg_sem::named`).
+    Labelled { label: Symbol, value: ExpId },
     InitializerList(ExpId),
     BitOffset { ty: ExpId, field: ExpId },
     ByteOffset { ty: ExpId, field: ExpId },
@@ -305,7 +311,10 @@ pub enum Exp {
         init: Option<ExpId>,
         flags: DeclareFlag,
     },
-    FuncParam { scope: QualifiedName, attr: ExpId, ty: ExpId, name: ExpId },
+    /// `default` is edition 1.1's (`docs/editions/1.1/default-arguments.md`):
+    /// the value a call that leaves the parameter out passes, `None` in every
+    /// reference program — the reference's parameter has none (`Parser.hs:379`).
+    FuncParam { scope: QualifiedName, attr: ExpId, ty: ExpId, name: ExpId, default: Option<ExpId> },
     Function {
         scope: QualifiedName,
         kind: FunctionKind,
@@ -397,7 +406,8 @@ impl Exp {
             | Exp::StaticAssert(e)
             | Exp::StaticAssertLegacy(e)
             | Exp::Warning { node: e, .. }
-            | Exp::Positional { value: e, .. } => out.push(*e),
+            | Exp::Positional { value: e, .. }
+            | Exp::Labelled { value: e, .. } => out.push(*e),
             Exp::Array { attr, elem, dims } => out.extend([*attr, *elem, *dims]),
             Exp::TemplateInstance { base, args } => out.extend([*base, *args]),
             Exp::TemplateParam { kind, default, .. } => {
@@ -474,7 +484,10 @@ impl Exp {
                 out.extend([*attr, *ty, *name]);
                 out.extend(init.iter().copied());
             }
-            Exp::FuncParam { attr, ty, name, .. } => out.extend([*attr, *ty, *name]),
+            Exp::FuncParam { attr, ty, name, default, .. } => {
+                out.extend([*attr, *ty, *name]);
+                out.extend(default.iter().copied());
+            }
             Exp::Function { attr, modifier, ret, name, params, body, .. } => {
                 out.push(*attr);
                 out.extend(modifier.iter().copied());
@@ -564,7 +577,8 @@ impl Exp {
             | Exp::StaticAssert(e)
             | Exp::StaticAssertLegacy(e)
             | Exp::Warning { node: e, .. }
-            | Exp::Positional { value: e, .. } => out.push(e),
+            | Exp::Positional { value: e, .. }
+            | Exp::Labelled { value: e, .. } => out.push(e),
             Exp::Array { attr, elem, dims } => out.extend([attr, elem, dims]),
             Exp::TemplateInstance { base, args } => out.extend([base, args]),
             Exp::TemplateParam { kind, default, .. } => {
@@ -641,7 +655,10 @@ impl Exp {
                 out.extend([attr, ty, name]);
                 out.extend(init.iter_mut());
             }
-            Exp::FuncParam { attr, ty, name, .. } => out.extend([attr, ty, name]),
+            Exp::FuncParam { attr, ty, name, default, .. } => {
+                out.extend([attr, ty, name]);
+                out.extend(default.iter_mut());
+            }
             Exp::Function { attr, modifier, ret, name, params, body, .. } => {
                 out.push(attr);
                 out.extend(modifier.iter_mut());

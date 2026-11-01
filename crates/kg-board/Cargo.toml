@@ -18,6 +18,7 @@ publish.workspace = true
 doctest = false
 
 [dependencies]
+kg-base.workspace = true
 kg-config.workspace = true
 kg-syntax.workspace = true
 serde.workspace = true

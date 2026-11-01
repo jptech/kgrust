@@ -179,11 +179,15 @@ FnProto =
 FnModifier =
   'inline' | 'noinline'
 
+// Edition 1.1 allows a trailing comma in this and every list below that
+// separates with `,` (`docs/editions/1.1/trailing-commas.md`).
 ParamList =
-  '(' (Param (',' Param)*)? ')'
+  '(' (Param (',' Param)* ','?)? ')'
 
+// The `= Expr`, a default the call may leave out, is edition 1.1's
+// (`docs/editions/1.1/default-arguments.md`).
 Param =
-  AttrList* Type Name
+  AttrList* Type Name ('=' Expr)?
 
 // `template<...> <decl>` (`Parser.hs:373-375`). The wrapped declaration is a
 // class, struct, union, alias or function.
@@ -458,8 +462,16 @@ TernaryExpr =
 CallExpr =
   AttrList* callee:Expr ArgList
 
+// An argument may be named by its parameter in edition 1.1
+// (`docs/editions/1.1/named-arguments.md`). The label stands *before* its expression rather
+// than around it, so `exprs` reads the same arguments with labels or without;
+// and it is a bare identifier, neither a `Name` (it declares nothing) nor a
+// `NameRef` (it is no value), so no walker of either mistakes it for one.
 ArgList =
-  '(' (Expr (',' Expr)*)? ')'
+  '(' (ArgLabel? Expr (',' ArgLabel? Expr)* ','?)? ')'
+
+ArgLabel =
+  'ident' ':'
 
 IndexExpr =
   base:Expr '[' index:Expr ']'
@@ -536,8 +548,12 @@ PathSegment =
 //
 // `>` is always a single token: `Foo<Bar<T>>` closes with two independent
 // `rangle`s (`Lexer.hs:268-273`), so no maximal-munch fixup is needed.
+//
+// In edition 1.1 an argument may be named by its parameter, as a call's may
+// (`docs/editions/1.1/named-template-arguments.md`), and the list may end in
+// a comma.
 TemplateArgList =
-  '<' (Expr (',' Expr)*)? '>'
+  '<' (ArgLabel? Expr (',' ArgLabel? Expr)* ','?)? '>'
 
 // A name being introduced by a declaration.
 Name =

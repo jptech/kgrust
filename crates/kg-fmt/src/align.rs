@@ -24,7 +24,7 @@
 //!   (`docs/spec/style.md` §8.4) — is re-indented to that column rather than to
 //!   the code indent.
 
-use kg_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, parse_file};
+use kg_syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 
 /// Where one anchor token sits.
 #[derive(Debug, Clone, Copy)]
@@ -77,7 +77,7 @@ fn pass(
     let out_root = match tree {
         Some(t) => t.clone(),
         None => {
-            let t = parse_file(&output).syntax_node();
+            let t = crate::reparse(&output).syntax_node();
             *tree = Some(t.clone());
             t
         }

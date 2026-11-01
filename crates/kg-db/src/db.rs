@@ -58,6 +58,7 @@
 
 use std::sync::{Arc, Mutex, RwLock};
 
+use kg_base::language::Features;
 use kg_base::{FileId, FxHashMap, Interner, Symbol, SymbolPath, Utf8Path};
 use kg_config::Settings;
 use kg_diag::Diagnostic;
@@ -132,6 +133,8 @@ struct Memo {
     keeper: Arc<crate::snapshot::Keeper>,
     /// Keyed by what the lowering read, by value — `crate::sorted::SortedMemo`.
     sorted: RwLock<FxHashMap<ModuleSource, Arc<crate::sorted::SortedMemo>>>,
+    /// [`Db::defaulting_functions`], with the parse each was read off.
+    defaulting: RwLock<FxHashMap<ModuleSource, DefaultingMemo>>,
 }
 
 impl Default for Memo {
@@ -146,6 +149,7 @@ impl Default for Memo {
             flights: Mutex::default(),
             keeper: Arc::default(),
             sorted: RwLock::default(),
+            defaulting: RwLock::default(),
         }
     }
 }
@@ -252,7 +256,22 @@ struct ParseMemo {
     /// revision so that changing an unrelated setting does not invalidate
     /// every parse in the program.
     parse_docs: bool,
+    /// The file's language beyond the reference, for the same reason
+    /// ([`Db::features_of`]). The parse records it too, so everything keyed
+    /// on the parse's pointer follows a change of language.
+    features: Features,
+    /// The settings revision `parse_docs` and `features` were last read at.
+    /// Both come from the settings alone — `Settings::language` walks the
+    /// disk for a directory once and keeps the answer — so while the
+    /// revision stands the memo is answered on its stamp, without the path,
+    /// the normalisation and the lock `Db::features_of` costs on each of the
+    /// many reads a request makes of one parse.
+    read_at: Revision,
 }
+
+/// The functions a module declares with a default, and the parse they
+/// were read off, compared by pointer.
+type DefaultingMemo = (Arc<Parse>, Arc<[String]>);
 
 #[derive(Clone, Debug)]
 struct ItemTreeMemo {
@@ -410,6 +429,16 @@ impl Db {
 
     pub fn path(&self, file: FileId) -> Option<kg_base::Utf8PathBuf> {
         self.vfs.path(file)
+    }
+
+    /// What `module` may use beyond the reference: its own package's
+    /// language (`Settings::language_of`). The synthetic modules, and a
+    /// buffer with no path, are the reference.
+    pub fn features_of(&self, module: ModuleSource) -> Features {
+        match module {
+            ModuleSource::File(file) => self.path(file).map_or(Features::NONE, |p| self.settings.language_of(&p).features()),
+            ModuleSource::Cmdargs | ModuleSource::Options => Features::NONE,
+        }
     }
 
     /// Replaces the project settings — import dirs, target device, defines.
@@ -578,12 +607,33 @@ impl Db {
     /// keeps one code path for both (`Parser/IO.hs:100-102`).
     pub fn parse_module(&self, module: ModuleSource) -> Arc<Parse> {
         let stamp = self.stamp(module);
+        let read_at = self.settings_revision;
+        let cached = {
+            let parses = self.memo.parses.read().unwrap();
+            match parses.get(&module) {
+                Some(memo) if memo.stamp == stamp && memo.read_at == read_at => {
+                    self.stats.hit(Query::Parse);
+                    return memo.value.clone();
+                }
+                memo => memo.cloned(),
+            }
+        };
         let parse_docs = self.settings.parse_docs;
-        let cached = self.memo.parses.read().unwrap().get(&module).cloned();
+        let features = self.features_of(module);
         if let Some(memo) = &cached
             && memo.stamp == stamp
             && memo.parse_docs == parse_docs
+            && memo.features == features
         {
+            // The settings moved but left this file's reading alone: the
+            // parse stands, read again at the new revision.
+            let mut parses = self.memo.parses.write().unwrap();
+            if let Some(stored) = parses.get_mut(&module)
+                && Arc::ptr_eq(&stored.value, &memo.value)
+                && stored.stamp == stamp
+            {
+                stored.read_at = read_at;
+            }
             self.stats.hit(Query::Parse);
             return memo.value.clone();
         }
@@ -598,7 +648,7 @@ impl Db {
         // modes — so the tree, losslessness and the formatter are unaffected.
         let parsed = kg_syntax::parse_file_with(
             &text,
-            kg_syntax::ParseOptions { parse_docs },
+            kg_syntax::ParseOptions { parse_docs, features },
         );
         // The firewall: an edit that produces an identical tree keeps the old
         // `Arc`, so `item_tree`, `program` and `global_symbols` all stay valid.
@@ -611,14 +661,39 @@ impl Db {
         // the same text first: adopt it, so every reader of this revision
         // holds one `Arc` and the queries keyed on its identity — the item
         // tree, the program, the loop — are computed once (`Db::program`).
-        if let Some(memo) = parses.get(&module)
+        if let Some(memo) = parses.get_mut(&module)
             && memo.stamp == stamp
             && memo.parse_docs == parse_docs
+            && memo.features == features
         {
+            memo.read_at = read_at;
             return memo.value.clone();
         }
-        parses.insert(module, ParseMemo { value: value.clone(), stamp, parse_docs });
+        parses.insert(module, ParseMemo { value: value.clone(), stamp, parse_docs, features, read_at });
         value
+    }
+
+    /// The names of the functions `module` declares with a parameter that
+    /// has a default (edition 1.1, `docs/editions/1.1/default-arguments.md`),
+    /// sorted; none in a module whose language has no defaults, where one is
+    /// a parse error. Read once per parse: the defaults hint asks it of every
+    /// module of the program on each request, and resolves only a call
+    /// spelled as one of these (`kg-lsp`'s `inlay_hints`).
+    pub fn defaulting_functions(&self, module: ModuleSource) -> Arc<[String]> {
+        use kg_base::language::Feature;
+        let parse = self.parse_module(module);
+        if let Some((read, names)) = self.memo.defaulting.read().unwrap().get(&module)
+            && Arc::ptr_eq(read, &parse)
+        {
+            return names.clone();
+        }
+        let names: Arc<[String]> = if parse.features().has(Feature::DefaultArguments) {
+            crate::navigate::defaulting_functions(&parse.syntax_node()).into()
+        } else {
+            Arc::new([])
+        };
+        self.memo.defaulting.write().unwrap().insert(module, (parse, names.clone()));
+        names
     }
 
     /// The last sorted lowering of `module`, for `crate::sorted` to validate
@@ -1490,6 +1565,7 @@ impl Db {
         let parse = self.parse_module(module);
         let root = parse.source_file();
         let parsed = cx.looped.parsed(module).expect("the loop lowered every module of its program");
+        let scopes = crate::passes::undefined_symbols::Scopes::default();
         let whole = crate::passes::undefined_symbols::Whole {
             module,
             file: module.diagnostic_file(),
@@ -1500,6 +1576,7 @@ impl Db {
             looped: &cx.looped,
             interner: &self.interner,
             roots: &cx.roots_of,
+            scopes: &scopes,
         };
         run(&root, whole, &cx.looped)
     }

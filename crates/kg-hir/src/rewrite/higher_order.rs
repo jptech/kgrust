@@ -163,12 +163,12 @@ impl HigherOrderFunctions<'_> {
         let Exp::Seq(members) = rw.arena[params].exp.clone() else { return None };
         let mut found = Vec::new();
         for p in members {
-            let Exp::FuncParam { scope, attr, ty, name } = rw.arena[p].exp.clone() else { continue };
+            let Exp::FuncParam { scope, attr, ty, name, default } = rw.arena[p].exp.clone() else { continue };
             let resolved = if matches!(rw.arena[ty].exp, Exp::FunctionType { .. }) {
                 p
             } else if let Some((from, at)) = self.aliases.and_then(|resolve| resolve(rw.arena, ty)) {
                 let ty = rw.arena.deep_copy_from(from, at);
-                rw.donate(p, Exp::FuncParam { scope, attr, ty, name })
+                rw.donate(p, Exp::FuncParam { scope, attr, ty, name, default })
             } else {
                 continue;
             };
@@ -202,7 +202,7 @@ impl HigherOrderFunctions<'_> {
         for p in members {
             match function_typed.iter().find(|&&(_, written, _)| written == p) {
                 Some(&(i, written, p)) => {
-                    let Exp::FuncParam { scope, attr, ty, name } = rw.arena[p].exp.clone() else {
+                    let Exp::FuncParam { scope, attr, ty, name, default } = rw.arena[p].exp.clone() else {
                         unreachable!("filtered as a FuncParam")
                     };
                     // `closureInstance a [closureFunctionType p, closureFunctionTypeParam p,
@@ -211,7 +211,7 @@ impl HigherOrderFunctions<'_> {
                     let fn_tp = closure_function_type_param(rw, i, p);
                     let cap_tp = capture_type_param(rw, i, p);
                     let closure = closure_instance(rw, &scope, [fn_ty, fn_tp, cap_tp], ty);
-                    rebuilt.push(rw.replace(written, Exp::FuncParam { scope, attr, ty: closure, name }));
+                    rebuilt.push(rw.replace(written, Exp::FuncParam { scope, attr, ty: closure, name, default }));
                 }
                 None => rebuilt.push(p),
             }

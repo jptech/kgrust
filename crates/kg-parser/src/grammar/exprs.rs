@@ -26,6 +26,7 @@
 use super::lookahead::AngleCtx;
 use super::{ExprMode, attrs, items, lookahead, paths, stmts, types};
 use crate::{CompletedMarker, Marker, Parser, SyntaxKind, TokenSet};
+use kg_base::language::Feature;
 use SyntaxKind::*;
 
 /// Where a malformed expression stops rather than eating a delimiter.
@@ -293,11 +294,51 @@ fn postfix_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
 fn arg_list(p: &mut Parser<'_>) {
     let m = p.start();
     p.bump(L_PAREN);
-    comma_list(p, R_PAREN, |p| {
-        expr(p, ExprMode::Full);
-    });
+    named_args(p);
     p.expect(R_PAREN);
     m.complete(p, ARG_LIST);
+}
+
+/// Edition 1.1's arguments (`docs/editions/1.1.md`): each may be named by
+/// its parameter, `x: e`, once the positional ones are done. The label is an
+/// [`ARG_LABEL`] *before* its expression, not around it, so every consumer
+/// of an argument list that reads its expressions reads the same ones as
+/// in the call with the labels erased.
+///
+/// `IDENT ':'` cannot begin a reference argument — `::` is one token, and a
+/// ternary's `:` follows its `?` — which is why the reference rejects every
+/// call this accepts (`kg-oracle --errors`: "unexpected ':'", 2026-10-29).
+/// So the label is recognised in every file, and in one without the feature
+/// is that error ([`Parser::gate`]).
+fn named_args(p: &mut Parser<'_>) {
+    let mut labels: Vec<String> = Vec::new();
+    comma_list(p, R_PAREN, |p| {
+        arg_label(p, &mut labels, R_PAREN, Feature::NamedArguments);
+        expr(p, ExprMode::Full);
+    });
+}
+
+/// The label of the argument the parser is at, if it has one — `x:`, an
+/// [`ARG_LABEL`] — and the errors of a label given twice, or of no label
+/// after one: shared by a call's arguments and a template's (edition 1.1's
+/// named template arguments, `paths::template_arg_list`), whose list closes
+/// at `close`. `labels` holds the list's labels so far; `feature` is the
+/// one a label needs.
+pub(crate) fn arg_label(p: &mut Parser<'_>, labels: &mut Vec<String>, close: SyntaxKind, feature: Feature) {
+    if p.at(IDENT) && p.nth_at(1, COLON) {
+        p.gate(feature);
+        let text = p.token_text();
+        if labels.iter().any(|l| l == text) {
+            p.error(format!("the argument `{text}` is named twice"));
+        }
+        labels.push(text.to_owned());
+        let l = p.start();
+        p.bump(IDENT);
+        p.bump(COLON);
+        l.complete(p, ARG_LABEL);
+    } else if !labels.is_empty() && !(if close == R_ANGLE { p.at_angle(R_ANGLE) } else { p.at(close) }) {
+        p.error("a positional argument cannot follow a named one");
+    }
 }
 
 /// Parses `elem ("," elem)*` up to `close`, guaranteeing forward progress.
@@ -316,7 +357,7 @@ fn comma_list(p: &mut Parser<'_>, close: SyntaxKind, mut elem: impl FnMut(&mut P
                 break;
             }
         }
-        if !p.eat(COMMA) {
+        if !p.eat_list_comma(close) {
             break;
         }
     }
@@ -420,6 +461,7 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 types::type_(p);
             });
             p.expect(L_PAREN);
+            no_label(p, CAST_KW);
             expr(p, ExprMode::Full);
             p.expect(R_PAREN);
             m.complete(p, CAST_EXPR)
@@ -432,6 +474,7 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 expr(p, ExprMode::TemplateArg);
             });
             p.expect(L_PAREN);
+            no_label(p, FAN_OUT_KW);
             expr(p, ExprMode::Full);
             p.expect(R_PAREN);
             m.complete(p, FAN_OUT_EXPR)
@@ -490,6 +533,7 @@ fn keyword_call(p: &mut Parser<'_>, node: SyntaxKind, min: usize, max: usize) ->
     p.bump(kw);
     p.expect(L_PAREN);
     let n = comma_list(p, R_PAREN, |p| {
+        no_label(p, kw);
         expr(p, ExprMode::Full);
     });
     if n < min || n > max {
@@ -501,6 +545,21 @@ fn keyword_call(p: &mut Parser<'_>, node: SyntaxKind, min: usize, max: usize) ->
     }
     p.expect(R_PAREN);
     m.complete(p, node)
+}
+
+/// A label on an operand of a keyword's call, `mux(s, x: 1, 2)`: one error
+/// at it, and the operand parsed on, rather than the cascade of a `:` that
+/// no expression takes. No edition names these operands — they are no
+/// function's parameters — so it is the error in every file; the reference
+/// rejects the `:` (`Parser.hs:868-872`).
+fn no_label(p: &mut Parser<'_>, kw: SyntaxKind) {
+    if p.at(IDENT) && p.nth_at(1, COLON) {
+        p.error(format!("`{}` takes no named arguments", kw.static_text().unwrap_or("this")));
+        let e = p.start();
+        p.bump(IDENT);
+        p.bump(COLON);
+        e.complete(p, ERROR);
+    }
 }
 
 fn arity(min: usize, max: usize) -> String {
@@ -551,7 +610,8 @@ fn angle_bracketed(p: &mut Parser<'_>, inner: impl FnOnce(&mut Parser<'_>)) {
 /// stray `,`.
 ///
 /// Trailing commas are not allowed in either shape, for that same reason
-/// (`Parser.hs:860`).
+/// (`Parser.hs:860`) — but in edition 1.1, which allows one before the `}`
+/// (`Parser::eat_list_comma`).
 fn init_list(p: &mut Parser<'_>) -> CompletedMarker {
     let m = p.start();
     p.bump(L_CURLY);

@@ -66,6 +66,9 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-10-12 | Release archives are built with the `ship` profile (`release`, fat LTO, one codegen unit); the gates and `cargo xtask` stay on `release`, which builds a minute faster | "Quick wins: a stale CI cache, and the shipped binaries optimised whole" |
 | 2026-10-17 | Boards reach `kg` only through a manifest's opt-in `[board]`, never for every project; `kg build` hands the backend the compat binary's record for the same options (`[hw]`, `-Z hw.*` through its flag table) | "`kg board`, and `kg build` reading its options" |
 | 2026-10-17 | A design meets a board through its interface description, joined from its declaration and its ports and checked both ways; a function that fits no resource is refused with the contract, never wired approximately; a small part's board caps `max-threads-default` | "No glue RTL: the board wrapper, the bridge, cocotb and a virtual board" |
+| 2026-10-30 | Language editions are opt-in per package and numbered `MAJOR.MINOR`: `1.0` is the reference and follows the pin; a minor edition only adds, giving a meaning only to programs the edition before it rejects; only a major one may take away. A file's language is the nearest `kanagawa.toml` above it, with no boundary at an import directory; an unknown edition or feature is an error; `kanagawa` never opts in. Everything desugars to reference Kanagawa before the walk | "Editions, piloted: named arguments in any order — 2026-10-30" |
+| 2026-10-30 | A named argument is moved to its parameter's place only where no two arguments could tell: a reorder that could change which side effect happens first is an error, never rewritten into locals | "Editions, piloted: named arguments in any order — 2026-10-30" |
+| 2026-10-31 | A later edition's syntax in a file without it is one error naming the edition and how to opt in, and the parse goes on as the feature's would: the verdict stays the reference's, the message is ours ([`known-divergences.md`](known-divergences.md) #42) | "An edition the user cannot see is not opted into — 2026-10-31" |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -18338,3 +18341,306 @@ from 6 errors to 4, the four the issue names as correct (`hardware.dsp`
 declared by three device files); `kg_check_loads_a_file_once_however_it_is_
 spelled` covers an absolute, a relative and a symlinked `-I` and a manifest
 found from a relative path, and each of its four mutants is caught.
+
+## Editions, piloted: named arguments in any order — 2026-10-30
+
+At the owner's request, the plan of 2026-10-29 (`plans/editions.md`)
+piloted on the `editions-pilot` branch: editions numbered `MAJOR.MINOR`,
+`1.0` the reference; `1.1`, a preview, adds named arguments; "if we
+support named arguments, then we should support reordering them at call
+sites correctly". What a later reader would otherwise rediscover:
+
+- **The thread count stands where `tid` is declared.** A `[[pipelined]]`
+  function's type keeps every parameter, the thread's index first
+  (`funcType`, `Type.hs:1364-1373`), and a call passes the count in that
+  position. The first build added a slot for the count *before* the
+  parameters, and a pipelined call reported a missing `tid`; the fixture
+  `accept/pipelined.k` is the reason it no longer does.
+- **A faulted call must not be met again.** The pass runs at every round of
+  the loop. An argument it faulted became an error node and the call kept
+  its other labels, so the next round placed the remaining label against an
+  error node sitting in slot 0 and reported "given an argument twice" beside
+  the true error. A faulted call now drops every other label. Pinned by
+  `a_misnamed_argument_is_reported_at_its_label`, red with the labels kept.
+- **The evaluation order is refused, not rewritten.** The backend evaluates
+  a call's arguments in list order (`compiler/cpp/ir.cpp:10912-10919`), so
+  reordering can move one argument's side effect ahead of another's. Calls
+  commute only with pure arguments (literals, the function's own locals and
+  parameters); any other swap is an error naming both arguments. Hoisting
+  the arguments into locals instead was left for later: the rule as built
+  never changes what a program does, and costs only refusals.
+- **The walk sees no new node, and the twins prove it.** `kg build` of
+  `reorder.k` and of its hand-written twin gives the same SystemVerilog,
+  location comments aside (by hand). The first twin crashed the backend
+  (`VerilogCompiler::InstantiateFifoMergers`, `verilog.cpp:5079`) on the
+  twin as much as on the named program: a public method also called from
+  within its class. That is a backend case of its own, not the edition's.
+- **No boundary at an import directory.** The plan stopped a file's
+  manifest search at the import directory that found it. That boundary
+  misses a dependency whose manifest sits beside the `src/` its users
+  import. Since a minor edition only adds, a library read in a later
+  edition than its own reads the same, so the nearest manifest wins.
+
+- **A label made a parameter visible outside its file.** References and
+  rename search past the open buffers only for what another file can name
+  (`kg-lsp`'s `references::importable`), and a parameter never was — until
+  `sub(x: 1)` in an importing file named one. Searching every parameter
+  rename across the project would cost a 1.0 project for nothing, so the
+  search reads, for a parameter, only files whose language has named
+  arguments (`references::labelled`). Pinned by
+  `a_parameter_is_renamed_in_an_unopened_file_s_labels`; the editor resolves
+  a label through the callee's declaration (`Db::definitions_at`), so every
+  feature built on it — hover, highlight, rename — follows at once.
+
+Checked 2026-10-30: `cargo xtask editions` passes in ~6 s (481 reference
+files parse the same with every feature on; 4 claims, 3 twins, 1
+rejection fixture). Each of its four checks went red under a planted
+mutation (`scripts/mutant.sh`), and so did each of the 10 mutants planted
+against the new unit tests. `cargo test --workspace --profile quick`: 1,983
+passed. `scripts/fast.sh --lint loop`: all green, every ratchet +0/-0, with
+`infer-identity` 304/304 and `edit-identity` 87/87 identical. `kg check`
+release A/B against `7c375a6`, interleaved, two rounds of five:
+`risc-v.k` 2.060/2.100 s then 2.083/2.093 s (base/pilot means),
+`float32.k` 0.409/0.413 s then 0.418/0.417 s. Within noise.
+
+## Edition 1.1 finished: trailing commas, defaults, named template arguments — 2026-10-30
+
+The owner chose to complete 1.1's theme, *call sites that say what they
+mean*, before the plan's step 4: trailing commas, default arguments, and
+named template arguments that skip defaults. What a later reader would
+otherwise rediscover:
+
+- **A value inference folds, and a later pass reads, belongs in the
+  type.** A default is folded by inference (`infer::default_of`) and
+  written into the calls that leave it out by `kg_sem::named`. Kept on the
+  HIR alone, an incremental read of another module never saw it; carried
+  in the function's type (`TFuncParam::default`, `kg_ty::TDefault`) it is
+  read through the tracked type as a parameter's name is — left out of
+  `==` and `Hash` like the name, kept in `Ord` and the strict hash.
+- **A type set once must say it is not finished.** An enum default folds a
+  round after the function is first typed; the call kept the first type and
+  was never given the default. `Ty::resolved` is now false while a default
+  is `TDefault::Unfolded`, so the name is typed again once it folds. Pinned
+  by `a_call_is_given_the_defaults_it_leaves_out`, which fails on the
+  mutant that drops the clause.
+- **A twin writes the default as declared, not its value.** `Step + 1`
+  folds to `3` typed `uint9`; a twin writing `3` walks differently from the
+  program that leaves the default out. The rewrite reproduces the folded
+  expression's type, so the twin must spell the expression.
+- **One fault, one report.** A default that never folds is reported at the
+  default; its calls then skip the "no parameters with names" check rather
+  than add a second error. A named template argument at fault becomes an
+  error at its label and every other label is taken off
+  (`deduce::faulted`), so no later round meets the list labelled again. An
+  undeducible function template with a labelled argument already gets the
+  reference's `Could not deduce all arguments` once; no sweep was added.
+- **Named template arguments reuse the reference's hole filling.**
+  `resolveTemplateArgs` (`Type.hs:1405-1428`) fills the parameters past
+  the written prefix with their defaults, each reading the arguments before
+  it. Generalising its input from a prefix to a placed map
+  (`BTreeMap<usize, ExpId>`) gives the holes a labelled list leaves their
+  defaults by the same code, so `Buffer<Size: 8, T: uint16>`'s
+  `Shift = Size + 1` reads the named `Size`.
+- **Fixtures mask each other.** A reject fixture's later errors went
+  unreported behind an earlier one in the same module; the arity case moved
+  to its own file (`default-arguments/reject/missing.k`). Each fixture is
+  also read with its own feature alone, so a trailing comma in a
+  default-arguments fixture is a parse error there.
+
+Checked 2026-10-30 (`cargo xtask editions`: claims 11, twins 6, rejections
+5, 481 reference files the same): see the three commits' messages for each
+feature's gate evidence and mutants.
+
+## An edition the user cannot see is not opted into — 2026-10-31
+
+Asked whether the VS Code extension was ready for editions, the answer was
+yes for the extension (it holds no language; a manifest change reaches the
+server through its watcher, and was checked over stdio switching one buffer
+1.0 → 1.1 → 1.0), and no for two things the server told the user:
+
+- **A refused manifest was only logged.** `edition = "9.9"` made the server
+  read the manifest's files as if it were not there — in 1.0 — and said so
+  in `window/logMessage`, which no one reads. What the user saw was a 1.1
+  program's parse errors. It also said it one reload late:
+  `reload_and_republish` took the store's errors before republishing the
+  open files, and a manifest is read again only when a file asks for its
+  settings, during that republish. Now `ManifestError` carries `toml`'s
+  span and bare message, the store keeps each broken manifest's problem
+  until the next reload (`GlobalState::manifest_problems`), and the main
+  loop marks it on `kanagawa.toml` at the value refused, says it once in
+  `window/showMessage`, and takes the mark off when it loads
+  (`a_refused_manifest_is_marked_where_it_is_wrong`).
+- **A 1.1 feature in a 1.0 file was a cascade.** `return sub(y: q, x: p);`
+  gave 13 parse errors, none naming an edition (`kg check` of a 1.0 file
+  holding that call, 2026-10-31, before this change). Every feature's syntax is
+  one the reference rejects, and the `editions` gate's neutral check proves
+  no reference file holds any, so the parser now recognises it in every
+  file and, where the language lacks it, gives one error naming the edition
+  (`Parser::gate`, `Feature::needed`) and builds the tree the feature would.
+  Accept/reject is the reference's; the message and, for labels and
+  trailing commas, the position one token earlier are not
+  ([`known-divergences.md`](known-divergences.md) #42). A trailing comma's
+  error needed the check before the comma is eaten, so `at_trailing`
+  became `Parser::eat_list_comma`.
+
+On the way, a doc that lied: the trailing-commas page said a lambda's
+captures keep refusing one "where the reference has none to trail". The
+reference reads captures, `mux` and `concat` with the same `sepBy comma` as
+call arguments (`Parser.hs:441,867-871`), and 1.1 had always accepted a
+trailing comma in all three through `comma_list`. The page now lists them,
+and the twin fixture walks them.
+
+Checked 2026-10-31: 15 mutants (8 against the manifest's marking, 7
+against `Parser::gate`'s errors), each caught by its own test; one first
+"caught" by a compile error was planted again until it compiled.
+
+## Reviewing an edition: a miscompile, two doors left open, and the docs behind — 2026-11-01
+
+A review of the editions branch before its merge (PR #8) found what its
+gates could not, because each was a program no fixture held:
+
+- **A call through a value named the wrong parameters.** Labels were
+  matched against the callee's inferred type, and a value of function type
+  given a lambda is typed by pass 2 and instantiation as the lambda's
+  closure, so `g(y: a, x: b)` through `(uint8 x, uint8 y) -> uint8 g`
+  placed its arguments by the lambda's names — subtraction the other way
+  round, silently. The names are now the declared type's, read by the
+  declaration's head (`Function.hs:313-359`), and a value is given no
+  default, a default being a declaration's and not a type's. Pinned by
+  `named-arguments/accept/values.k` and its twin.
+- **`kanagawa` opted in.** Its settings walked up to a `kanagawa.toml` for
+  the language like `kg`'s, so a 1.1 manifest above a file changed what
+  the compat binary accepted; rule 6 was true only of its flags.
+  `LanguageMap::reference()` reads none, and `kg --no-manifest` reads none
+  for the language either.
+- **A dependency's refused manifest was silent**: its files read as 1.0
+  with nothing said. The map now keeps what it refused, and `kg check`,
+  `build`, `doc` and the editor report it.
+- **The order rule refused constants.** Folding does not reliably come
+  before a call is placed — an aggregate constant never folds, a scalar
+  only once its initializer has — so `Table[1]` beside a call was refused.
+  A constant is now pure by its declaration or its type (`tIsConst`,
+  `Constexpr.hs:280`); an imported `const` memory is still classed as
+  reading, toward refusing.
+- **Defaults were judged nowhere.** An ill-typed default was accepted until
+  a call leaned on it, and then reported at every such call. It is now
+  judged at the declaration as the argument it stands for
+  (`checkArguments`, `TypeCheck.hs:97`), once; and an enum's constant as an
+  integer parameter's default, a correct program, had made every call
+  short of it an arity error — the default now names its constant by the
+  enum's absolute name, read off its own type.
+- **Two messages lied about a wrong program**: an undefined name in a
+  reordered call got the order error, not `Symbol name not in scope`; a
+  misnamed label on a function template's call was reported at the call,
+  its instance mangled. Both are now the reference's kind of error, where
+  the reference puts it.
+- **The formatter and trailing commas.** The house style leads with its
+  commas; a broken list that ends in a trailing comma printed a lone `,`
+  line. Such a list now trails its commas (`docs/spec/style.md` §3).
+
+What the editor gained in speed, each exact (2026-10-31, interleaved A/B
+over stdio, the quick profile; the drivers in the commits' messages):
+
+- **The defaults hint** resolved every call in the viewport through the
+  one-off path, each reading the file again: 28.8 → 0.96 ms for a 60-line
+  viewport of 150 defaulted calls, 231 → 3.6 ms for 300 calls in a file of
+  1500 functions. `Db::resolver` reads the file once for many names, and
+  only a call spelled as a function some file declares a default for is
+  resolved. A resolver's answers are the one-off's at every identifier of
+  the library (`a_resolver_answers_as_each_name_is_answered_alone`).
+- **rowan's `token_at_offset` is linear**: it reads every child of each
+  node in turn, and was 93% of what remained of that request in a file of
+  1500 functions. `covering_element` searches; `identifier_at` and
+  `declaring_node` now use it.
+- **A parse memo hit** asked the file's language on every hit (~440 ns);
+  it now compares a stamp and the settings' revision (8.6 ns).
+- **`named_arguments`** walked every module every round: 0.151 s over
+  1430 visits of a loop of 0.93 s on `array.k` with one default, 0.010 s
+  over 288 after (`KG_LOOP_PROFILE=1`), the 1.0 rows unchanged. One part
+  of its skip — the type map's write count in the module's state — no
+  mutant could make matter; it is kept as the sound key, unproven.
+
+**Signature help's "none"** has one spelling every client reads so: LSP
+3.17 defaults a missing `activeParameter` to 0, and 3.18's `null` needs a
+capability `lsp-types` 0.97 cannot express. A label that names no
+parameter is answered with the signature and no `parameters`.
+
+Checked 2026-11-01: `cargo xtask editions` — 481 reference files the same,
+claims 23, twins 10, rejections 13; every new test proven by
+`scripts/mutant.sh` (the commits list each). `scripts/fast.sh --lint
+loop` green, every ratchet +0/-0 (infer-identity 304/304, edit-identity
+87/87); `scripts/gates.sh --snapshot` at `2cc6848` green in 384 s, every
+ratchet +0/-0, 2040 tests passed. Its `mem` reads `risc-v.k`'s check at
+801 MiB and the editor after five edits at 1421 MiB, against 780 and
+1355 MiB at `3ff57ab`'s render — within budget, not yet attributed.
+
+## A scan per use, and a field that tripled a type — 2026-11-01
+
+Two costs no gate saw, found by measuring the branch rather than grading it:
+
+- **References and highlight were quadratic in a name's uses.** The search
+  answered every use alone (`Db::definitions_at_through`), and an answer
+  alone reads the file again: its declarations by name token, and, for a
+  name bound at the top of the file, each enclosing scope's subtree
+  scanned for the binder — the whole file, at every use. `Trap` in
+  `risc-v.k` (177 uses) took 635 ms to highlight, and the editor asks at
+  every move of the cursor; a local used 8,000 times in one function took
+  about 17 s. The language server's own answer, `Db::resolver`, built for
+  the defaults hint the day before, reads the file once for many names.
+  The walk now makes one per file: 5.6 ms and 17 ms. What the resolver
+  saves is only what it reads of the file — a member through the loop
+  reads none of it — so its identity test now runs through a loop too.
+- **A default inline made every parameter 112 bytes.** `TFuncParam` is
+  kept for every parameter of every function type in every module's type
+  map and cloned with the type; `default: Option<TDefault>` held a whole
+  `ConstValue` (72 bytes) beside a 40-byte parameter, in every program,
+  the reference's included, which never has one. Boxed, a parameter pays
+  a pointer: `kg check` of `risc-v.k` 801 → 787 MiB, below `main`'s last
+  render (780 MiB at `3ff57ab`, footprint) by `cargo xtask mem`'s measure
+  (774). `a_parameter_pays_a_pointer_for_its_default` keeps it at 48
+  bytes. Taking the box off does not compile, so its mutant over-aligns
+  the struct instead: a mutant caught by a compile error proves nothing.
+
+Multi-threading the loop was measured and left (`plans/performance.md`
+§13, item 1): only the prefix pass splits as the code stands, 9% of
+`risc-v.k`'s loop, and inference needs a frozen view of the other modules
+per iteration first. `kg` stays on one thread, with no option for more.
+
+Checked 2026-11-01: `scripts/identity.sh 536d825`, 304 roots identical;
+over stdio, highlight and references at 1280 positions of `risc-v.k` and
+974 of `float32.k` answered the same before and after.
+
+## Two thirds of the walks change nothing — 2026-11-01
+
+Asked where `risc-v.k`'s loop goes, if not to the 9% that would split
+across threads, a profile to the call (`plans/performance.md` §13,
+"Inside the loop, by cause") and counters patched into one run found the
+answer is not how fast inference walks but how much: 179,761 of its
+269,663 unit walks write nothing, 4.9 M of its 7.1 M node visits. Half
+are a symbol map's rebuild at the start of each fixpoint: the round's
+passes mint a new node for every declaration above what they changed, a
+lookup's answer is compared by node id, and every asker is walked again —
+87,510 times, 24 of them finding anything. Comparing what the askers read
+rather than which node they reached is re-askable reads
+(`plans/loop-across-edits.md` §8, lever 3), which a batch compile wants
+as much as the editor.
+
+The changes taken are smaller and exact. The prefix pass's cost was two
+whole-body catas in `moveFunctions` that clone and compare every node
+for algebras that change only names; `desugar_touching` passes the rest
+on. And the parse-time table read every enclosing node's children, and
+theirs, at every mention — the references search's quadratic again
+("A scan per use", above), in the diagnostics every edit refreshes —
+now an index per scope, built once a run and held to the old scan by a
+test over every mention of every corpus file.
+
+Two cheaper fixes for the owner sets were measured and dropped: a mark
+per node took 3.7% off the loop and added 22 MiB, because the sets
+already hold 1.7 M nodes three times over and any table beside them is as
+large. Memory is the other half of the goal (`plans/performance.md` §12).
+
+Checked 2026-11-01: `scripts/identity.sh 07562eb`, 304 roots identical;
+`scripts/fast.sh --lint loop` green, every ratchet +0/−0;
+`a_scope_read_once_answers_as_the_scan_at_every_mention` and
+`a_cata_over_the_shapes_it_touches_mints_what_the_whole_cata_mints`,
+five mutants between them, each caught.

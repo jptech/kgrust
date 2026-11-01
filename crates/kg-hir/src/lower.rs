@@ -662,9 +662,10 @@ impl<'a> Lower<'a> {
                 let attr = self.attrs(&attrs, param.syntax());
                 let ty = self.ty_decl_or_unsupported(param.ty(), param.syntax());
                 let name = self.identifier(param.name(), param.syntax());
+                let default = param.eq_token().and(param.expr()).map(|e| self.expr(&e, false));
                 let pid = self.alloc(
                     param.syntax(),
-                    Exp::FuncParam { scope: scope.clone(), attr, ty, name },
+                    Exp::FuncParam { scope: scope.clone(), attr, ty, name, default },
                 );
                 out.push(pid);
                 // `symbol param` (`Parser.hs:378`) — a parameter is a value
@@ -1962,16 +1963,58 @@ impl<'a> Lower<'a> {
             None => self.unsupported(node),
         };
 
-        let args: Vec<ExpId> = c
-            .arg_list()
-            .map(|list| list.exprs().map(|e| self.expr(&e, false)).collect())
-            .unwrap_or_default();
+        let args: Vec<ExpId> = c.arg_list().map(|list| self.args(&list)).unwrap_or_default();
         let args = match c.arg_list() {
             Some(list) => self.alloc(list.syntax(), Exp::Seq(args)),
             None => self.synth(node, Exp::Seq(args)),
         };
 
         self.alloc(node, Exp::FunctionCall { attr, function, args })
+    }
+
+    /// A call's arguments, in the order written. One a later edition names
+    /// (`x: e`, an [`ast::ArgLabel`] before its expression) is an
+    /// [`Exp::Labelled`] at the label, which `kg_sem::named` puts in its
+    /// parameter's place; a reference file has none, and lowers exactly
+    /// the expressions [`ast::ArgList::exprs`] yields.
+    fn args(&mut self, list: &ast::ArgList) -> Vec<ExpId> {
+        self.labelled_items(list.syntax(), |this, e| this.expr(e, false))
+    }
+
+    /// The items of an argument list — a call's, or a template's, whose
+    /// labels (edition 1.1's named template arguments) `kg_sem::deduce`
+    /// places — each lowered by `arg`, one a label names wrapped in an
+    /// [`Exp::Labelled`] at the label.
+    fn labelled_items(&mut self, list: &SyntaxNode, mut arg: impl FnMut(&mut Self, &ast::Expr) -> ExpId) -> Vec<ExpId> {
+        let mut out = Vec::new();
+        let mut label: Option<ast::ArgLabel> = None;
+        for element in list.children_with_tokens() {
+            let child = match element {
+                kg_syntax::NodeOrToken::Node(n) => n,
+                // A label with no expression before the comma, `f(x:, 2)` —
+                // the parser's error — labels nothing: not the next one.
+                kg_syntax::NodeOrToken::Token(t) => {
+                    if t.kind() == SyntaxKind::COMMA {
+                        label = None;
+                    }
+                    continue;
+                }
+            };
+            if let Some(l) = ast::ArgLabel::cast(child.clone()) {
+                label = Some(l);
+            } else if let Some(e) = ast::Expr::cast(child) {
+                let value = arg(self, &e);
+                let named = label.take().and_then(|l| Some((l.ident_token()?, l)));
+                out.push(match named {
+                    Some((ident, l)) => {
+                        let label = self.interner.intern(ident.text());
+                        self.alloc(l.syntax(), Exp::Labelled { label, value })
+                    }
+                    None => value,
+                });
+            }
+        }
+        out
     }
 
     /// `Name<E>(C)` read as the reference's parser reads it when `Name` is
@@ -2154,7 +2197,7 @@ impl<'a> Lower<'a> {
             .map(|t| self.interner.intern(t.text()))
             .unwrap_or_else(|| self.interner.intern(""));
         let args = seg.template_arg_list().map(|list| {
-            let items: Vec<ExpId> = list.exprs().map(|e| self.expr(&e, false)).collect();
+            let items = self.labelled_items(list.syntax(), |this, e| this.expr(e, false));
             self.alloc(list.syntax(), Exp::Seq(items))
         });
         PathSeg { template_kw: seg.template_kw_token().is_some(), name, args }
@@ -2848,10 +2891,7 @@ impl<'a> Lower<'a> {
     ) -> Result<ExpId, UnsortedReason> {
         match &seg.args {
             Some(list) => {
-                let items: Vec<ExpId> = list
-                    .exprs()
-                    .map(|e| self.template_arg(&e))
-                    .collect();
+                let items = self.labelled_items(list.syntax(), Self::template_arg);
                 let args = self.alloc(list.syntax(), Exp::Seq(items));
                 Ok(self.synth(&seg.donor, Exp::TemplateInstance { base, args }))
             }
@@ -3433,6 +3473,25 @@ mod tests {
     fn structure(text: &str) -> String {
         let (ir, interner) = lower_str(text);
         ir.structure_string(&interner)
+    }
+
+    /// A label with no expression before its comma, `g(x:, 2)` — the
+    /// parser's error, which the editor still lowers — labels nothing: the
+    /// next argument is not taken for the label's. Red with the pending
+    /// label kept across the comma.
+    #[test]
+    fn a_label_with_no_argument_names_nothing() {
+        use kg_base::language::{Feature, Features};
+        let labelled = |text: &str| {
+            let interner = Interner::new();
+            let options = kg_syntax::ParseOptions { features: Features::NONE.with(Feature::NamedArguments), ..Default::default() };
+            let parse = kg_syntax::parse_file_with(text, options);
+            let file = ast::SourceFile::cast(parse.syntax_node()).expect("root");
+            let ir = lower(&file, FileId(0), &interner);
+            ir.arena.iter().filter(|(_, n)| matches!(n.exp, Exp::Labelled { .. })).count()
+        };
+        assert_eq!(labelled("inline void f()\n{\n    g(x: 1, y: 2);\n}\n"), 2);
+        assert_eq!(labelled("inline void f()\n{\n    g(x:, 2);\n}\n"), 0);
     }
 
     /// A class callback's leading `[[…]]` is its function type's

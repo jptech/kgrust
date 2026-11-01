@@ -17,7 +17,7 @@
 //! §1.5: 228 lines in 60 files) and a multi-line block comment is re-indented
 //! to wherever its code moved. Nothing else about a comment may change.
 
-use kg_syntax::{SyntaxElement, SyntaxKind, SyntaxNode, parse_file};
+use kg_syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 
 /// One token, as the comparison sees it.
 type Sig = (SyntaxKind, String);
@@ -66,7 +66,7 @@ pub(crate) fn check(
     output: &str,
     ordered: bool,
 ) -> Result<(), String> {
-    let reparsed = parse_file(output);
+    let reparsed = crate::reparse(output);
     if let Some(err) = reparsed.errors().first() {
         return Err(format!(
             "the formatted output does not parse: {} at offset {:?}",

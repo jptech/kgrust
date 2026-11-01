@@ -92,6 +92,14 @@ fn render(status: &Value) -> String {
     if !corpus.is_empty() {
         rows.push(["`corpus`".into(), corpus, "every reference file round-trips losslessly and parses clean".into()]);
     }
+    let editions = stage("editions");
+    if !editions.is_empty() {
+        rows.push([
+            "`editions`".into(),
+            editions,
+            "the language beyond the reference: every feature neutral over the reference's files, each fixture claimed, walked as its twin, rejected as listed (`docs/editions/`)".into(),
+        ]);
+    }
     let decidable = g("strict", "conformance-passed").zip(g("strict", "conformance-failed")).map(|(p, f)| p + f);
     rows.push([
         "`conformance`".into(),

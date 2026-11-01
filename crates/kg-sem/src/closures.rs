@@ -185,12 +185,24 @@ impl Wrappers<'_> {
         let Exp::FunctionCall { attr, function, args } = e else { return e };
         let Some(scope) = scope_of(m.rw.arena, function) else { return Exp::FunctionCall { attr, function, args } };
         let old = items(m.rw.arena, args);
-        let new: Vec<ExpId> = old.iter().map(|&a| self.wrap_function_arg(m, &scope, a)).collect();
+        let new: Vec<ExpId> = old.iter().map(|&a| self.wrap_argument(m, &scope, a)).collect();
         if new == old {
             return Exp::FunctionCall { attr, function, args };
         }
         let args = self.renote(m, args, Exp::Seq(new));
         Exp::FunctionCall { attr, function, args }
+    }
+
+    /// `wrapFunctionArg` of an argument — of its value, where a later
+    /// edition names it (`crate::named`): a function named by a labelled
+    /// argument is wrapped as one written positionally is.
+    fn wrap_argument(&self, m: &mut Mint<'_, '_>, scope: &QualifiedName, a: ExpId) -> ExpId {
+        let Exp::Labelled { label, value } = m.rw.arena[a].exp else { return self.wrap_function_arg(m, scope, a) };
+        let wrapped = self.wrap_function_arg(m, scope, value);
+        if wrapped == value {
+            return a;
+        }
+        self.renote(m, a, Exp::Labelled { label, value: wrapped })
     }
 
     fn renote(&self, m: &mut Mint<'_, '_>, id: ExpId, exp: Exp) -> ExpId {
@@ -332,7 +344,7 @@ impl Wrappers<'_> {
                 None => Exp::Identifier(self.interner.intern(&format!("$wrapper_param{i}"))),
             };
             let name = m.new_note(e, name);
-            list.push(m.new_note(e, Exp::FuncParam { scope: scope.clone(), attr, ty, name }));
+            list.push(m.new_note(e, Exp::FuncParam { scope: scope.clone(), attr, ty, name, default: None }));
         }
         m.new_note(e, Exp::Seq(list))
     }

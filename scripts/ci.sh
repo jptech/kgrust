@@ -4,7 +4,8 @@
 #
 #   scripts/ci.sh          # both jobs: `test`, then `lint`
 #   scripts/ci.sh test     # the tests, then the corpus gates (corpus,
-#                          #   conformance, fmt-check, lint) and codegen --check
+#                          #   conformance, fmt-check, lint, editions without
+#                          #   kg-oracle) and codegen --check
 #   scripts/ci.sh lint     # clippy, and the documentation's links
 #
 # This repository's Rust code only — the whole workspace but kg-ptrace,
@@ -65,7 +66,9 @@ workspace=(--workspace --exclude kg-ptrace)
 run_test() {
   step "tests" cargo test --locked --profile quick "${workspace[@]}"
   local gate
-  for gate in corpus conformance fmt-check lint "codegen --check"; do
+  # `editions --no-oracle`: every check of the language beyond the
+  # reference but the reference's own verdicts, which need kg-oracle.
+  for gate in corpus conformance fmt-check lint "editions --no-oracle" "codegen --check"; do
     # shellcheck disable=SC2086 # `codegen --check` is a command and its flag
     step "xtask $gate" cargo run --locked --quiet --profile quick -p xtask -- $gate
   done

@@ -24,6 +24,27 @@ impl std::fmt::Display for ManifestError {
 
 impl std::error::Error for ManifestError {}
 
+impl ManifestError {
+    /// The byte range of the manifest's text at fault, where `toml` knows
+    /// it — a syntax error, or a value its field refused, as `edition =
+    /// "9.9"`: the language server marks it in the manifest itself.
+    pub fn span(&self) -> Option<std::ops::Range<usize>> {
+        match self {
+            ManifestError::Io { .. } => None,
+            ManifestError::Parse { source, .. } => source.span(),
+        }
+    }
+
+    /// The problem alone, without the path or `toml`'s rendering of the
+    /// line around it: for a diagnostic placed at [`span`](Self::span).
+    pub fn message(&self) -> String {
+        match self {
+            ManifestError::Io { source, .. } => source.to_string(),
+            ManifestError::Parse { source, .. } => source.message().to_owned(),
+        }
+    }
+}
+
 /// Walks up from `start` looking for the nearest `kanagawa.toml`.
 ///
 /// This is how the language server answers "what are the import directories for

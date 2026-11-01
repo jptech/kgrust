@@ -47,6 +47,7 @@ pub mod snapshot;
 pub mod from_type;
 pub mod infer;
 pub mod instance;
+pub mod named;
 pub mod pass1;
 pub mod pass7;
 pub mod symbols;
