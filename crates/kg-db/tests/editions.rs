@@ -69,6 +69,27 @@ fn a_change_of_language_reparses_an_unchanged_file() {
     assert!(!db.parse(file).errors().is_empty());
 }
 
+/// A parse is read at a settings revision, not on every visit: a settings
+/// change that leaves the file's language alone keeps the parse, and reads
+/// of it at one revision are hits however many a request makes. Red with
+/// the memo re-read after a settings change parsing again; that a hit at
+/// a standing revision skips `Db::features_of` no answer shows, and the
+/// two tests above are red with it served after the language moved.
+#[test]
+fn a_settings_change_that_keeps_the_language_keeps_the_parse() {
+    use kg_db::stats::Query;
+    let mut db = db(NAMED);
+    let file = write(&mut db, CALL);
+    let parsed = db.parse(file);
+    db.set_settings(settings(NAMED));
+    let before = db.stats();
+    for _ in 0..3 {
+        assert!(std::sync::Arc::ptr_eq(&db.parse(file), &parsed), "the parse survives a change that is not its own");
+    }
+    let since = db.stats().since(&before);
+    assert_eq!((since.misses(Query::Parse), since.hits(Query::Parse)), (0, 3));
+}
+
 /// What a call that names its arguments can get wrong, each reported at the
 /// argument it is about, once — the pass that places arguments runs on every
 /// round of the loop, and must not meet a call it has faulted again.

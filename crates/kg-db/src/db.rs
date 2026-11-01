@@ -257,6 +257,13 @@ struct ParseMemo {
     /// ([`Db::features_of`]). The parse records it too, so everything keyed
     /// on the parse's pointer follows a change of language.
     features: Features,
+    /// The settings revision `parse_docs` and `features` were last read at.
+    /// Both come from the settings alone — `Settings::language` walks the
+    /// disk for a directory once and keeps the answer — so while the
+    /// revision stands the memo is answered on its stamp, without the path,
+    /// the normalisation and the lock `Db::features_of` costs on each of the
+    /// many reads a request makes of one parse.
+    read_at: Revision,
 }
 
 #[derive(Clone, Debug)]
@@ -593,14 +600,33 @@ impl Db {
     /// keeps one code path for both (`Parser/IO.hs:100-102`).
     pub fn parse_module(&self, module: ModuleSource) -> Arc<Parse> {
         let stamp = self.stamp(module);
+        let read_at = self.settings_revision;
+        let cached = {
+            let parses = self.memo.parses.read().unwrap();
+            match parses.get(&module) {
+                Some(memo) if memo.stamp == stamp && memo.read_at == read_at => {
+                    self.stats.hit(Query::Parse);
+                    return memo.value.clone();
+                }
+                memo => memo.cloned(),
+            }
+        };
         let parse_docs = self.settings.parse_docs;
         let features = self.features_of(module);
-        let cached = self.memo.parses.read().unwrap().get(&module).cloned();
         if let Some(memo) = &cached
             && memo.stamp == stamp
             && memo.parse_docs == parse_docs
             && memo.features == features
         {
+            // The settings moved but left this file's reading alone: the
+            // parse stands, read again at the new revision.
+            let mut parses = self.memo.parses.write().unwrap();
+            if let Some(stored) = parses.get_mut(&module)
+                && Arc::ptr_eq(&stored.value, &memo.value)
+                && stored.stamp == stamp
+            {
+                stored.read_at = read_at;
+            }
             self.stats.hit(Query::Parse);
             return memo.value.clone();
         }
@@ -628,14 +654,15 @@ impl Db {
         // the same text first: adopt it, so every reader of this revision
         // holds one `Arc` and the queries keyed on its identity — the item
         // tree, the program, the loop — are computed once (`Db::program`).
-        if let Some(memo) = parses.get(&module)
+        if let Some(memo) = parses.get_mut(&module)
             && memo.stamp == stamp
             && memo.parse_docs == parse_docs
             && memo.features == features
         {
+            memo.read_at = read_at;
             return memo.value.clone();
         }
-        parses.insert(module, ParseMemo { value: value.clone(), stamp, parse_docs, features });
+        parses.insert(module, ParseMemo { value: value.clone(), stamp, parse_docs, features, read_at });
         value
     }
 
