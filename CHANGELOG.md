@@ -34,6 +34,13 @@ Notable changes to kgrust, newest first. The format follows
   (and an `extern` one likewise). The class is listed once, `export` in its
   detail; an export of an instance (`export Ring<4>;`), or of a type
   declared in another file, keeps an entry of its own.
+- `kg fmt` (and editor formatting) half split a function body written on
+  one line. Where the line was too long, it broke the parameters and left
+  the body on the `)` line, `) { return x + 1; }`; it now keeps the line
+  whole where it fits and lays the body out Allman where it does not. And
+  an `else`, a `switch`'s brace or the declaration after `template <…>`
+  inside a one-line body went to a line of their own, which the next run
+  then laid out differently again; they stay on the line.
 
 ## 0.2.0 — language editions, 2026-10-31
 

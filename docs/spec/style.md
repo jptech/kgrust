@@ -2008,6 +2008,16 @@ be the rule and too deliberate to be noise (`inline void foo(){}` is a legitimat
 `test/syntax/helper/*.k`). **`collapse_empty_body = "preserve"`,
 `collapse_short_body = "preserve"`.**
 
+> **As built (2026-11-01).** What is preserved is the author's one line, and
+> nothing on it breaks: not an `else` (§2.2), a `switch`'s brace (§2.6) or the
+> declaration after `template <…>` (§3.2), each of which otherwise goes on a
+> line of its own. A function body written on its declaration's line stays
+> there where the whole line fits the width; where it does not, the body is
+> laid out Allman and the header breaks only as its own width demands — no
+> longer the parameters broken around a body left on the `)` line. In the
+> corpus that is `test/logic/loop_test_cases_2.k:58-60` alone, three 118-column
+> one-liners (`crates/kg-fmt/src/lower.rs`, `one_line_or_allman`).
+
 ### 10.3 Column alignment (trailing comments, aligned `=`, aligned commas)
 
 - 144/164 multi-line trailing-comment runs are column-aligned (§8.5).
