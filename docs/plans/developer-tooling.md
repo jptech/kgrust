@@ -27,7 +27,7 @@ compiler knows the editor knows.
 | VS Code extension (`editors/vscode`) | a thin client: spawns `kg lsp`, a TextMate grammar generated from the parser's keyword list as the fallback, restart and log commands, three settings | built by hand (`npm run compile`, `vsce package`); **not published** |
 | `kg dump` | tokens, CST, AST, the lowered IR, the template instances the loop made, round by round | — |
 | `kg explain` | every code named: `Error 1` (the frontend) and every warning with prose; `Error 2`–`84` (the backend's) by name and source line only | — |
-| `kg doc` | *(2026-10-11)* a static site from the doc comments: a page per module in the reference generator's structure (description, export-list index with its sections, exposed declarations), linked signatures, parameters and members, folded examples, search; Markdown by `pulldown-cmark`, no pandoc. The standard library: 124 modules, 1,215 declarations, 730 documented, in 2 s | `kg-doc`'s tests; `kg-syntax`'s over the library |
+| `kg doc` | *(2026-10-11)* a static site from the doc comments: a page per module in the reference generator's structure (description, export-list index with its sections, exposed declarations), linked signatures, parameters and members, folded examples, search; Markdown by `pulldown-cmark`, no pandoc. The standard library: 124 modules, 1,215 declarations, 730 documented, in 2 s. *(2026-11-01)* `--check`: the Kanagawa code blocks in Markdown and doc comments, by the frontend | `kg-doc`'s tests, `cli_process`; `kg-syntax`'s over the library |
 | Release archive | *(2026-10-11)* `cargo xtask dist`: `kg`, `kanagawa`, the backend library beside them, the standard library (`kg`'s import directory of last resort), `LICENSE`, generated `THIRD-PARTY-NOTICES.md`; 14 MiB on macOS; `cargo xtask install` *(2026-10-28)* stages the same tree and links it into place. The backend from the submodule, `scripts/build-backend.sh` | proven by hand from a fresh unpack: check, build, doc |
 | `kanagawa.toml` | `[package]`, `[project]` (import dirs, defines, base library, device), `[warnings]`, `[fmt]`, `[lsp]`, `[hw]` (the backend's knobs), `[profile.<name>]` overlays; discovered from the nearest ancestor | — |
 
@@ -73,11 +73,18 @@ depends on; none is scheduled.
   node). Left: svgbob diagrams rendered as pictures (shown as text today),
   sandcastle's `--svgbob`; re-exposed modules' declarations listed on the
   re-exposing page (linked only); a Markdown output beside the HTML.
-- **Doc tests**: the reference's `chkdoc` compiles every code block of its
-  markdown documentation (`third_party/kanagawa/tools/chkdoc`, `spec/cli.md` §8.9); a
-  `kg check` over a markdown file's code blocks would give the same to any
-  project's docs.
-- *Effort*: hover docs small; `kg doc` medium; doc tests small.
+- **Doc tests** — *built 2026-11-01* as `kg doc --check` (`kg_doc::check`,
+  `spec/cli.md` §9's box): what the reference's `chkdoc` does for its own
+  documents (`third_party/kanagawa/tools/chkdoc`, `spec/cli.md` §8.9), for any
+  project's Markdown and for the doc comments `kg doc` renders, by the
+  frontend. Over copies of upstream's four documents (2026-11-01, `kg doc
+  --check --all-blocks --no-manifest -I <library> -D MemoryLength=32
+  --target-device mock -v`): 331 blocks, 319 passed, 12 skipped as invalid, 0
+  failed. The 319 are `chkdoc`'s 312 compiled blocks and 7 indented in lists
+  that it cannot see. Left: the backend's checks, which `--check` cannot run
+  on the light path (`known-divergences.md` #43); the library's examples,
+  whose blocks are 4-space `>>>` doctests rather than fences.
+- *Effort*: hover docs small; `kg doc` medium; doc tests small (*done*).
 
 ### 2.3 Testing and simulation
 
