@@ -18567,5 +18567,9 @@ parameter is answered with the signature and no `parameters`.
 
 Checked 2026-11-01: `cargo xtask editions` — 481 reference files the same,
 claims 23, twins 10, rejections 13; every new test proven by
-`scripts/mutant.sh` (the commits list each). The branch's gates are in
-its merge commit's message.
+`scripts/mutant.sh` (the commits list each). `scripts/fast.sh --lint
+loop` green, every ratchet +0/-0 (infer-identity 304/304, edit-identity
+87/87); `scripts/gates.sh --snapshot` at `2cc6848` green in 384 s, every
+ratchet +0/-0, 2040 tests passed. Its `mem` reads `risc-v.k`'s check at
+801 MiB and the editor after five edits at 1421 MiB, against 780 and
+1355 MiB at `3ff57ab`'s render — within budget, not yet attributed.
