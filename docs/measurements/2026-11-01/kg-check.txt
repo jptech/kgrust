@@ -1,0 +1,54 @@
+# 5685cc4 (rust) against 094fefc (rust-main), 16 cores, load 2.48 2.95 3.86
+# program side real user rss_mib footprint_mib exit
+tiny.k rust-main 0.05 0.04 42 38 0
+tiny.k rust 0.04 0.04 42 38 0
+tiny.k rust-main 0.04 0.04 42 38 0
+tiny.k rust 0.05 0.04 42 38 0
+tiny.k rust-main 0.04 0.04 42 38 0
+tiny.k rust 0.04 0.04 42 38 0
+cache.k rust-main 0.21 0.20 99 95 0
+cache.k rust 0.21 0.20 99 95 0
+cache.k rust-main 0.21 0.20 99 95 0
+cache.k rust 0.21 0.20 99 95 0
+cache.k rust-main 0.22 0.21 99 95 0
+cache.k rust 0.21 0.20 99 95 0
+bits.k rust-main 0.25 0.24 120 116 0
+bits.k rust 0.24 0.23 121 116 0
+bits.k rust-main 0.26 0.24 120 116 0
+bits.k rust 0.24 0.23 121 116 0
+bits.k rust-main 0.25 0.24 120 116 0
+bits.k rust 0.24 0.23 121 116 0
+vector.k rust-main 0.68 0.65 236 231 0
+vector.k rust 0.64 0.61 236 231 0
+vector.k rust-main 0.67 0.65 236 231 0
+vector.k rust 0.63 0.61 236 231 0
+vector.k rust-main 0.67 0.65 236 231 0
+vector.k rust 0.63 0.60 236 231 0
+array.k rust-main 0.83 0.80 293 288 0
+array.k rust 0.68 0.66 293 289 0
+array.k rust-main 0.84 0.81 293 288 0
+array.k rust 0.68 0.65 293 289 0
+array.k rust-main 0.82 0.79 293 288 0
+array.k rust 0.69 0.66 293 289 0
+float.k rust-main 0.66 0.64 282 277 0
+float.k rust 0.63 0.60 282 277 0
+float.k rust-main 0.67 0.64 282 277 0
+float.k rust 0.63 0.61 282 277 0
+float.k rust-main 0.66 0.63 282 277 0
+float.k rust 0.64 0.61 282 277 0
+risc-v.k rust-main 1.73 1.67 756 742 0
+risc-v.k rust 1.66 1.61 752 745 0
+risc-v.k rust-main 1.71 1.65 756 742 0
+risc-v.k rust 1.68 1.62 752 745 0
+risc-v.k rust-main 1.72 1.66 756 742 0
+risc-v.k rust 1.67 1.61 752 745 0
+# load after: 2.69 2.97 3.83
+
+best of 3, seconds, peak RSS MiB:
+  tiny.k       main   0.04s    42 MiB   this   0.04s    42 MiB
+  cache.k      main   0.21s    99 MiB   this   0.21s    99 MiB
+  bits.k       main   0.25s   120 MiB   this   0.24s   121 MiB
+  vector.k     main   0.67s   236 MiB   this   0.63s   236 MiB
+  array.k      main   0.82s   293 MiB   this   0.68s   293 MiB
+  float.k      main   0.66s   282 MiB   this   0.63s   282 MiB
+  risc-v.k     main   1.71s   756 MiB   this   1.66s   752 MiB

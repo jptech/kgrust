@@ -762,14 +762,43 @@ Raw runs: [`measurements/2026-10-11/vs-haskell-three-columns.txt`](../measuremen
 - Multi-threading is therefore an opportunity on our side too (§13's
   triage): the reference's own gain says the per-module passes split.
 
+**Our column re-measured, 2026-11-01.** The reference was not re-run: its
+pin is still `98a2d8c` and the machine is the same, so its two columns
+above stand. Ours was measured at `5685cc4` with the same `measure`,
+programs and order as `scripts/vs-haskell.sh`, best of three, at load
+2.48 → 2.69. `main`'s `094fefc` ran interleaved with it. Raw runs:
+[`measurements/2026-11-01/kg-check.txt`](../measurements/2026-11-01/kg-check.txt).
+
+| Program | Rust | faster than 1 core | faster than 16 cores | RSS, Rust |
+|---|---:|---:|---:|---:|
+| a four-line function (base library only) | 0.04 s | 15× | 16× | 42 MB |
+| `test/library/data/cache.k` | 0.21 s | 22× | 9× | 99 MB |
+| `test/library/data/bits.k` | 0.24 s | 26× | 9× | 121 MB |
+| `test/library/data/vector.k` | 0.63 s | 33× | 9× | 236 MB |
+| `test/library/data/array.k` | 0.68 s | 42× | 19× | 293 MB |
+| `test/library/numeric/float.k` | 0.63 s | 48× | 17× | 282 MB |
+| `test/library/processor/risc-v.k` | 1.66 s | 33× | 15× | 752 MB |
+
+- **Per core, 15–48× faster; against every core, 9–19×.** Against the
+  reference on every core, ours uses 4–51× less memory.
+- **Where it came from.** On its own, `main` runs `risc-v.k` in 1.71 s
+  rather than 1.95 s, from the work merged since 2026-10-11. Its other
+  programs are within 0.02 s of that day's. The rest is the symbol maps'
+  repair (§10, 2026-11-01): `array.k` 0.82 → 0.68 s, `float.k`
+  0.66 → 0.63, `risc-v.k` 1.71 → 1.66, `vector.k` 0.67 → 0.63.
+- **A session a minute earlier,** at load 2.45 → 3.06, read `array.k` at
+  0.74 s and `main`'s at 0.88 s, the same 16–17% apart
+  ([`kg-check-earlier.txt`](../measurements/2026-11-01/kg-check-earlier.txt)).
+  The four-line function's 0.04 s is at `time`'s 10 ms resolution.
+
 (MB here is MiB, as `/usr/bin/time -l`'s bytes divided by 2^20.) The
 one-core Haskell column agrees with 2026-09-27's to within 4% (`risc-v.k` 54.2 s
 then), so the gain is ours. The Rust column against its earlier readings:
 
-| Program | 2026-09-27 | 2026-10-10, loaded (load 7–11) | 2026-10-10, quiet, after the keystroke round | 2026-10-11, quiet |
-|---|---:|---:|---:|---:|
-| `array.k` | 3.05 s / 1367 MB | 1.01 s / 246 MB | 0.86–0.97 s / 291 MB | **0.79 s / 301 MB** |
-| `risc-v.k` | 6.08 s / 1857 MB | 2.79 s / 710 MB | 2.18–2.28 s / 781 MB | **1.92 s / 797 MB** |
+| Program | 2026-09-27 | 2026-10-10, loaded (load 7–11) | 2026-10-10, quiet, after the keystroke round | 2026-10-11, quiet | 2026-11-01, quiet |
+|---|---:|---:|---:|---:|---:|
+| `array.k` | 3.05 s / 1367 MB | 1.01 s / 246 MB | 0.86–0.97 s / 291 MB | 0.79 s / 301 MB | **0.68 s / 293 MB** |
+| `risc-v.k` | 6.08 s / 1857 MB | 2.79 s / 710 MB | 2.18–2.28 s / 781 MB | 1.92 s / 797 MB | **1.66 s / 752 MB** |
 
 Since the last quiet reading the CST inference engine, the second census
 and the twin's leftovers were deleted (W3.7, W4); the time is not

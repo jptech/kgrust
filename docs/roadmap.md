@@ -31,10 +31,11 @@ written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10
   gates are tested on macOS only; on Linux the backend's build compiles
   LLVM, MLIR and CIRCT and was not carried further ([`journal.md`](journal.md),
   2026-10-11).
-- **Speed:** `kg check` is 12–46× the reference frontend per core, 8–16×
+- **Speed:** `kg check` is 15–48× the reference frontend per core, 9–19×
   against it on 16 cores ([`plans/performance.md`](plans/performance.md)
-  §11), measured with the `release` build; the release archives, built
-  with link-time optimisation, check 6–10% faster again. A whole build is 92–98% the shared C++ backend
+  §11, ours re-measured 2026-11-01), measured with the `release` build;
+  the release archives, built with link-time optimisation, check 6–10%
+  faster again. A whole build is 92–98% the shared C++ backend
   ([`plans/backend-survey.md`](plans/backend-survey.md)).
 
 ## Next

@@ -16,7 +16,7 @@ kgrust reimplements the Kanagawa compiler's frontend and builds the tools a desi
 lives in around it — a language server, a formatter, a documentation generator — on one
 shared core. It compiles every existing `.k` program, unchanged, to the same
 SystemVerilog as the reference compiler, through the reference's own code generator, and
-checks a design **8–16× faster** than the reference does on all cores, in a fraction of
+checks a design **9–19× faster** than the reference does on all cores, in a fraction of
 the memory.
 
 | Command | What it does |
@@ -191,11 +191,12 @@ Checking a design, against the reference frontend ([details](docs/plans/performa
 
 | Program | Reference, 1 core | Reference, 16 cores | kgrust | Faster |
 |---|---:|---:|---:|---:|
-| `data/array.k` | 28.2 s | 12.8 s | 0.80 s | 16× |
-| `numeric/float.k` | 30.4 s | 10.6 s | 0.66 s | 16× |
-| `processor/risc-v.k` | 54.0 s | 24.6 s | 1.95 s | 13× |
+| `data/array.k` | 28.2 s | 12.8 s | 0.68 s | 19× |
+| `numeric/float.k` | 30.4 s | 10.6 s | 0.63 s | 17× |
+| `processor/risc-v.k` | 54.0 s | 24.6 s | 1.66 s | 15× |
 
-Those are the `release` build's times. The release archives are optimised as one
+Those are the `release` build's times, on one 16-core machine: kgrust's from 2026-11-01,
+the unchanged reference's from 2026-10-11. The release archives are optimised as one
 program and check 6–10% faster again, with identical output.
 
 A whole build is mostly the shared code generator, so `kg build` finishes 1.5–2× sooner
