@@ -1,10 +1,11 @@
 // Arguments named in another order than their parameters, across the kinds
 // of callee a class reaches: its own method, a member object's method, a
 // template class's method (its parameters known once `Box<uint8>` is), an
-// inline function of `auto` parameters, a call nested in a named argument,
-// and positional arguments before named ones. `sub(y: g(), x: p)` calls a
-// function after reading a parameter it is placed before, which no callee
-// can tell: a parameter commutes with anything.
+// inline function of `auto` parameters and a method of one, a call nested
+// in a named argument, and positional arguments before named ones.
+// `sub(y: g(), x: p)` calls a function after reading a parameter it is
+// placed before, which no callee can tell: a parameter commutes with
+// anything.
 
 class Acc
 {
@@ -34,6 +35,11 @@ inline auto pick(auto a, auto b, bool first)
     return first ? a : b;
 }
 
+inline uint32 twice(auto acc, uint32 v)
+{
+    return acc.add(shift: 1, value: v);
+}
+
 class C
 {
 private:
@@ -60,7 +66,8 @@ public:
         uint8 e = pick(first: true, b: q, a: p);
         uint32 f = _acc.add(shift: p, value: _acc.add(value: 1, shift: 0));
         uint16 h = sub(y: g(), x: p);
-        return a + b + c + d + e + f + h;
+        uint32 i = twice(acc: _acc, v: a);
+        return a + b + c + d + e + f + h + i;
     }
 }
 

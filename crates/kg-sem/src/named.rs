@@ -24,6 +24,17 @@
 //! left for a later run of the pass; the loop runs it before every pass that
 //! reads a call's arguments by position (`crate::elaborate`).
 //!
+//! But not a value's type: a callee that is a value of function type — a
+//! parameter, a callback, a template's function parameter — is typed as
+//! what it holds. Pass 2 types a function-typed parameter as the closure
+//! of the lambda passed in (`higherOrderFunctions`, `Function.hs:313-359`),
+//! whose names are the caller's, and a template's parameter is replaced in
+//! its instance by the function given for it (`resolveTypeParam`,
+//! `TypeCheck.hs:334-336`), whose names and defaults are that function's.
+//! Its labels are the declared type's ([`Declared`]); and no call through a
+//! value is given a default, which belongs to a declaration, not a type: a
+//! call short of an argument through one is the reference's own count error.
+//!
 //! # Order of evaluation
 //!
 //! The backend evaluates a call's arguments in list order
@@ -69,12 +80,13 @@ pub fn named_arguments(program: &mut Program<'_>) {
         if module.ir.arena.holds(root) & needs == 0 {
             continue;
         }
-        let locals = Locals::of(&module.ir.arena);
+        let closure = Ty::closure_template_path(interner);
+        let locals = Locals::of(&module.ir.arena, &closure);
         let mut rw = Rewriter::new(&mut module.ir.arena, interner);
         let types = &mut module.types;
         let next = desugar_within(&mut rw, root, needs, &mut |rw, _id, exp| {
             sync(rw, types);
-            let cx = Cx { interner, locals: &locals, defaults };
+            let cx = Cx { interner, locals: &locals, defaults, closure: &closure };
             match cx.place(rw, types, exp) {
                 Placed::Call(e) | Placed::Waiting(e) => e,
             }
@@ -107,6 +119,11 @@ pub fn unplaced(modules: &mut [crate::infer::Module], interner: &Interner) {
                     stack.extend(params.iter().copied());
                     continue;
                 }
+                // `abbreviatedFunctionTemplate` keeps the function it made a
+                // template of beside it (`Function.hs:288-292`), judged in its
+                // copies and never as written (`crate::check`'s `abbreviated`):
+                // its `auto` parameter is never typed.
+                Exp::Function { params, .. } if kg_hir::rewrite::is_abbreviated_template(arena, *params) => continue,
                 Exp::FunctionCall { args, .. } if has_labels(arena, *args) => found.push((m, id, None)),
                 Exp::FuncParam { name, default: Some(d), .. } if !folded(arena, *d) => found.push((m, *d, Some(*name))),
                 _ => {}
@@ -160,6 +177,15 @@ fn folded(arena: &ExpArena, id: ExpId) -> bool {
             }
             matches!(arena[inner].exp, Exp::IntLiteral { .. })
         }
+        _ => false,
+    }
+}
+
+/// Whether `t` is a lambda's own function's type.
+fn is_lambda(t: &Ty) -> bool {
+    match t {
+        Ty::Function { kind, .. } => *kind == kg_ty::FunctionKind::LambdaFunction,
+        Ty::Instance { concrete: x, .. } | Ty::Const(x) => is_lambda(x),
         _ => false,
     }
 }
@@ -220,6 +246,24 @@ struct Cx<'a> {
     /// Whether any module declares a default, so that a call with no label
     /// may still be short of one.
     defaults: bool,
+    /// `data.closure.core::Closure`, the template of a closure's type.
+    closure: &'a QualifiedName,
+}
+
+/// The names a callee that is a value of function type was declared with,
+/// where they are not its type's ([module docs](self)).
+struct Declared {
+    /// A function type's, as written: a parameter's or a variable's type —
+    /// for a parameter pass 2 made a closure's, its closure's first argument
+    /// (`closureFunctionType`, `Function.hs:333-338`), the capture first —
+    /// or the kind of the template parameter an instance replaced. `None`
+    /// for a kind that spells no function type here, which the reference
+    /// does not call (`` `F`: illegal use of this template parameter as a
+    /// function ``): no label is placed.
+    names: Option<Vec<Option<Symbol>>>,
+    /// The template parameter's name, which a message names rather than the
+    /// function its instance put in its place.
+    param: Option<Symbol>,
 }
 
 /// One argument: where it was written — `None` for a default the call is
@@ -243,11 +287,50 @@ impl Cx<'_> {
             return Placed::Waiting(unchanged);
         }
         let t = types.get(function);
-        let Some(params) = t.function_params().map(<[_]>::to_vec) else {
+        let Some(mut params) = t.function_params().map(<[_]>::to_vec) else {
             // Not yet a function type — or never one, which the sweep after
             // the fixpoint reports ([`unplaced`]).
             return Placed::Waiting(unchanged);
         };
+        // A value's labels are its declared type's, and neither a value nor
+        // a lambda's own function, which only a call through its closure
+        // reaches (`closureCalls`, `Closure.hs:19-26`), is given a default
+        // ([module docs](self)).
+        let declared = self.declared(rw.arena, function);
+        let shown = |arena: &ExpArena| match declared.as_ref().and_then(|d| d.param) {
+            Some(p) => format!("`{}`", self.interner.resolve(p)),
+            None => callee_name(arena, function, self.interner),
+        };
+        match declared.as_ref().map(|d| &d.names) {
+            Some(Some(names)) => {
+                if labelled && !names.is_empty() && names.iter().all(Option::is_none) {
+                    let name = shown(rw.arena);
+                    return Placed::Call(Exp::Error(ErrorNote::new(format!(
+                        "{name}'s type gives its parameters no names, so a call through it passes them by position"
+                    ))));
+                }
+                let unknown = kg_ty::TFuncParam {
+                    attrs: kg_ty::TAttrSet::new(),
+                    ty: kg_ty::TyRef::new(Ty::Unresolved),
+                    name: None,
+                    default: None,
+                };
+                params = names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &name)| kg_ty::TFuncParam { name, ..params.get(i).cloned().unwrap_or_else(|| unknown.clone()) })
+                    .collect();
+            }
+            // Left for the sweep after the fixpoint, which says it cannot
+            // tell ([`unplaced`]).
+            Some(None) if labelled => return Placed::Waiting(unchanged),
+            _ => {}
+        }
+        if declared.is_some() || t.is_closure(self.closure) || is_lambda(&t) {
+            for p in &mut params {
+                p.default = None;
+            }
+        }
         // A template call not yet deduced is typed with no parameters
         // (`setTypeOfTemplateCall`, `Type.hs:1120-1129`); its instance's
         // type will have them.
@@ -264,7 +347,7 @@ impl Cx<'_> {
                 return Placed::Call(unchanged);
             }
         }
-        let name = callee_name(rw.arena, function, self.interner);
+        let name = shown(rw.arena);
         // A `[[pipelined]]` function's type keeps every parameter it
         // declares, its return type made dependent (`funcType`,
         // `Type.hs:1364-1373`), and a call passes the thread count where the
@@ -350,6 +433,26 @@ impl Cx<'_> {
         let args = rw.replace(args, Exp::Seq(ordered));
         sync(rw, types);
         Placed::Call(Exp::FunctionCall { attr, function, args })
+    }
+
+    /// The names `function` was declared with, where it is a value of
+    /// function type and not a function's or a method's name.
+    fn declared(&self, arena: &ExpArena, function: ExpId) -> Option<Declared> {
+        let Exp::FunctionSpecifier { receiver: None, function: f } = arena[function].exp else { return None };
+        // A template's function parameter: in its own body, or the function
+        // an instance put in its place, which wears the parameter's head
+        // (`resolveTypeParam`; `kg_hir::rewrite::instantiate`'s copy).
+        let param = match &arena[f].exp {
+            Exp::TypeParam { name, kind, .. } => Some((*name, *kind)),
+            _ if arena[f].src.written == kg_base::Written::Donated => self.locals.kinds.get(&arena[f].src.head).copied(),
+            _ => None,
+        };
+        if let Some((name, kind)) = param {
+            return Some(Declared { names: declared_names(arena, kind, None), param: Some(name) });
+        }
+        let binding = self.locals.binding(arena, f)?;
+        let names = self.locals.declared.get(&arena[binding.decl].src.head)?;
+        Some(Declared { names: Some(names.clone()), param: None })
     }
 
     fn param(&self, params: &[kg_ty::TFuncParam], i: usize) -> String {
@@ -463,48 +566,108 @@ impl Effect {
 }
 
 /// Every variable and parameter the module declares, by scope and name,
-/// with whether it is a function's own: a local, a parameter, or neither.
-struct Locals(FxHashMap<(QualifiedName, Symbol), bool>);
+/// with whether it is a function's own — a local, a parameter, or neither;
+/// the names of each one's declared function type, by its head; and every
+/// template parameter's mention, by head, with its kind.
+struct Locals {
+    bindings: FxHashMap<(QualifiedName, Symbol), Binding>,
+    /// By the declaration's head, which each copy of it keeps: an
+    /// instance's copy of a function-typed parameter is typed by the
+    /// closure instance the loop decided, whose name spells no names
+    /// (`Closure<|…|>`), while the template's own still says them.
+    declared: FxHashMap<kg_base::FileRange, Vec<Option<Symbol>>>,
+    kinds: FxHashMap<kg_base::FileRange, (Symbol, ExpId)>,
+}
+
+#[derive(Clone, Copy)]
+struct Binding {
+    local: bool,
+    /// The variable or parameter.
+    decl: ExpId,
+}
 
 impl Locals {
-    fn of(arena: &ExpArena) -> Locals {
-        let mut map = FxHashMap::default();
+    fn of(arena: &ExpArena, closure: &QualifiedName) -> Locals {
+        let mut bindings = FxHashMap::default();
+        let mut declared = FxHashMap::default();
+        let mut kinds = FxHashMap::default();
         for i in 0..arena.len() {
             let id = arena.id_at(i);
-            match &arena[id].exp {
-                Exp::Variable { scope, name, flags, .. } => {
-                    if let Some(n) = get_name(arena, *name) {
-                        map.insert((scope.clone(), n), *flags == kg_resolve::DeclareFlag::DeclareLocal);
-                    }
+            let (scope, name, ty, local) = match &arena[id].exp {
+                Exp::Variable { scope, name, flags, ty, .. } => (scope, *name, *ty, *flags == kg_resolve::DeclareFlag::DeclareLocal),
+                Exp::FuncParam { scope, name, ty, .. } => (scope, *name, *ty, true),
+                Exp::TypeParam { name, kind, .. } => {
+                    kinds.insert(arena[id].src.head, (*name, *kind));
+                    continue;
                 }
-                Exp::FuncParam { scope, name, .. } => {
-                    if let Some(n) = get_name(arena, *name) {
-                        map.insert((scope.clone(), n), true);
-                    }
-                }
-                _ => {}
+                _ => continue,
+            };
+            if let Some(n) = get_name(arena, name) {
+                bindings.insert((scope.clone(), n), Binding { local, decl: id });
+            }
+            if let Some(names) = declared_names(arena, ty, Some(closure)) {
+                declared.insert(arena[id].src.head, names);
             }
         }
-        Locals(map)
+        Locals { bindings, declared, kinds }
     }
 
     /// Whether the name `q` reads resolves, innermost scope first, to one of
     /// the enclosing function's locals or parameters. A name it cannot
     /// place — qualified, imported, a template's parameter — is not.
     fn is_local(&self, arena: &ExpArena, q: ExpId) -> bool {
+        self.binding(arena, q).is_some_and(|b| b.local)
+    }
+
+    /// The variable or parameter the name `q` reads, innermost scope first.
+    fn binding(&self, arena: &ExpArena, q: ExpId) -> Option<Binding> {
         let q = match &arena[q].exp {
             Exp::QualifiedIdentifier(inner) => *inner,
             _ => q,
         };
-        let Exp::ScopedName { scope, prefix: None, ident } = &arena[q].exp else { return false };
-        let Some(name) = kg_hir::rewrite::ident_sym(arena, *ident) else { return false };
+        let Exp::ScopedName { scope, prefix: None, ident } = &arena[q].exp else { return None };
+        let name = kg_hir::rewrite::ident_sym(arena, *ident)?;
         let segments = scope.segments();
         for k in (0..=segments.len()).rev() {
             let at = QualifiedName::new(segments[..k].iter().copied());
-            if let Some(&local) = self.0.get(&(at, name)) {
-                return local;
+            if let Some(&b) = self.bindings.get(&(at, name)) {
+                return Some(b);
             }
         }
-        false
+        None
     }
+}
+
+/// The parameters' names the function type `ty` spells, as inference reads
+/// them (`params`, `Type.hs:1350-1356`: a `void` parameter is none) — or,
+/// given the closure template, those of the function type a closure's type
+/// is made from, its capture dropped (`tFunctionParams`, `Type.hs:528`).
+fn declared_names(arena: &ExpArena, ty: ExpId, closure: Option<&QualifiedName>) -> Option<Vec<Option<Symbol>>> {
+    let (params, capture) = match &arena[ty].exp {
+        Exp::FunctionType { params, .. } => (*params, 0),
+        Exp::TypeIdentifier(_, instance) => {
+            let (Exp::TemplateInstance { base, args }, Some(closure)) = (&arena[*instance].exp, closure) else { return None };
+            let mut path = kg_hir::rewrite::get_qualifier(arena, *base)?;
+            path.push(get_name(arena, *base)?);
+            if path != closure.segments() {
+                return None;
+            }
+            let Exp::Seq(args) = &arena[*args].exp else { return None };
+            let Exp::FunctionType { params, .. } = &arena[*args.first()?].exp else { return None };
+            (*params, 1)
+        }
+        _ => return None,
+    };
+    let Exp::Seq(params) = &arena[params].exp else { return None };
+    Some(
+        params
+            .iter()
+            .skip(capture)
+            .filter_map(|&p| match &arena[p].exp {
+                Exp::FunctionTypeParam { ty, .. } if matches!(arena[*ty].exp, Exp::Void) => None,
+                Exp::FunctionTypeParam { name, .. } => Some(name.and_then(|n| kg_hir::rewrite::ident_sym(arena, n))),
+                _ => None,
+            })
+            .collect(),
+    )
 }

@@ -28,6 +28,11 @@ inline auto pick(auto a, auto b, bool first)
     return first ? a : b;
 }
 
+inline uint32 twice(auto acc, uint32 v)
+{
+    return acc.add(v, 1);
+}
+
 class C
 {
 private:
@@ -54,7 +59,8 @@ public:
         uint8 e = pick(p, q, true);
         uint32 f = _acc.add(_acc.add(1, 0), p);
         uint16 h = sub(p, g());
-        return a + b + c + d + e + f + h;
+        uint32 i = twice(_acc, a);
+        return a + b + c + d + e + f + h + i;
     }
 }
 
