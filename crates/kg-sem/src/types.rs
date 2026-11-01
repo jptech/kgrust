@@ -334,6 +334,11 @@ impl TypeMap {
         self.types.get(index).and_then(Option::as_ref)
     }
 
+    /// This map's identity, which no other map — a clone included — has.
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
     /// How many writes have changed a node's type (see the field).
     pub fn changes(&self) -> u64 {
         self.changes

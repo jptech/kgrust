@@ -90,6 +90,9 @@ pub struct Program<'i> {
     /// Where a recorded run's passes show what each module reads across
     /// its boundary ([`crate::reads`]); none otherwise.
     pub(crate) door: Option<&'i crate::reads::Door>,
+    /// Per module, what `crate::named`'s last run over it read, where that
+    /// run changed nothing ([`crate::named::Quiet`]).
+    pub(crate) named_quiet: Vec<Option<crate::named::Quiet>>,
 }
 
 /// A program cancelled mid-run (`kg_base::cancel`) is freed on another
@@ -126,6 +129,7 @@ impl<'i> Program<'i> {
             filed: crate::symbols::Filed::default(),
             snapshots: Vec::new(),
             door: None,
+            named_quiet: Vec::new(),
         }
     }
 
@@ -239,6 +243,7 @@ impl<'i> Program<'i> {
                     snapshots: Vec::new(),
                     // The check's walk is not the run's: it reads nothing in.
                     door: None,
+                    named_quiet: Vec::new(),
                 };
                 let lengths: Vec<usize> = self.modules.iter().map(|m| m.ir.arena.len()).collect();
                 shadow.iterate(rounds, &mut None, &mut None, true);

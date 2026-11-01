@@ -32,7 +32,9 @@
 //!
 //! Three sites, as there: a call's arguments (`checkArguments`,
 //! `TypeCheck.hs:87-97`), a variable's initializer (`checkVarDecl`,
-//! `:123-144`) and a function's `return` (`checkReturn`, `:84`). The walk is
+//! `:123-144`) and a function's `return` (`checkReturn`, `:84`) — and
+//! edition 1.1's default, judged as the argument it stands for at its
+//! declaration rather than at each call given it. The walk is
 //! post-order: `errorMsg` replaces the node it judges with an `ErrorF`
 //! (`Error.hs:147-148`), and `null (errors a)` (`:162`) then keeps an
 //! enclosing conversion quiet — an argument's verdict comes before its
@@ -952,6 +954,14 @@ impl Cx<'_> {
                 self.judged_as(text, TextPass::CheckConversion, |cx| cx.check_call(id, callee, args));
             }
             Exp::Variable { init: Some(init), flags, ty, .. } => self.check_var(text, id, ty, init, flags),
+            // Edition 1.1's default, judged as the argument it stands for
+            // (`checkArguments`, `TypeCheck.hs:97`) — once, at the
+            // declaration, and not at each call given it ([`Cx::check_call`]).
+            // A template's in each copy, as its body is.
+            Exp::FuncParam { default: Some(d), .. } => {
+                let t = self.ty(id);
+                self.judged_as(text, TextPass::CheckConversion, |cx| cx.check(&t, d, Narrowing::Warn));
+            }
             Exp::Assign { value, .. } if text => {
                 self.judged_as(true, TextPass::TypeErrors, |cx| cx.desugared_operation_error(value));
             }
@@ -1761,7 +1771,9 @@ impl Cx<'_> {
     fn check_call(&mut self, call: ExpId, callee: ExpId, args: ExpId) {
         let t = self.ty(callee);
         let Some(params) = t.function_params() else { return };
+        let defaulted: Vec<bool> = params.iter().map(|p| p.default.is_some()).collect();
         let params: Vec<Ty> = params.iter().map(|p| (*p.ty).clone()).collect();
+        let list = args;
         let args = self.items(args);
         if params.len() != args.len() {
             // A template's call is deduced and a higher-order function's is
@@ -1789,7 +1801,14 @@ impl Cx<'_> {
         }
         let pipelined = t.function_attrs().is_some_and(|a| a.contains(&TAttr::Flag(Flag::Pipelined)));
         let first = kg_ty::convert::first_checked_argument(pipelined, args.len());
-        for (param, &arg) in params.iter().zip(args.iter()).skip(first) {
+        let list = self.ir().arena[list].src;
+        for (i, (param, &arg)) in params.iter().zip(args.iter()).enumerate().skip(first) {
+            // A default the call was given (`crate::named`'s, made at the
+            // argument list) was judged at its declaration.
+            let src = self.ir().arena[arg].src;
+            if defaulted[i] && src.written == kg_base::Written::Donated && src.head == list.head {
+                continue;
+            }
             self.check(param, arg, Narrowing::Warn);
         }
     }

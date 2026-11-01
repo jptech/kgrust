@@ -115,6 +115,28 @@ fn a_misnamed_argument_is_reported_at_its_label() {
     );
 }
 
+/// A constant another module declares reads nothing a call could write,
+/// though it never folds to a literal — an array's, a structure's — so an
+/// argument reading one may be placed before a call written ahead of it;
+/// another module's member still may not. The module's own constants are
+/// `tests/editions/named-arguments/accept/constants.k`'s. Red with an
+/// imported name's type not read for its constness.
+#[test]
+fn an_imported_constant_commutes_with_a_call() {
+    let helper = "module helper { Table, Both, Pair, Acc }\n\nstruct Pair\n{\n    uint8 a;\n    uint8 b;\n}\n\nconst uint8[3] Table = {1, 2, 3};\nconst Pair Both = {4, 5};\n\nclass Acc\n{\npublic:\n    uint8 _total;\n}\n";
+    let text = "import helper\n\nclass C\n{\nprivate:\n    uint8 _m;\n    Acc _acc;\n    uint8 g() { _m++; return _m; }\n    uint16 sub(uint8 x, uint8 y)\n    {\n        return x - y;\n    }\n\npublic:\n    uint16 run(uint2 p)\n    {\n        uint16 a = sub(y: g(), x: Table[p]);\n        uint16 b = sub(y: g(), x: Both.b);\n        uint16 c = sub(y: g(), x: _acc._total);\n        return a + b + c;\n    }\n}\n";
+    let mut settings = settings(NAMED);
+    settings.import_dirs = vec![Utf8PathBuf::from("/proj")];
+    let mut db = Db::new(settings);
+    db.set_file_text(&Utf8PathBuf::from("/proj/helper.k"), helper.to_owned());
+    let file = write(&mut db, text);
+    let order = "and one of them calls a function: write them in the parameters' order, or bind one to a local first";
+    assert_eq!(
+        errors_of(&db, file, text),
+        [format!("19:32: in `sub`'s parameter order `x` would be evaluated before `y`, which is written first, {order}")]
+    );
+}
+
 /// Where `definition_at` lands from inside the `nth` (from 0) occurrence of
 /// `needle`, as `line:column` from 1.
 fn lands(db: &Db, file: FileId, text: &str, needle: &str, nth: usize) -> Option<String> {
@@ -240,6 +262,25 @@ fn a_default_that_is_no_constant_is_reported_at_it() {
         errors_of(&db, file, text),
         ["5:44: the default of `shift` is not a constant a call can be given: a default is a constant integer, `bool`, `float` or enum value"]
     );
+}
+
+/// A default is judged at its declaration, as the argument it stands for
+/// and as anything else written there: a conversion its parameter's type
+/// refuses is the reference's error at the default, and not again at the
+/// calls given it; a name that names nothing, pass 9's, at the name — and
+/// no call that leans on it, named or not, is reported. Red with the
+/// conversion judged at the calls, or the name's default reported as no
+/// constant.
+#[test]
+fn a_default_is_judged_where_it_is_written() {
+    let text = "class C\n{\n    uint8 add(uint8 value, uint8 by = true)\n    {\n        return value + by;\n    }\n\npublic:\n    uint8 run(uint8 p)\n    {\n        return add(p) + add(value: p) + add(p, 2);\n    }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(errors_of(&db, file, text), ["3:39: Invalid conversion from `bool` to `uint8`"]);
+
+    let missing = text.replace("uint8 by = true", "uint8 by = Step");
+    let file = write(&mut db, &missing);
+    assert_eq!(errors_of(&db, file, &missing), ["3:39: Symbol name not in scope: `Step`"]);
 }
 
 const TEMPLATES: &str = "template <typename T, auto Size = 4, bool Wide = false>\nclass Buffer\n{\npublic:\n    T get(T x)\n    {\n        return Wide ? x : x + Size;\n    }\n}\n\ntemplate <typename T, auto N = 2>\ninline T scaled(T x)\n{\n    return x * N;\n}\n\nclass Main\n{\n    Buffer<uint8, Wide: true> _a;\n    Buffer<Size: 8, T: uint16> _b;\n\npublic:\n    uint32 run(uint8 p)\n    {\n        const auto Size = 2;\n        return _a.get(p) + _b.get(p) + scaled<N: Size>(p);\n    }\n}\n";
