@@ -2016,7 +2016,9 @@ be the rule and too deliberate to be noise (`inline void foo(){}` is a legitimat
 > laid out Allman and the header breaks only as its own width demands — no
 > longer the parameters broken around a body left on the `)` line. In the
 > corpus that is `test/logic/loop_test_cases_2.k:58-60` alone, three 118-column
-> one-liners (`crates/kg-fmt/src/lower.rs`, `one_line_or_allman`).
+> one-liners (`crates/kg-fmt/src/lower.rs`, `one_line_or_allman`). Allman over
+> keeping the line whole and over the width was the owner's choice, 2026-11-01,
+> at the cost of an author's aligned table of one-liners.
 
 ### 10.3 Column alignment (trailing comments, aligned `=`, aligned commas)
 
