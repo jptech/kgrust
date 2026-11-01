@@ -598,6 +598,39 @@ impl Doc {
     }
 }
 
+/// Where each line of a [`Doc`]'s two runs begins in the source. A line of
+/// the text is one contiguous piece of one source line — markers, margin and
+/// a block comment's indentation come off its front, spaces off its end — so
+/// an offset into the line plus its start is an offset into the file: the
+/// place a tool reports something found in the documentation
+/// (`kg doc --check`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DocLines {
+    pub before: Vec<TextSize>,
+    pub after: Vec<TextSize>,
+}
+
+impl DocLines {
+    /// Parallel to the lines of `doc`'s [`Doc::text`]; `None` for the blank
+    /// line that joins the two runs.
+    pub fn of_text(&self, doc: &Doc) -> Vec<Option<TextSize>> {
+        let starts = |v: &[TextSize]| v.iter().copied().map(Some).collect::<Vec<_>>();
+        match (&doc.before, &doc.after) {
+            (Some(before), Some(_)) => {
+                let mut out = starts(&self.before);
+                // An empty run is still one (empty) line of the joined text.
+                out.resize(before.split('\n').count(), None);
+                out.push(None);
+                out.extend(starts(&self.after));
+                out
+            }
+            (Some(_), None) => starts(&self.before),
+            (None, Some(_)) => starts(&self.after),
+            (None, None) => Vec::new(),
+        }
+    }
+}
+
 /// Every doc-carrying element of a file, and the documentation of those that
 /// have any.
 #[derive(Clone, Debug, Default)]
@@ -605,6 +638,8 @@ pub struct FileDocs {
     /// Every element's extent, first to last meaningful token.
     elements: Vec<TextRange>,
     docs: FxHashMap<TextRange, Doc>,
+    /// Where each documented element's lines begin, keyed as `docs`.
+    lines: FxHashMap<TextRange, DocLines>,
     /// The module header's element.
     module: Option<TextRange>,
 }
@@ -634,6 +669,12 @@ impl FileDocs {
         self.docs.get(&element)
     }
 
+    /// Where the lines of the documentation of the element exactly
+    /// `element` begin in the source.
+    pub fn lines_of(&self, element: TextRange) -> Option<&DocLines> {
+        self.lines.get(&element)
+    }
+
     /// The documented elements, in source order.
     pub fn documented(&self) -> Vec<(TextRange, &Doc)> {
         let mut out: Vec<_> = self.docs.iter().map(|(r, d)| (*r, d)).collect();
@@ -649,6 +690,7 @@ impl FileDocs {
 pub fn file_docs(root: &SyntaxNode) -> FileDocs {
     let bounds = Boundaries::collect(root);
     let mut docs: FxHashMap<TextRange, Doc> = FxHashMap::default();
+    let mut lines: FxHashMap<TextRange, DocLines> = FxHashMap::default();
     let mut gap = |trivia: &[SyntaxToken], left: Option<TextSize>, right: Option<TextSize>| {
         let post = left.and_then(|off| bounds.post.get(&off).copied());
         let pre = right.and_then(|off| bounds.pre.get(&off).copied());
@@ -661,17 +703,19 @@ pub fn file_docs(root: &SyntaxNode) -> FileDocs {
                 continue;
             }
             let end = skip_run(trivia, i);
-            let text = run_text(&trivia[i..end]);
+            let (text, starts) = run_text(&trivia[i..end]);
             if token.kind().is_trailing_doc() {
                 let Some((block, element)) = post.filter(|_| !seen_post && !seen_pre) else { return };
                 if block == BlockPost::LineOnly && token.kind() == DOC_BLOCK_POST {
                     return;
                 }
                 docs.entry(element).or_default().after = Some(text);
+                lines.entry(element).or_default().after = starts;
                 seen_post = true;
             } else {
                 let Some(element) = pre.filter(|_| !seen_pre) else { return };
                 docs.entry(element).or_default().before = Some(text);
+                lines.entry(element).or_default().before = starts;
                 seen_pre = true;
             }
             i = end;
@@ -696,7 +740,8 @@ pub fn file_docs(root: &SyntaxNode) -> FileDocs {
     elements.sort_by_key(|r| (r.start(), r.end()));
     elements.dedup();
     docs.retain(|_, d| d.before.as_deref().is_some_and(|t| !t.is_empty()) || d.after.as_deref().is_some_and(|t| !t.is_empty()));
-    FileDocs { elements, docs, module: bounds.module }
+    lines.retain(|element, _| docs.contains_key(element));
+    FileDocs { elements, docs, lines, module: bounds.module }
 }
 
 /// How [`to_commonmark`] treats a heading.
@@ -829,11 +874,14 @@ fn spans(line: &str) -> String {
 /// `//` continuing the run lose one space of margin as well (`sandcastle.md`:
 /// "The line comment style `//` requires a single space of margin after the
 /// comment prefix") — a block comment's lines dedented, and the blank lines
-/// at either end dropped.
-fn run_text(run: &[SyntaxToken]) -> String {
-    let mut lines: Vec<String> = Vec::new();
+/// at either end dropped. With it, where each of its lines begins in the
+/// source ([`DocLines`]).
+fn run_text(run: &[SyntaxToken]) -> (String, Vec<TextSize>) {
+    let mut lines: Vec<(String, TextSize)> = Vec::new();
     for token in run {
         let text = token.text();
+        let start = token.text_range().start();
+        let at = |offset: usize| start + TextSize::from(offset as u32);
         let marker = match token.kind() {
             DOC_LINE_PRE | DOC_LINE_POST | DOC_BLOCK_PRE | DOC_BLOCK_POST => 3,
             LINE_COMMENT | BLOCK_COMMENT => 2,
@@ -841,30 +889,39 @@ fn run_text(run: &[SyntaxToken]) -> String {
         };
         if line_comment(token.kind()) {
             let body = text.get(marker..).unwrap_or("").trim_end_matches(['\r', '\n']);
-            lines.push(body.strip_prefix(' ').unwrap_or(body).trim_end().to_owned());
+            let (body, margin) = body.strip_prefix(' ').map_or((body, 0), |b| (b, 1));
+            lines.push((body.trim_end().to_owned(), at(marker + margin)));
         } else {
             let body = text.get(marker..text.len().saturating_sub(2)).unwrap_or("");
-            let body: Vec<&str> = body.lines().map(str::trim_end).collect();
-            let indent = body
+            // `str::lines`, each line with its offset in `body`.
+            let mut body_lines: Vec<(&str, usize)> = Vec::new();
+            let mut offset = 0;
+            for piece in body.split_inclusive('\n') {
+                let line = piece.strip_suffix('\n').unwrap_or(piece);
+                body_lines.push((line.strip_suffix('\r').unwrap_or(line).trim_end(), offset));
+                offset += piece.len();
+            }
+            let indent = body_lines
                 .iter()
                 .skip(1)
-                .filter(|l| !l.trim().is_empty())
-                .map(|l| l.len() - l.trim_start().len())
+                .filter(|(l, _)| !l.trim().is_empty())
+                .map(|(l, _)| l.len() - l.trim_start().len())
                 .min()
                 .unwrap_or(0);
-            for (n, line) in body.iter().enumerate() {
-                let line = if n == 0 { line.trim_start() } else { line.get(indent..).unwrap_or(line.trim_start()) };
-                lines.push(line.to_owned());
+            for (n, &(line, offset)) in body_lines.iter().enumerate() {
+                let kept = if n == 0 { line.trim_start() } else { line.get(indent..).unwrap_or(line.trim_start()) };
+                lines.push((kept.to_owned(), at(marker + offset + (line.len() - kept.len()))));
             }
         }
     }
-    while lines.first().is_some_and(|l| l.is_empty()) {
+    while lines.first().is_some_and(|(l, _)| l.is_empty()) {
         lines.remove(0);
     }
-    while lines.last().is_some_and(|l| l.is_empty()) {
+    while lines.last().is_some_and(|(l, _)| l.is_empty()) {
         lines.pop();
     }
-    lines.join("\n")
+    let starts = lines.iter().map(|&(_, start)| start).collect();
+    (lines.into_iter().map(|(l, _)| l).collect::<Vec<_>>().join("\n"), starts)
 }
 
 #[cfg(test)]
@@ -1100,6 +1157,36 @@ mod tests {
     fn a_block_run_is_dedented_and_needs_no_margin() {
         let text = "/*|\n    Adds two values.\n      Indented.\n*/\ninline uint8 add_blk(uint8 a) { return a; }\n";
         assert_eq!(doc(text, "add_blk").as_deref(), Some("Adds two values.\n  Indented."));
+    }
+
+    /// Every line of the text is the piece of the source its start names:
+    /// a line comment's after the marker and margin, a block comment's after
+    /// its dedent, the joining blank line nowhere.
+    #[test]
+    fn each_line_of_the_text_knows_where_it_starts_in_the_source() {
+        let text = "//| First line.\n//   Indented two.\n//\ninline void lined() {}\n//< After.\n\n/*|\n    Block one.\n      Block two.\n*/\ninline void blocked() {}\n";
+        let docs = super::file_docs(&parse_file(text).syntax_node());
+        let mut seen = 0;
+        for (element, doc) in docs.documented() {
+            let lines = docs.lines_of(element).expect("a documented element has its lines");
+            let joined = doc.text();
+            let starts = lines.of_text(doc);
+            assert_eq!(starts.len(), joined.split('\n').count(), "{joined:?}");
+            for (line, start) in joined.split('\n').zip(starts) {
+                match start {
+                    Some(start) => {
+                        let start = usize::from(start);
+                        assert_eq!(&text[start..start + line.len()], line, "{joined:?}");
+                        seen += 1;
+                    }
+                    None => assert_eq!(line, "", "only the joining line has no start"),
+                }
+            }
+        }
+        assert_eq!(seen, 5, "`lined`'s three lines, its trailing blank one dropped, and `blocked`'s two");
+        let at = |needle: &str| text.find(needle).map(|i| kg_base::TextSize::from(i as u32));
+        let lined = docs.documented()[0];
+        assert_eq!(docs.lines_of(lined.0).unwrap().of_text(lined.1), [at("First"), at("  Indented"), None, at("After.")]);
     }
 
     #[test]

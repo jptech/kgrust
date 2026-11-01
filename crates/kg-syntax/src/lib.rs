@@ -11,7 +11,7 @@ mod doc_comments;
 mod parse;
 mod reread;
 
-pub use doc_comments::{Doc, FileDocs, Headings, file_docs, to_commonmark};
+pub use doc_comments::{Doc, DocLines, FileDocs, Headings, file_docs, to_commonmark};
 pub use parse::{Parse, ParseOptions, SyntaxError, parse_and_check_lossless, parse_file, parse_file_with};
 
 pub use kg_parser::SyntaxKind;
