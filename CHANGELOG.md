@@ -14,6 +14,10 @@ Notable changes to kgrust, newest first. The format follows
   and `kg build` needs `KG_BACKEND_DIR`. A nightly's `kg --version` names
   its commit (`0.2.0-nightly.20261102+abc1234`). Not releases: those are
   still tagged by hand after the full gates.
+- A build from a checkout says what it is: `kg --version`, `kanagawa
+  --version`'s second line and the language server's `serverInfo` report
+  `0.2.0-dev+abc1234`, and only `cargo xtask dist --release` the plain
+  `0.2.0`.
 - `cargo xtask dist --label <LABEL>` names the archive
   `kgrust-<LABEL>-<target>`, and the archive's README states the version.
 

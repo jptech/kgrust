@@ -53,7 +53,7 @@ impl Client {
         let (client, server) = Connection::memory();
         let handle = std::thread::Builder::new()
             .name("kg-lsp-under-test".to_owned())
-            .spawn(move || kg_lsp::run_server_on(server).expect("the server loop"))
+            .spawn(move || kg_lsp::run_server_on(server, "1.2.3-test").expect("the server loop"))
             .expect("spawning the server");
         Client { conn: client, next_id: 0, server: Some(handle) }
     }
@@ -183,6 +183,7 @@ fn a_whole_session_initialize_through_exit() {
         serde_json::from_value(init["capabilities"].clone()).expect("capabilities");
 
     assert_eq!(init["serverInfo"]["name"], "kg-lsp");
+    assert_eq!(init["serverInfo"]["version"], "1.2.3-test", "the version the caller names");
     // Advertised exactly because they are implemented.
     assert!(caps.document_symbol_provider.is_some());
     assert!(caps.folding_range_provider.is_some());

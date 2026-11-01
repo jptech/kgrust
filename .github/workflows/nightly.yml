@@ -23,6 +23,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/nightly.yml
+      - crates/kg-cli/build.rs
       - xtask/src/dist.rs
 
 permissions:
@@ -111,6 +112,7 @@ jobs:
           kg="$smoke/$ARCHIVE/bin/kg"
           cd "$smoke"
           [[ "$("$kg" --version)" == "kg $KG_VERSION" ]] || { "$kg" --version; exit 1; }
+          grep -qF "\`$KG_VERSION\`" "$ARCHIVE/README.md"
           printf 'inline uint32 add_one(uint32 x)\n{\n    return x + 1;\n}\n' > add.k
           "$kg" check add.k
           "$kg" fmt --check add.k

@@ -20,9 +20,12 @@
 //!
 //! `--label <LABEL>` names the archive `kgrust-<label>-<target>` instead:
 //! the nightly workflow's `nightly`, so that its download links stay put
-//! from one night to the next. The version the binaries report is
-//! `KG_VERSION` if it is set while they build (`kg-cli`'s `VERSION`), and
-//! the archive's README states it.
+//! from one night to the next.
+//!
+//! The name does not say what the binaries report, which is `kg-cli`'s
+//! `VERSION`: `--release` builds them to say the plain version, `KG_VERSION`
+//! to say what it holds, and anything else to say `<version>-dev+<commit>`.
+//! The archive's README states what they said when asked.
 //!
 //! Then `<name>.tar.gz` and its `.sha256` beside the staged directory. The
 //! notices are generated, not kept by hand: Kanagawa's own license for the
@@ -37,15 +40,17 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: bool, label: Option<&str>) -> Result<()> {
+pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: bool, label: Option<&str>, release: bool) -> Result<()> {
     let workspace = crate::fresh::workspace();
-    // What `kg --version` will say: the cargo build below inherits this
-    // environment, `KG_VERSION` included.
-    let version = std::env::var("KG_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned());
+    let package = env!("CARGO_PKG_VERSION");
     let target = host_target()?;
-    let name = archive_name(label, &version, &target);
+    let name = archive_name(label, package, &target);
     let stage = out.join(&name);
-    let kanagawa_root = stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, &stage)?;
+    let kanagawa_root = stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, &stage, release.then_some(package))?;
+    let version = reported_version(&stage)?;
+    if release && version != package {
+        bail!("a release must report {package}, and this one says {version}");
+    }
     copy(&workspace.join("LICENSE"), &stage.join("LICENSE"))?;
     std::fs::write(stage.join("THIRD-PARTY-NOTICES.md"), notices(&workspace, &kanagawa_root, no_backend)?)?;
     std::fs::write(stage.join("README.md"), readme(&name, &version, no_backend))?;
@@ -68,11 +73,23 @@ fn archive_name(label: Option<&str>, version: &str, target: &str) -> String {
     format!("kgrust-{}-{target}", label.unwrap_or(version))
 }
 
+/// What the staged `kg` says it is, so that the README cannot disagree.
+fn reported_version(stage: &Path) -> Result<String> {
+    let output = Command::new(stage.join("bin").join(if cfg!(windows) { "kg.exe" } else { "kg" })).arg("--version").output()?;
+    let text = String::from_utf8(output.stdout)?;
+    match text.trim().strip_prefix("kg ") {
+        Some(version) if output.status.success() => Ok(version.to_owned()),
+        _ => bail!("`kg --version` said {text:?}"),
+    }
+}
+
 /// Builds `kg` and `kanagawa` (the `ship` profile) and lays out `stage` as
 /// an archive's tree minus its notices and README: `bin/`, then `share/kanagawa/`.
 /// `cargo xtask install` stages the same tree, so what it installs is what a
-/// release holds. Returns the canonical reference checkout.
-fn stage_tree(workspace: &Path, kanagawa_root: &Path, backend_dir: &Path, no_backend: bool, stage: &Path) -> Result<PathBuf> {
+/// release holds. `named` is the version the binaries are to report; without
+/// one, the build inherits this environment, `KG_VERSION` included. Returns the
+/// canonical reference checkout.
+fn stage_tree(workspace: &Path, kanagawa_root: &Path, backend_dir: &Path, no_backend: bool, stage: &Path, named: Option<&str>) -> Result<PathBuf> {
     let kanagawa_root = kanagawa_root.canonicalize().with_context(|| {
         format!("no kanagawa checkout at {} — `git submodule update --init third_party/kanagawa`", kanagawa_root.display())
     })?;
@@ -86,10 +103,12 @@ fn stage_tree(workspace: &Path, kanagawa_root: &Path, backend_dir: &Path, no_bac
     }
 
     eprintln!("dist: building kg and kanagawa (the `ship` profile)");
-    let status = Command::new(env!("CARGO"))
-        .args(["build", "--profile", "ship", "-p", "kg-cli", "--bin", "kg", "--bin", "kanagawa"])
-        .current_dir(workspace)
-        .status()?;
+    let mut build = Command::new(env!("CARGO"));
+    build.args(["build", "--profile", "ship", "-p", "kg-cli", "--bin", "kg", "--bin", "kanagawa"]).current_dir(workspace);
+    if let Some(version) = named {
+        build.env("KG_VERSION", version);
+    }
+    let status = build.status()?;
     if !status.success() {
         bail!("cargo build failed");
     }
@@ -126,7 +145,7 @@ pub fn install(kanagawa_root: &Path, backend_dir: &Path, prefix: &Path, bin_dir:
             bail!("{} is a regular file, not a link — remove it first (`cargo uninstall kg-cli` if cargo put it there)", link.display());
         }
     }
-    stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, prefix)?;
+    stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, prefix, None)?;
     std::fs::create_dir_all(bin_dir)?;
     for bin in &bins {
         let link = bin_dir.join(bin);

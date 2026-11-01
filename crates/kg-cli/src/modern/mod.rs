@@ -63,14 +63,14 @@ Exit codes: 0 success, 1 errors found, 2 bad usage, or not implemented yet (a
 program `build` cannot lower), 3 the backend crashed during `build` (it runs in
 a worker process, so the crash is reported rather than taking `kg` down).";
 
-/// `kg --version`'s version: `Cargo.toml`'s, unless the build names itself.
-/// The nightly workflow (`.github/workflows/nightly.yml`) builds with
-/// `KG_VERSION=0.2.0-nightly.20261102+abc1234`, so that a nightly says which
-/// `main` it is; no other build sets it. `kanagawa` keeps the reference's own
-/// version line whatever this is.
+/// The version this build reports. A build that names itself sets
+/// `KG_VERSION`: a release, `cargo xtask dist --release`, as `0.2.0`, and a
+/// nightly (`.github/workflows/nightly.yml`) as
+/// `0.2.0-nightly.20261102+abc1234`. Any other build says it is not a release,
+/// and which commit it is: `0.2.0-dev+abc1234` (`build.rs`).
 pub const VERSION: &str = match option_env!("KG_VERSION") {
     Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
+    None => env!("KG_DEV_VERSION"),
 };
 
 #[derive(Parser, Debug)]
@@ -1033,7 +1033,7 @@ fn lsp(args: &LspArgs, err: &mut dyn Write) -> i32 {
     let _ = args.stdio;
     // A server idles between checks, and an idle allocator returns nothing.
     kg_alloc::purge_eagerly();
-    match kg_lsp::run_server() {
+    match kg_lsp::run_server(VERSION) {
         Ok(exit) => exit.code(),
         Err(e) => {
             let _ = writeln!(err, "kg lsp: {e}");

@@ -165,6 +165,9 @@ cargo xtask dist                            # → target/dist/kgrust-<version>-<
 cargo xtask install                         # the same tree under ~/.local/share/kgrust, linked into ~/.cargo/bin
 ```
 
+A build from a checkout says so, and which commit it is: `kg --version` prints
+`kg 0.2.0-dev+abc1234`, and a nightly `kg 0.2.0-nightly.20261102+abc1234`.
+
 `cargo xtask install` is the way to put your checkout's `kg` on the `PATH` (`--prefix`
 and `--bin-dir` move either half; run it again to update). `cargo install --path
 crates/kg-cli` is not: it copies the two executables alone, so `kg board new` finds no
