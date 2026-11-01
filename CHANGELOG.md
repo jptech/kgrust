@@ -6,6 +6,16 @@ Notable changes to kgrust, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `kg expand` shows the reference program a later edition's program stands
+  for: your own text, with only the edition's constructs rewritten, and
+  comments and layout left alone. One file goes to stdout; `--out DIR` writes
+  every file of the project. What cannot be written exactly is refused, naming
+  the construct, with nothing written, and every expansion is checked in
+  edition 1.0 and walked into the backend against the program before it is
+  given. See [`docs/editions/`](docs/editions/README.md#kg-expand).
+
 ### Changed
 
 - Inference does less over again, with identical results. It walks again

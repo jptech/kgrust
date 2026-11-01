@@ -4,7 +4,8 @@
 on the `editions-pilot` branch** (PR #8) at the owner's request: steps 1–4
 — the plumbing, the `editions` gate, and edition `1.1` as a preview of
 four features — with the owner's decisions of those days folded in below
-and marked *as built*. Step 5, freezing an edition, waits on use. The
+and marked *as built*. Step 5, freezing an edition, waits on use.
+`kg expand` built 2026-11-01 (§4.4; graded in `xtask editions`, §6). The
 user's pages: [`../editions/`](../editions/README.md). Surveyed at
 `3562431`; every "today" below was read in the code then.*
 
@@ -235,11 +236,73 @@ notices a swapped donor ([`../gates.md`](../gates.md#src-donors-need-a-unit-test
 - **`kg explain`** gets prose for every new diagnostic, under a `kg::`
   name of its own; JSON diagnostics carry it. *Not built:* 1.1's errors
   carry no code of their own, and each says what to write.
-- **`kg expand`** (later, not built): the program as the reference would be given it.
-  Not first: the sorted printer prints the file's text at a name's head
+- **`kg expand`** (*built* 2026-11-01, `crates/kg-expand`): the program as
+  the reference would be given it. It is not a print of the tree: the sorted
+  printer prints the file's text at a name's head
   (`crates/kg-hir/src/pretty.rs:18-33`), which for a name donated from
-  extension syntax is extension text, so the printer needs work first. The
-  twin check (§6.3) does not wait for it.
+  extension syntax is extension text, and a print loses comments and layout.
+  The output is the user's own text, with only the constructs rewritten, as
+  minimal edits:
+
+  - **What the text says alone** is read off the CST (`scan.rs`): a trailing
+    comma is deleted, a parameter's default is deleted from the end of its
+    name.
+  - **What the loop did** is read off its final trees, the trees the walk
+    reads (`placed.rs`): a call's arguments keep their list's range and each
+    its own (`kg_hir::lower`'s `args`), a default `kg_sem::named` gave a call
+    wears the list's range alone (`default_argument`), and an instance's
+    arguments, deductions and defaults included, are its type's
+    (`TInstance`, `Type.hs:275`). So nothing is recorded: `named.rs` and
+    `deduce.rs` are untouched, and `kg check` runs no line of it.
+  - **The edits** (`edit.rs`) are regions of the text replaced by new text or
+    by other regions, each rendered with its own edits, so an argument moves
+    with the call inside it.
+  - **Every expansion is proved before it is given** (`verify.rs`): the
+    project read in edition 1.0, each file its expansion, must parse and
+    check clean and walk through the trace backend call for call as the
+    program does, locations aside. A failure is a refusal.
+
+  **A default is spelled by its folded value**, as `default_argument` left it
+  in the call: `3u9` for `Step + 1` of a `uint8`. The declared text may name
+  things out of scope at the call, or mean something else there (a template's
+  parameter, a shadowing name), and is exact only where the twins' author read
+  the scope by hand. The value's type is part of it: a bare `3` is a `uint2`,
+  which another call's inference reads differently (`ParseUintType 9` against
+  `2` in the walk), so a typed value keeps its suffix, and each spelling is
+  read back through the frontend's own literal parser and folder
+  (`spell.rs`). An enum's constant keeps its name, less the module no reference
+  text can name, and the proof shows it means the same where it lands.
+
+  **A reorder is the text reordered.** The backend evaluates arguments in list
+  order, and `kg_sem::named` places a call's only where no two it swaps could
+  tell (`Effect::commutes`); any other is `kg check`'s error, so a program
+  `kg expand` writes has none (`named-arguments/reject/values.k`). Template
+  parameters skipped by naming a later one are written as the instance has
+  them; those after the last one written are left out, as the reference gives
+  them their defaults itself (`resolveTemplateArgs`, `Type.hs:1406-1428`).
+
+  **Refused, each at its construct, with no file written:** a list two of the
+  instances that compile it place differently (`refuse/default-differs.k`,
+  `refuse/deduced-differs.k`); a labelled list, or a call by position of a
+  function some module gives a default, that nothing compiles, in a template
+  no one instantiates or a `static if` branch not kept, or folded to a value
+  (`refuse/uncompiled.k`); a skipped template argument that is a type other
+  than the language's own, a string or a name (`refuse/hole-type.k`); a default
+  that means another thing where it lands (`refuse/shadowed-enum.k`); and a
+  default whose list makes an instance no other text makes, which the text
+  would lose (`refuse/instance-in-default.k`), found only by the walks.
+
+  A file of the project is one under its root and no other package's manifest
+  (`LanguageMap::is_project`): a dependency with a manifest of its own and the
+  standard library keep their language and are neither rewritten nor written.
+  A program that holds no construct and no default is its own expansion and is
+  not checked; one with a syntax error in the project's files is no program,
+  as `kg fmt` leaves it alone.
+
+  Left open: a list refused for having no copy could be placed from the
+  template's declaration where it skips nothing (`bitsizeof(Pair<N: 4>)` in a
+  constant), and a skipped argument naming a class could be spelled by its
+  name under the proof; neither is needed for exactness.
 
 ## 5. The steps
 
@@ -378,6 +441,17 @@ these differences:
   whole, so that features are graded together too.
 - `--no-oracle` grades everything but the reference's own verdicts, so
   CI (`scripts/ci.sh`), which builds no reference, runs it.
+- **The expansions** (*as built* 2026-11-01, §4.4), a fifth and a sixth check.
+  Every `.k` file of the reference's tree, read with every feature on, expands
+  byte-identically: 405 of the 481, the other 76 no program for a syntax error
+  in them or what they import (`cargo xtask editions`, 2026-11-01). With
+  `--every-list`, which `gates.sh` passes, the 353 that check clean also come
+  to the same bytes with every list read off the loop's trees, the path a
+  program with a default takes. Each accepted fixture's expansion checks clean
+  in edition 1.0, is accepted by `kg-oracle`, and walks as its twin call for
+  call; each `reject/x.k` gives `kg expand` the errors `kg check` gives; each
+  `refuse/x.k` checks clean and is refused exactly as its `// expect-refusal
+  L:C: message` lines say.
 
 ## 7. Risks
 
