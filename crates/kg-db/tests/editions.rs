@@ -198,6 +198,25 @@ fn a_default_that_is_no_constant_is_reported_at_it() {
     );
 }
 
+/// A default is judged at its declaration, as the argument it stands for
+/// and as anything else written there: a conversion its parameter's type
+/// refuses is the reference's error at the default, and not again at the
+/// calls given it; a name that names nothing, pass 9's, at the name — and
+/// no call that leans on it, named or not, is reported. Red with the
+/// conversion judged at the calls, or the name's default reported as no
+/// constant.
+#[test]
+fn a_default_is_judged_where_it_is_written() {
+    let text = "class C\n{\n    uint8 add(uint8 value, uint8 by = true)\n    {\n        return value + by;\n    }\n\npublic:\n    uint8 run(uint8 p)\n    {\n        return add(p) + add(value: p) + add(p, 2);\n    }\n}\n";
+    let mut db = db(NAMED);
+    let file = write(&mut db, text);
+    assert_eq!(errors_of(&db, file, text), ["3:39: Invalid conversion from `bool` to `uint8`"]);
+
+    let missing = text.replace("uint8 by = true", "uint8 by = Step");
+    let file = write(&mut db, &missing);
+    assert_eq!(errors_of(&db, file, &missing), ["3:39: Symbol name not in scope: `Step`"]);
+}
+
 const TEMPLATES: &str = "template <typename T, auto Size = 4, bool Wide = false>\nclass Buffer\n{\npublic:\n    T get(T x)\n    {\n        return Wide ? x : x + Size;\n    }\n}\n\ntemplate <typename T, auto N = 2>\ninline T scaled(T x)\n{\n    return x * N;\n}\n\nclass Main\n{\n    Buffer<uint8, Wide: true> _a;\n    Buffer<Size: 8, T: uint16> _b;\n\npublic:\n    uint32 run(uint8 p)\n    {\n        const auto Size = 2;\n        return _a.get(p) + _b.get(p) + scaled<N: Size>(p);\n    }\n}\n";
 
 /// What a template's named arguments can get wrong, each reported once at

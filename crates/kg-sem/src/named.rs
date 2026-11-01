@@ -104,12 +104,14 @@ pub fn named_arguments(program: &mut Program<'_>) {
 /// truncated loop, whose next round might have placed them.
 pub fn unplaced(modules: &mut [crate::infer::Module], interner: &Interner) {
     let mut found = Vec::new();
+    let mut unfolded = false;
     for (m, module) in modules.iter_mut().enumerate() {
         let root = module.ir.root;
         if module.ir.arena.holds(root) & (kg_hir::facts::LABELLED | kg_hir::facts::DEFAULTED) == 0 {
             continue;
         }
         let arena = &module.ir.arena;
+        let types = &module.types;
         let mut stack = vec![root];
         let mut kids = Vec::new();
         while let Some(id) = stack.pop() {
@@ -125,7 +127,15 @@ pub fn unplaced(modules: &mut [crate::infer::Module], interner: &Interner) {
                 // its `auto` parameter is never typed.
                 Exp::Function { params, .. } if kg_hir::rewrite::is_abbreviated_template(arena, *params) => continue,
                 Exp::FunctionCall { args, .. } if has_labels(arena, *args) => found.push((m, id, None)),
-                Exp::FuncParam { name, default: Some(d), .. } if !folded(arena, *d) => found.push((m, *d, Some(*name))),
+                // A name in it that names nothing is pass 9's ordinary
+                // error, at the name (`crate::check`'s `Undefined`), which a
+                // second here would replace.
+                Exp::FuncParam { name, default: Some(d), .. } if !folded(arena, *d) => {
+                    unfolded = true;
+                    if !names_nothing(arena, types, *d) {
+                        found.push((m, *d, Some(*name)));
+                    }
+                }
                 _ => {}
             }
             kids.clear();
@@ -136,7 +146,6 @@ pub fn unplaced(modules: &mut [crate::infer::Module], interner: &Interner) {
     // A function whose default never folded keeps a type that never
     // resolves (`Ty::resolved`), and so does every name of it: a call of one
     // is not reported again for what the default's error already says.
-    let unfolded = found.iter().any(|(_, _, name)| name.is_some());
     for (m, id, name) in found {
         let module = &mut modules[m];
         if let Some(name) = name {
@@ -162,6 +171,22 @@ pub fn unplaced(modules: &mut [crate::infer::Module], interner: &Interner) {
         };
         module.ir.arena.node_mut(id).exp = Exp::Error(ErrorNote::new(message));
     }
+}
+
+/// Whether a name under `id` is one inference found nothing for
+/// (`Ty::Undefined`).
+fn names_nothing(arena: &ExpArena, types: &TypeMap, id: ExpId) -> bool {
+    let mut stack = vec![id];
+    let mut kids = Vec::new();
+    while let Some(id) = stack.pop() {
+        if types.is_set(id) && matches!(types.get(id), Ty::Undefined) {
+            return true;
+        }
+        kids.clear();
+        arena[id].exp.children(&mut kids);
+        stack.extend(kids.iter().copied());
+    }
+    false
 }
 
 /// Whether a default has folded to what [`crate::infer`] carries in the
@@ -225,7 +250,10 @@ fn callee_name(arena: &ExpArena, function: ExpId, interner: &Interner) -> String
 /// or an enum's constant by its name — the enum's own, from the parameter's
 /// type, so that the name finds the constant from wherever the call stands
 /// — which inference folds as it folds a written one. Made at the call's
-/// arguments, so an error in it is reported at the call.
+/// arguments, so an error in it is reported at the call — but for its
+/// conversion to the parameter's type, which `crate::check` judges at the
+/// default's declaration and knows the call's given default from a written
+/// argument by.
 fn default_argument(rw: &mut Rewriter<'_>, args: ExpId, function: ExpId, v: &ConstValue, ty: &Ty) -> Option<ExpId> {
     let exp = match v {
         ConstValue::Int { ty, value } => Exp::IntLiteral { ty: *ty, value: value.clone() },
