@@ -74,26 +74,80 @@ pub fn named_arguments(program: &mut Program<'_>) {
     let cancel = program.cancel_token();
     let defaults = program.modules.iter_mut().any(|m| m.ir.arena.holds(m.ir.root) & kg_hir::facts::DEFAULTED != 0);
     let needs = kg_hir::facts::LABELLED | if defaults { kg_hir::facts::FUNCTION_CALL } else { 0 };
-    for module in &mut program.modules {
+    let mut quiet = std::mem::take(&mut program.named_quiet);
+    quiet.resize(program.modules.len(), None);
+    for (m, module) in program.modules.iter_mut().enumerate() {
         cancel.check();
         let root = module.ir.root;
         if module.ir.arena.holds(root) & needs == 0 {
             continue;
         }
-        let closure = Ty::closure_template_path(interner);
-        let locals = Locals::of(&module.ir.arena, &closure);
-        let mut rw = Rewriter::new(&mut module.ir.arena, interner);
-        let types = &mut module.types;
-        let next = desugar_within(&mut rw, root, needs, &mut |rw, _id, exp| {
-            sync(rw, types);
-            let cx = Cx { interner, locals: &locals, defaults, closure: &closure };
-            match cx.place(rw, types, exp) {
-                Placed::Call(e) | Placed::Waiting(e) => e,
-            }
-        });
-        sync(&mut rw, types);
-        module.ir.root = next;
+        // A run over what a run that changed nothing read changes nothing.
+        let read = Quiet::of(module, needs);
+        if quiet[m] == Some(read) {
+            continue;
+        }
+        let _visit = crate::profile::visit("namedArguments", m, module.ir.arena.len());
+        place_all(module, interner, defaults, needs);
+        quiet[m] = (Quiet::of(module, needs) == read).then_some(read);
     }
+    program.named_quiet = quiet;
+}
+
+/// What a run of [`named_arguments`] over a module reads that can change
+/// between runs: the module's arena — appended to, or written in place —
+/// and root, its types, and what the run looks for. The run reads nothing
+/// else ([module docs](self)), and reads it the same way each time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Quiet {
+    arena: u32,
+    len: usize,
+    writes: u64,
+    root: ExpId,
+    types: u32,
+    typed: u64,
+    needs: kg_hir::facts::Flags,
+}
+
+impl Quiet {
+    fn of(module: &crate::infer::Module, needs: kg_hir::facts::Flags) -> Quiet {
+        let arena = &module.ir.arena;
+        Quiet {
+            arena: arena.stamp(),
+            len: arena.len(),
+            writes: arena.writes(),
+            root: module.ir.root,
+            types: module.types.id(),
+            typed: module.types.writes(),
+            needs,
+        }
+    }
+}
+
+/// [`named_arguments`] over one module.
+fn place_all(module: &mut crate::infer::Module, interner: &Interner, defaults: bool, needs: kg_hir::facts::Flags) {
+    let root = module.ir.root;
+    let closure = Ty::closure_template_path(interner);
+    let locals = std::cell::OnceCell::new();
+    let cx = Cx { interner, locals: &locals, before: module.ir.arena.len(), defaults, closure: &closure };
+    let mut rw = Rewriter::new(&mut module.ir.arena, interner);
+    let types = &mut module.types;
+    // A module none of whose calls this run could change is not walked:
+    // the walk would copy every node on the way to each call, and answer
+    // every call with itself ([`Cx::placeable`]). What the walk's first
+    // step does before it reads a call, it does all the same.
+    sync(&mut rw, types);
+    if !cx.any_placeable(rw.arena, types, root, needs) {
+        return;
+    }
+    let next = desugar_within(&mut rw, root, needs, &mut |rw, _id, exp| {
+        sync(rw, types);
+        match cx.place(rw, types, exp) {
+            Placed::Call(e) | Placed::Waiting(e) => e,
+        }
+    });
+    sync(&mut rw, types);
+    module.ir.root = next;
 }
 
 /// After the loop's fixpoint: a call whose labels no run of the pass could
@@ -288,7 +342,12 @@ enum Placed {
 
 struct Cx<'a> {
     interner: &'a Interner,
-    locals: &'a Locals,
+    /// The module's [`Locals`], made the first time a call asks — most
+    /// runs place no call, and a call by position never asks — of the
+    /// nodes the module held when the run began ([`Cx::before`]), which
+    /// the run writes none of in place: as if made then.
+    locals: &'a std::cell::OnceCell<Locals>,
+    before: usize,
     /// Whether any module declares a default, so that a call with no label
     /// may still be short of one.
     defaults: bool,
@@ -321,23 +380,64 @@ struct Arg {
 }
 
 impl Cx<'_> {
+    fn locals(&self, arena: &ExpArena) -> &Locals {
+        self.locals.get_or_init(|| Locals::of(arena, self.before, self.closure))
+    }
+
+    /// Whether [`Cx::place`] could answer the call of `function` with `args`
+    /// with anything but the call: one with a label whose callee is typed
+    /// as a function, or — where a module declares a default — one written
+    /// by position short of arguments its callee has a default for each
+    /// of. Read off the call in place, as [`Cx::place`] reads it first.
+    fn placeable(&self, arena: &ExpArena, types: &TypeMap, function: ExpId, args: ExpId) -> bool {
+        let Exp::Seq(items) = &arena[args].exp else { return false };
+        let labelled = items.iter().any(|&i| matches!(arena[i].exp, Exp::Labelled { .. }));
+        if !labelled && !self.defaults {
+            return false;
+        }
+        // Not yet a function type — or never one, which the sweep after the
+        // fixpoint reports ([`unplaced`]).
+        let Some(params) = types.entry(function.index()).and_then(|t| t.function_params()) else { return false };
+        // A call written by position is ours only where it is short of
+        // arguments and every one it lacks has a default ([`Cx::place`]).
+        labelled || {
+            let lacking = params.get(items.len()..).unwrap_or_default();
+            !lacking.is_empty() && lacking.iter().all(|p| p.default.is_some())
+        }
+    }
+
+    /// Whether a call under `root` is [`Cx::placeable`], over the subtrees
+    /// [`desugar_within`] would walk for `needs` — and, where facts are not
+    /// known, more.
+    fn any_placeable(&self, arena: &ExpArena, types: &TypeMap, root: ExpId, needs: kg_hir::facts::Flags) -> bool {
+        let mut stack = vec![root];
+        let mut kids = Vec::new();
+        while let Some(id) = stack.pop() {
+            if arena.known_to_lack(id, needs) {
+                continue;
+            }
+            if let Exp::FunctionCall { function, args, .. } = arena[id].exp
+                && self.placeable(arena, types, function, args)
+            {
+                return true;
+            }
+            kids.clear();
+            arena[id].exp.children(&mut kids);
+            stack.extend(kids.iter().copied());
+        }
+        false
+    }
+
     fn place(&self, rw: &mut Rewriter<'_>, types: &mut TypeMap, e: Exp) -> Placed {
         let Exp::FunctionCall { attr, function, args } = e else { return Placed::Call(e) };
         let unchanged = Exp::FunctionCall { attr, function, args };
+        if !self.placeable(rw.arena, types, function, args) {
+            return Placed::Waiting(unchanged);
+        }
         let Exp::Seq(items) = rw.arena[args].exp.clone() else { return Placed::Call(unchanged) };
         let labelled = items.iter().any(|&i| matches!(rw.arena[i].exp, Exp::Labelled { .. }));
-        if !labelled && !self.defaults {
-            return Placed::Call(unchanged);
-        }
-        if !types.is_set(function) {
-            return Placed::Waiting(unchanged);
-        }
         let t = types.get(function);
-        let Some(mut params) = t.function_params().map(<[_]>::to_vec) else {
-            // Not yet a function type — or never one, which the sweep after
-            // the fixpoint reports ([`unplaced`]).
-            return Placed::Waiting(unchanged);
-        };
+        let Some(mut params) = t.function_params().map(<[_]>::to_vec) else { return Placed::Waiting(unchanged) };
         // A value's labels are its declared type's, and neither a value nor
         // a lambda's own function, which only a call through its closure
         // reaches (`closureCalls`, `Closure.hs:19-26`), is given a default
@@ -490,14 +590,15 @@ impl Cx<'_> {
         // (`resolveTypeParam`; `kg_hir::rewrite::instantiate`'s copy).
         let param = match &arena[f].exp {
             Exp::TypeParam { name, kind, .. } => Some((*name, *kind)),
-            _ if arena[f].src.written == kg_base::Written::Donated => self.locals.kinds.get(&arena[f].src.head).copied(),
+            _ if arena[f].src.written == kg_base::Written::Donated => self.locals(arena).kinds.get(&arena[f].src.head).copied(),
             _ => None,
         };
         if let Some((name, kind)) = param {
             return Some(Declared { names: declared_names(arena, kind, None), param: Some(name) });
         }
-        let binding = self.locals.binding(arena, f)?;
-        let names = self.locals.declared.get(&arena[binding.decl].src.head)?;
+        let locals = self.locals(arena);
+        let binding = locals.binding(arena, f)?;
+        let names = locals.declared.get(&arena[binding.decl].src.head)?;
         Some(Declared { names: Some(names.clone()), param: None })
     }
 
@@ -577,7 +678,7 @@ impl Cx<'_> {
             // memory's included; an imported one or an enum's, by the type
             // inference gave the name as it typed the call around it
             // (`tIsConst`, `Constexpr.hs:280`).
-            Exp::NamedValue(q) => match self.locals.binding(arena, *q) {
+            Exp::NamedValue(q) => match self.locals(arena).binding(arena, *q) {
                 Some(b) if b.local || b.constant => Effect::Pure,
                 _ if types.is_set(*q) && types.get(*q).is_const() => Effect::Pure,
                 _ => Effect::Reads,
@@ -643,11 +744,12 @@ struct Binding {
 }
 
 impl Locals {
-    fn of(arena: &ExpArena, closure: &QualifiedName) -> Locals {
+    /// Of the arena's first `len` nodes.
+    fn of(arena: &ExpArena, len: usize, closure: &QualifiedName) -> Locals {
         let mut bindings = FxHashMap::default();
         let mut declared = FxHashMap::default();
         let mut kinds = FxHashMap::default();
-        for i in 0..arena.len() {
+        for i in 0..len {
             let id = arena.id_at(i);
             let (scope, name, ty, local) = match &arena[id].exp {
                 Exp::Variable { scope, name, flags, ty, .. } => (scope, *name, *ty, *flags == kg_resolve::DeclareFlag::DeclareLocal),
