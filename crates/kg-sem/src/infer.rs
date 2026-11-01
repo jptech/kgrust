@@ -259,6 +259,15 @@ impl<'i> Program<'i> {
             }
             if previous.as_ref() == Some(&sig) || rounds >= ROUND_GUARD {
                 if let Some(mut units) = units {
+                    if units.forget_due() {
+                        let timing = std::env::var_os("KG_INFER_TIME")
+                            .map(|_| (std::time::Instant::now(), units.units.iter().filter(|u| !u.gone).count()));
+                        units.forget(self.modules.len());
+                        if let Some((t, before)) = timing {
+                            let ms = t.elapsed().as_secs_f64() * 1e3;
+                            eprintln!("infer forgot {} of {before} units in {ms:.1} ms", before - units.kept);
+                        }
+                    }
                     units.lengths = self.modules.iter().map(|m| m.ir.arena.len()).collect();
                     for m in &mut self.modules {
                         m.types.begin_epoch();
@@ -369,7 +378,7 @@ impl<'i> Program<'i> {
                 // A map built afresh may answer some lookup otherwise: the
                 // units that asked it are walked again.
                 if let Some(units) = units.as_mut() {
-                    units.ask_again(&symbols, old.as_ref());
+                    units.ask_again(&symbols, old.as_ref(), |o, n| same_answer(&self.modules, o, n));
                 }
                 symbols
             }
@@ -381,6 +390,7 @@ impl<'i> Program<'i> {
             // The spines are walked every pass: reached from the start.
             for m in 0..self.modules.len() {
                 units.units[m].seen = units.pass;
+                units.units[m].walked = units.pass;
             }
         }
         for m in 0..self.modules.len() {
@@ -438,7 +448,8 @@ impl<'i> Program<'i> {
             let reads = cx.reads.into_inner();
             let asked = cx.asked.into_inner();
             if let Some(units) = units.as_mut() {
-                for (u, module, index) in reads {
+                let deep = read_whole(&reads, &asked);
+                for &(u, module, index, _) in &reads {
                     units.readers[module as usize].add(index, u);
                 }
                 for (u, query, answer) in asked {
@@ -449,9 +460,13 @@ impl<'i> Program<'i> {
                         };
                         units.by_last.entry(last).or_default().push(query.clone());
                     }
+                    let deep = answer.is_some_and(|d| deep.contains(&(u, d.module as u32, d.id.index() as u32)));
                     let (_, askers) = units.queries.entry(query).or_insert_with(|| (answer, Vec::new()));
-                    if !askers.contains(&u) {
-                        askers.push(u);
+                    match askers.iter_mut().find(|a| a.unit() == u) {
+                        // As this walk read it: a walk later than the one
+                        // that read the expression may read only the type.
+                        Some(a) => *a = Asker::new(u, deep, units.pass),
+                        None => askers.push(Asker::new(u, deep, units.pass)),
                     }
                 }
             }
@@ -609,6 +624,15 @@ fn is_unit(exp: &Exp) -> bool {
 
 const NO_UNIT: u32 = u32::MAX;
 
+/// An owner set's mark for a node whose every owner was forgotten
+/// ([`Units::forget`]): owned all the same, so a change to it is not one no
+/// walk owns, which would walk everything (`settle`).
+const GONE: u32 = u32::MAX - 1;
+
+/// Until this many units are made, [`Units::forget`] does not run: a small
+/// program's sets are small, and a sweep of them reads every node.
+const FORGET_FROM: usize = 2048;
+
 /// A unit of the incremental walk (§3.3): a declaration's subtree, walked
 /// again only when something in it changed, or something it read did.
 struct Unit {
@@ -616,6 +640,9 @@ struct Unit {
     alg: Alg,
     /// The pass ([`Units::pass`]) that last reached it, walked or skipped.
     seen: u32,
+    /// The pass that last walked it: what it asked then is what it reads
+    /// ([`Asker`]).
+    walked: u32,
     /// Walk it this iteration: it, or what it read, changed.
     needs: bool,
     /// Its subtree's unresolved nodes, while nothing counted in it has
@@ -623,11 +650,24 @@ struct Unit {
     count: Option<u64>,
     count_parents: Vec<u32>,
     module: usize,
+    /// Forgotten ([`Units::forget`]): no walk reaches it, and nothing
+    /// holds it but the slot its number names.
+    gone: bool,
 }
 
 impl Unit {
     fn new(module: usize, alg: Alg) -> Unit {
-        Unit { parent: NO_UNIT, alg, seen: 0, needs: true, count: None, count_parents: Vec::new(), module }
+        Unit {
+            parent: NO_UNIT,
+            alg,
+            seen: 0,
+            walked: 0,
+            needs: true,
+            count: None,
+            count_parents: Vec::new(),
+            module,
+            gone: false,
+        }
     }
 }
 
@@ -648,7 +688,7 @@ impl Owners {
             self.first.resize(i + 1, NO_UNIT);
         }
         match self.first[i] {
-            NO_UNIT => self.first[i] = unit,
+            NO_UNIT | GONE => self.first[i] = unit,
             u if u == unit => {}
             _ => {
                 let more = self.more.entry(index).or_default();
@@ -660,9 +700,36 @@ impl Owners {
     }
 
     fn of(&self, index: usize) -> impl Iterator<Item = u32> + '_ {
-        let first = self.first.get(index).copied().filter(|&u| u != NO_UNIT);
+        let first = self.first.get(index).copied().filter(|&u| u != NO_UNIT && u != GONE);
         let more = first.and_then(|_| self.more.get(&(index as u32)));
         first.into_iter().chain(more.into_iter().flatten().copied())
+    }
+
+    /// Whether a unit, forgotten or not, has held the node.
+    fn owned(&self, index: usize) -> bool {
+        self.first.get(index).is_some_and(|&u| u != NO_UNIT)
+    }
+
+    /// The `gone` units taken out, a node they alone held marked `left`.
+    fn forget(&mut self, gone: &[bool], left: u32) {
+        let is_gone = |u: u32| u != NO_UNIT && u != GONE && gone[u as usize];
+        let Owners { first, more } = self;
+        more.retain(|&i, others| {
+            others.retain(|&u| !gone[u as usize]);
+            let f = &mut first[i as usize];
+            if is_gone(*f)
+                && let Some(u) = others.pop()
+            {
+                *f = u;
+            }
+            !others.is_empty()
+        });
+        for f in first.iter_mut().filter(|f| is_gone(**f)) {
+            *f = left;
+        }
+        // A table keeps the room it grew to: given back, the next growth
+        // is the live entries' again.
+        more.shrink_to_fit();
     }
 }
 
@@ -681,7 +748,7 @@ struct Units {
     readers: Vec<Owners>,
     /// Every lookup a unit made, with the answer it got and who asked, and
     /// the lookups by the last segment of the name they look up.
-    queries: FxHashMap<Query, (Option<Decl>, Vec<u32>)>,
+    queries: FxHashMap<Query, (Option<Decl>, Vec<Asker>)>,
     by_last: FxHashMap<Option<Symbol>, Vec<Query>>,
     /// Each module's length when the last fixpoint ended.
     lengths: Vec<usize>,
@@ -691,12 +758,79 @@ struct Units {
     /// [`Units::count`]'s child lists, one stack for the whole recursion:
     /// a list per node counted was a twentieth of a whole-program check.
     counting: Vec<ExpId>,
+    /// The units left by the last [`Units::forget`], and how many units
+    /// had been made then: it runs again once as many more are made as it
+    /// left.
+    kept: usize,
+    made: usize,
 }
 
 impl std::fmt::Debug for Units {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Units({} units, {} lookups)", self.units.len(), self.queries.len())
     }
+}
+
+/// A unit that asked a lookup: in which pass's walk, and whether that walk
+/// read the answer's expression, through [`Cx::snap_exp`], or only what
+/// [`same_answer`] weighs — its type, set or not. A unit walked since
+/// without asking it reads it no more: what a unit reads is what its last
+/// walk read, and nothing else its walk depends on is a lookup. The flag
+/// rides in the unit number's top bit.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+struct Asker {
+    unit: u32,
+    pass: u32,
+}
+
+impl Asker {
+    const DEEP: u32 = 1 << 31;
+
+    fn new(unit: u32, deep: bool, pass: u32) -> Asker {
+        debug_assert!(unit & Asker::DEEP == 0, "a unit number fits below the flag");
+        Asker { unit: if deep { unit | Asker::DEEP } else { unit }, pass }
+    }
+
+    fn unit(self) -> u32 {
+        self.unit & !Asker::DEEP
+    }
+
+    fn deep(self) -> bool {
+        self.unit & Asker::DEEP != 0
+    }
+}
+
+/// The answers a module walk's units read whole: `(unit, module, node)` of
+/// each lookup's answer whose expression the unit that asked it read.
+fn read_whole(reads: &[(u32, u32, u32, bool)], asked: &[(u32, Query, Option<Decl>)]) -> kg_base::FxHashSet<(u32, u32, u32)> {
+    let answers: kg_base::FxHashSet<(u32, u32, u32)> =
+        asked.iter().filter_map(|(u, _, a)| a.map(|d| (*u, d.module as u32, d.id.index() as u32))).collect();
+    if answers.is_empty() {
+        return answers;
+    }
+    reads.iter().filter(|r| r.3).map(|&(u, m, i, _)| (u, m, i)).filter(|k| answers.contains(k)).collect()
+}
+
+/// Whether a walk that read only `old`'s type, as the iteration found it,
+/// reads the same of `new` — what lets [`Units::ask_again`] leave the unit
+/// that asked as it is when a rebuilt map answers a lookup with a
+/// declaration the round's passes minted afresh, the type carried over:
+/// one module, both typed, the two types alike to the last parameter's
+/// name and default, and the same source and kind. Alike by `Ord`, not
+/// `==`, which is the reference's and leaves a parameter's name out
+/// (`Type.hs:126-129`, [`kg_ty::TFuncParam`]): edition 1.1's named and
+/// default arguments read both.
+fn same_answer(modules: &[Module], old: Decl, new: Decl) -> bool {
+    if old.module != new.module {
+        return false;
+    }
+    let m = &modules[new.module];
+    let (o, n) = (m.ir.arena.node(old.id), m.ir.arena.node(new.id));
+    o.src == n.src
+        && o.kind == n.kind
+        && m.types.is_set(old.id)
+        && m.types.is_set(new.id)
+        && m.types.get(old.id).cmp(&m.types.get(new.id)) == std::cmp::Ordering::Equal
 }
 
 /// A lookup in the symbol map, as the incremental walk remembers it.
@@ -722,6 +856,8 @@ impl Units {
             pass: 0,
             kids: Vec::new(),
             counting: Vec::new(),
+            kept: 0,
+            made: 0,
         }
     }
 
@@ -760,7 +896,15 @@ impl Units {
     /// the map the answers came from, only a lookup that probes a key the
     /// two maps disagree on is asked — every key a lookup probes ends with
     /// its name — and without it, every one.
-    fn ask_again(&mut self, symbols: &Symbols, old: Option<&Symbols>) {
+    ///
+    /// Not a unit walked since without asking it, which reads it no more
+    /// ([`Asker`]): it is forgotten. Nor one that read only the answer's
+    /// type, where the new answer reads as the old did (`same`,
+    /// [`same_answer`]): its walk would read what it read and change
+    /// nothing, as its last did, so it reads the new answer from here on
+    /// instead. The walks a rebuilt map caused on `risc-v.k` were 45% of
+    /// inference's, and almost every one was of these two (2026-11-01).
+    fn ask_again(&mut self, symbols: &Symbols, old: Option<&Symbols>, same: impl Fn(Decl, Decl) -> bool) {
         let asked: Vec<Query> = match old {
             None => self.queries.keys().cloned().collect(),
             Some(old) => {
@@ -792,8 +936,19 @@ impl Units {
                 Query::InScope(scope, name) => symbols.in_scope(scope, name),
             };
             if now != *answer {
-                *answer = now;
-                moved.extend(askers.iter().copied());
+                let was = std::mem::replace(answer, now);
+                let alike = match (was, now) {
+                    (Some(o), Some(n)) => same(o, n).then_some(n),
+                    _ => None,
+                };
+                let units = &self.units;
+                askers.retain(|a| units[a.unit() as usize].walked == a.pass);
+                for a in askers.iter() {
+                    match alike {
+                        Some(n) if !a.deep() => self.readers[n.module].add(n.id.index() as u32, a.unit()),
+                        _ => moved.push(a.unit()),
+                    }
+                }
             }
         }
         for u in moved {
@@ -815,6 +970,114 @@ impl Units {
         }
     }
 
+    /// Which units the last walks reach: the spines, and each unit its
+    /// parent's last walk reached whose parent they reach. Only a walk of
+    /// its parent reaches a unit, so one not reached since its parent was
+    /// last walked (`seen` before the parent's `walked`) is one that walk
+    /// passed by. The tree is a DAG ([`Owners`]): a unit last reached
+    /// through one no walk reaches may lie under one skipped since, and is
+    /// not live all the same — a change inside it marked only the chain it
+    /// was last reached through, and reached again, it is walked as new.
+    fn live(&self, modules: usize) -> Vec<bool> {
+        const UNKNOWN: u8 = 0;
+        const LIVE: u8 = 1;
+        const DEAD: u8 = 2;
+        const ON_CHAIN: u8 = 3;
+        let mut state = vec![UNKNOWN; self.units.len()];
+        state[..modules].fill(LIVE);
+        let mut chain = Vec::new();
+        for u in 0..self.units.len() {
+            let mut at = u;
+            let found = loop {
+                match state[at] {
+                    LIVE => break LIVE,
+                    // A parent chain that comes round to itself: dead,
+                    // which only walks it as new should it be reached.
+                    DEAD | ON_CHAIN => break DEAD,
+                    _ => {}
+                }
+                let unit = &self.units[at];
+                chain.push(at);
+                if unit.gone || unit.parent == NO_UNIT || unit.seen < self.units[unit.parent as usize].walked {
+                    break DEAD;
+                }
+                state[at] = ON_CHAIN;
+                at = unit.parent as usize;
+            };
+            for c in chain.drain(..) {
+                state[c] = found;
+            }
+        }
+        state.into_iter().map(|s| s == LIVE).collect()
+    }
+
+    /// Whether to [`Units::forget`]: once as many units have been made
+    /// since it last ran as it left, at a cost the sets' growth since pays
+    /// for.
+    fn forget_due(&self) -> bool {
+        self.units.len() - self.made >= self.kept.max(FORGET_FROM)
+    }
+
+    /// Forgets every unit no walk reaches ([`Units::live`]): its count and
+    /// every count that includes it, its place in `at` and in the owner,
+    /// count and reader sets, and its lookups, with every asker walked
+    /// since without asking (`ask_again`). The sets kept every unit a
+    /// node was ever in: each fixpoint's passes mint the declarations
+    /// above what they changed, and a new root is a new unit. By the end
+    /// of `risc-v.k`'s check half its units were no longer in the tree;
+    /// forgotten, the check's peak is 25 MiB lower (2026-11-01).
+    ///
+    /// Exact: a unit forgotten is walked as new if a walk reaches its root
+    /// again, and a count that included it is counted again — a walk or a
+    /// count where the kept one would have been skipped or reused, each
+    /// giving what the whole walk gives. A node no unit left holds stays
+    /// owned ([`GONE`]).
+    fn forget(&mut self, modules: usize) {
+        let live = self.live(modules);
+        for (u, &l) in live.iter().enumerate() {
+            if !l && !self.units[u].gone {
+                self.uncount(u as u32);
+            }
+        }
+        let gone: Vec<bool> = live.iter().map(|l| !l).collect();
+        for (unit, &dead) in self.units.iter_mut().zip(&gone) {
+            if dead {
+                unit.gone = true;
+                unit.needs = true;
+                unit.count = None;
+                unit.count_parents = Vec::new();
+            } else {
+                unit.count_parents.retain(|&p| !gone[p as usize]);
+            }
+        }
+        for at in &mut self.at {
+            at.retain(|_, u| !gone[*u as usize]);
+        }
+        for o in &mut self.owner {
+            o.forget(&gone, GONE);
+        }
+        for o in self.counted.iter_mut().chain(&mut self.readers) {
+            o.forget(&gone, NO_UNIT);
+        }
+        let units = &self.units;
+        self.queries.retain(|_, (_, askers)| {
+            askers.retain(|a| !gone[a.unit() as usize] && units[a.unit() as usize].walked == a.pass);
+            !askers.is_empty()
+        });
+        let queries = &self.queries;
+        self.by_last.retain(|_, asked| {
+            asked.retain(|q| queries.contains_key(q));
+            !asked.is_empty()
+        });
+        self.queries.shrink_to_fit();
+        self.by_last.shrink_to_fit();
+        for at in &mut self.at {
+            at.shrink_to_fit();
+        }
+        self.kept = live.iter().filter(|&&l| l).count();
+        self.made = self.units.len();
+    }
+
     /// After an iteration: which units the next one walks. A unit is walked
     /// when a node it owns changed, or a node it read did; its ancestors
     /// are walked on the way down to it. A change no walk owns — a node
@@ -827,12 +1090,10 @@ impl Units {
         let mut read_changed = Vec::new();
         for (m, nodes) in changed.iter().enumerate() {
             for &i in nodes {
-                let mut owned = false;
                 for u in self.owner[m].of(i) {
                     changed_units[u as usize] = true;
-                    owned = true;
                 }
-                if !owned && i < lengths[m] {
+                if !self.owner[m].owned(i) && i < lengths[m] {
                     everything = true;
                 }
                 uncounted.extend(self.counted[m].of(i));
@@ -943,8 +1204,9 @@ struct Cx<'a> {
     /// being walked (a module's spine is the unit numbered as the module).
     units: Option<&'a mut Units>,
     unit: u32,
-    /// `(unit, module, node)` for every read of the iteration's view.
-    reads: std::cell::RefCell<Vec<(u32, u32, u32)>>,
+    /// `(unit, module, node, expression)` for every read of the iteration's
+    /// view: an expression's, or a type's.
+    reads: std::cell::RefCell<Vec<(u32, u32, u32, bool)>>,
     /// The walk's child lists, one stack for the whole recursion.
     kids: Vec<ExpId>,
     /// Every lookup in the symbol map, with who asked and its answer.
@@ -1025,9 +1287,9 @@ impl Cx<'_> {
         }
     }
 
-    fn read(&self, module: usize, id: ExpId) {
+    fn read(&self, module: usize, id: ExpId, expression: bool) {
         if self.units.is_some() {
-            self.reads.borrow_mut().push((self.unit, module as u32, id.index() as u32));
+            self.reads.borrow_mut().push((self.unit, module as u32, id.index() as u32, expression));
         }
     }
 
@@ -1064,7 +1326,7 @@ impl Cx<'_> {
 
     /// A node of any module, as the iteration found it.
     fn snap_exp(&self, module: usize, id: ExpId) -> &Exp {
-        self.read(module, id);
+        self.read(module, id, true);
         let exp = self.view_exp(module, id);
         if let Some(door) = self.to_show(module, id, 0) {
             door.node(self.module, module, self.view_arena(module), id, exp);
@@ -1085,7 +1347,7 @@ impl Cx<'_> {
 
     /// A node's type in any module, as the iteration found it.
     fn snap_ty(&self, module: usize, id: ExpId) -> Ty {
-        self.read(module, id);
+        self.read(module, id, false);
         self.show_ty(module, id);
         match &self.before {
             Before::Copies(s) => s[module].types.get(id),
@@ -1095,7 +1357,7 @@ impl Cx<'_> {
     }
 
     fn snap_is_set(&self, module: usize, id: ExpId) -> bool {
-        self.read(module, id);
+        self.read(module, id, false);
         self.show_ty(module, id);
         match &self.before {
             Before::Copies(s) => s[module].types.is_set(id),
@@ -1162,6 +1424,7 @@ impl Cx<'_> {
             entry.alg = alg;
             entry.needs = false;
             entry.seen = pass;
+            entry.walked = pass;
             self.unit = unit;
         }
         units.own(self.module, self.arena, id, self.unit);
@@ -2719,6 +2982,255 @@ mod tests {
     fn a_name_takes_its_declarations_type() {
         let v = init_types("using T = uint4;\nconst T x = 1;\nconst auto y = x;\n");
         assert_eq!(v, vec!["uint1", "const uint4"]);
+    }
+
+    /// A declaration minted afresh reads as the one it replaced to a walk
+    /// that read only its type ([`same_answer`]) where both are typed and
+    /// the types are alike to a parameter's name, which `==` leaves out
+    /// and edition 1.1's named arguments read.
+    #[test]
+    fn a_declaration_minted_afresh_reads_as_the_old_only_typed_and_alike_to_its_parameters_names() {
+        let interner = Interner::new();
+        let parse = kg_syntax::parse_file("inline uint8 f(uint8 x)\n{\n    return x;\n}\n");
+        let file = ast::SourceFile::cast(parse.syntax_node()).expect("root");
+        let ir = kg_hir::lower_sorted(&file, FileId(0), &interner, &kg_hir::NoImports);
+        let mut program = Program::new([ir], &interner);
+        program.infer();
+        let m = &mut program.modules[0];
+        let f = m.ir.arena.iter().find(|(_, n)| matches!(n.exp, Exp::Function { .. })).map(|(id, _)| id).expect("f");
+        let ty = m.types.get(f);
+        let mut renamed = ty.clone();
+        let Ty::Function { params, .. } = &mut renamed else { panic!("f is typed as a function: {ty:?}") };
+        params[0].name = Some(interner.intern("y"));
+        assert_eq!(renamed, ty, "`==` leaves a parameter's name out");
+        let mut mint = |t: Option<Ty>| {
+            let node = m.ir.arena.node(f);
+            let (exp, src, kind) = (node.exp.clone(), node.src, node.kind);
+            let id = m.ir.arena.alloc(exp, src, kind);
+            if let Some(t) = t {
+                m.types.reset_type_of(id, t);
+            }
+            Decl { module: 0, id }
+        };
+        let (alike, other_name, untyped, untyped_too) = (mint(Some(ty.clone())), mint(Some(renamed)), mint(None), mint(None));
+        let f = Decl { module: 0, id: f };
+        assert!(same_answer(&program.modules, f, alike));
+        assert!(!same_answer(&program.modules, f, other_name));
+        assert!(!same_answer(&program.modules, untyped, untyped_too));
+    }
+
+    /// [`Units::ask_again`], a lookup's answer moved by a rebuilt map: to an
+    /// answer that reads as the old did, the unit whose walk read the old
+    /// one's expression is walked again, the one that read only its type
+    /// reads the new one instead, and one walked since without asking is
+    /// forgotten; to one that reads otherwise, every unit still asking is
+    /// walked.
+    #[test]
+    fn a_moved_answer_walks_again_only_the_units_that_read_what_moved() {
+        let interner = Interner::new();
+        let parse = kg_syntax::parse_file("inline uint8 f(uint8 x)\n{\n    return x;\n}\n");
+        let file = ast::SourceFile::cast(parse.syntax_node()).expect("root");
+        let ir = kg_hir::lower_sorted(&file, FileId(0), &interner, &kg_hir::NoImports);
+        let mut program = Program::new([ir], &interner);
+        program.infer();
+        let symbols = program.symbols(crate::symbols::Config::TemplateDecl);
+        let arena = &program.modules[0].ir.arena;
+        let f = arena.iter().find(|(_, n)| matches!(n.exp, Exp::Function { .. })).map(|(id, _)| id).expect("f");
+        let (scope, name) = declared_name(arena, f).expect("f is named");
+        let query = Query::ByName(SymbolPath::new(scope.segments().iter().copied().chain([name])));
+        let Query::ByName(path) = &query else { unreachable!() };
+        let now = symbols.by_name(path).expect("f is filed");
+        assert_eq!(now.id, f);
+        let was = Decl { module: 0, id: program.modules[0].ir.root };
+
+        let run = |alike: bool| {
+            let mut units = Units::new(1);
+            units.pass = 3;
+            let mut unit = || {
+                let mut u = Unit::new(0, Alg::Infer);
+                (u.needs, u.walked) = (false, 3);
+                units.units.push(u);
+                (units.units.len() - 1) as u32
+            };
+            let (deep, shallow, stale) = (unit(), unit(), unit());
+            let askers = vec![Asker::new(deep, true, 3), Asker::new(shallow, false, 3), Asker::new(stale, false, 2)];
+            units.queries.insert(query.clone(), (Some(was), askers));
+            units.ask_again(&symbols, None, |o, n| alike && o == was && n == now);
+            let needs = [deep, shallow, stale].map(|u| units.units[u as usize].needs);
+            let reads_now = units.readers[0].of(now.id.index()).collect::<Vec<_>>();
+            let (answer, askers) = &units.queries[&query];
+            assert_eq!(*answer, Some(now));
+            (needs, reads_now, askers.iter().map(|a| a.unit()).collect::<Vec<_>>(), shallow, deep)
+        };
+        let (needs, reads_now, asking, shallow, deep) = run(true);
+        assert_eq!(needs, [true, false, false], "only the unit that read the old answer's expression is walked");
+        assert_eq!(reads_now, vec![shallow], "the one that read only its type reads the new answer");
+        assert_eq!(asking, vec![deep, shallow], "the one walked since without asking is forgotten");
+        let (needs, _, asking, ..) = run(false);
+        assert_eq!(needs, [true, true, false], "an answer that reads otherwise walks every unit still asking");
+        assert_eq!(asking, vec![deep, shallow]);
+    }
+
+    /// [`read_whole`]: a lookup's answer read whole is one whose expression
+    /// the unit that asked read — not its type, nor another unit's read, nor
+    /// a node no lookup of the unit's answered.
+    #[test]
+    fn an_answer_is_read_whole_only_where_its_asker_read_its_expression() {
+        let interner = Interner::new();
+        let parse = kg_syntax::parse_file("const uint8 a = 1;\n");
+        let file = ast::SourceFile::cast(parse.syntax_node()).expect("root");
+        let ir = kg_hir::lower_sorted(&file, FileId(0), &interner, &kg_hir::NoImports);
+        let ids: Vec<ExpId> = ir.arena.iter().map(|(id, _)| id).collect();
+        let [a, b, c] = [ids[0], ids[1], ids[2]];
+        let decl = |id: ExpId| Some(Decl { module: 0, id });
+        let q = Query::ByName(SymbolPath::empty());
+        let i = |id: ExpId| id.index() as u32;
+        let asked = [(1, q.clone(), decl(a)), (1, q.clone(), decl(b)), (2, q.clone(), decl(a)), (3, q, None)];
+        let reads = [(1, 0, i(a), true), (1, 0, i(b), false), (2, 0, i(b), true), (3, 0, i(c), true), (1, 0, i(c), true)];
+        let whole: Vec<_> = read_whole(&reads, &asked).into_iter().collect();
+        assert_eq!(whole, vec![(1, 0, i(a))]);
+    }
+
+    /// What [`Program::iterate`] keeps of each lookup's askers: a written
+    /// call reads its callee's declaration whole (`typeOfSymbol` asks
+    /// whether it is a function template), an enum constant reads only its
+    /// enum's type (`Type.hs:1123`).
+    #[test]
+    fn an_asker_is_kept_reading_its_answer_whole_or_only_its_type() {
+        let interner = Interner::new();
+        let text = "enum Mode : uint2\n{\n    Idle,\n    Run\n}\n\ninline uint8 f(uint8 x)\n{\n    return x;\n}\n\n\
+                    inline uint8 g()\n{\n    const auto m = Mode::Run;\n    return f(1);\n}\n";
+        let parse = kg_syntax::parse_file(text);
+        assert!(parse.errors().is_empty(), "{:?}", parse.errors());
+        let file = ast::SourceFile::cast(parse.syntax_node()).expect("root");
+        let ir = kg_hir::lower_sorted(&file, FileId(0), &interner, &kg_hir::NoImports);
+        let mut program = Program::new([ir], &interner);
+        program.infer();
+        let units = program.units.as_ref().expect("the incremental walk's units");
+        let arena = &program.modules[0].ir.arena;
+        let read_whole = |by_name: bool, answers: fn(&Exp) -> bool| -> Vec<bool> {
+            let asked = units.queries.iter().filter(|(q, (a, _))| {
+                matches!(q, Query::ByName(_)) == by_name && a.is_some_and(|d| answers(&arena[d.id].exp))
+            });
+            asked.flat_map(|(_, (_, askers))| askers.iter().map(|a| a.deep())).collect()
+        };
+        assert_eq!(read_whole(true, |e| matches!(e, Exp::Enum { .. })), vec![false], "`Mode::Run` reads its enum's type");
+        let calls = read_whole(false, |e| matches!(e, Exp::Function { .. }));
+        assert!(!calls.is_empty() && calls.iter().all(|w| *w), "`f(1)` reads `f` whole: {calls:?}");
+    }
+    fn push_unit(units: &mut Units, parent: u32, seen: u32, walked: u32) -> u32 {
+        let mut u = Unit::new(0, Alg::Infer);
+        (u.parent, u.seen, u.walked, u.needs) = (parent, seen, walked, false);
+        units.units.push(u);
+        (units.units.len() - 1) as u32
+    }
+
+    /// [`Units::live`]: a unit is reached while its parent's last walk
+    /// reached it and its parent is — not one its parent has walked past
+    /// since, nor one under that, nor one forgotten, nor a parent chain
+    /// that comes round to itself.
+    #[test]
+    fn a_unit_is_live_while_its_parents_last_walk_reached_it() {
+        let mut units = Units::new(1);
+        (units.units[0].seen, units.units[0].walked) = (5, 5);
+        let skipped = push_unit(&mut units, 0, 5, 3);
+        let held = push_unit(&mut units, skipped, 3, 3);
+        let below = push_unit(&mut units, held, 3, 3);
+        let passed = push_unit(&mut units, skipped, 2, 2);
+        let under = push_unit(&mut units, passed, 2, 2);
+        let gone = push_unit(&mut units, 0, 5, 5);
+        units.units[gone as usize].gone = true;
+        let round = push_unit(&mut units, NO_UNIT, 4, 4);
+        let about = push_unit(&mut units, round, 4, 4);
+        units.units[round as usize].parent = about;
+        let live = units.live(1);
+        let of = |u: u32| live[u as usize];
+        assert!(of(0), "a spine");
+        assert!(of(skipped) && of(held) && of(below), "reached by their parents' last walks, skipped since");
+        assert!(!of(passed), "its parent walked since without reaching it");
+        assert!(!of(under), "under a unit no walk reaches");
+        assert!(!of(gone), "forgotten");
+        assert!(!of(round) && !of(about), "a parent chain that comes round to itself");
+    }
+
+    /// [`Units::forget`]: a unit no walk reaches leaves `at`, the sets and
+    /// the lookups, and takes its count with it, and every count that
+    /// includes it; a node it alone owned stays owned, so a change to it
+    /// walks nothing.
+    #[test]
+    fn a_forgotten_unit_is_let_go_everywhere_and_its_nodes_stay_owned() {
+        let mut units = Units::new(1);
+        units.pass = 5;
+        (units.units[0].seen, units.units[0].walked) = (5, 5);
+        let live = push_unit(&mut units, 0, 5, 5);
+        let dead = push_unit(&mut units, live, 2, 2);
+        let other = push_unit(&mut units, 0, 5, 5);
+        units.at[0].extend([(100, live), (200, dead), (300, other)]);
+        units.owner[0].add(10, dead);
+        units.owner[0].add(11, dead);
+        units.owner[0].add(11, live);
+        units.owner[0].add(12, live);
+        units.owner[0].add(12, dead);
+        units.counted[0].add(13, dead);
+        units.readers[0].add(14, dead);
+        units.units[live as usize].count = Some(3);
+        (units.units[dead as usize].count, units.units[dead as usize].count_parents) = (Some(1), vec![live]);
+        (units.units[other as usize].count, units.units[other as usize].count_parents) = (Some(2), vec![dead, live]);
+        let (kept, let_go) = (Query::ByName(SymbolPath::empty()), Query::InScope(Vec::new(), Vec::new()));
+        let askers = vec![Asker::new(dead, false, 2), Asker::new(live, false, 5)];
+        units.queries.insert(kept.clone(), (None, askers));
+        units.queries.insert(let_go.clone(), (None, vec![Asker::new(dead, true, 2), Asker::new(other, false, 4)]));
+        units.by_last.insert(None, vec![kept.clone(), let_go.clone()]);
+        units.forget(1);
+
+        let unit = |u: u32| &units.units[u as usize];
+        assert!(unit(dead).gone && !unit(live).gone && !unit(other).gone);
+        let mut at: Vec<u32> = units.at[0].values().copied().collect();
+        at.sort_unstable();
+        assert_eq!(at, vec![live, other]);
+        assert_eq!(unit(live).count, None, "a count that included a forgotten unit's is counted again");
+        assert_eq!(unit(other).count, Some(2), "one it did not include is kept");
+        assert_eq!(unit(other).count_parents, vec![live]);
+        let of = |o: &Owners, i: usize| o.of(i).collect::<Vec<u32>>();
+        assert_eq!(of(&units.owner[0], 10), Vec::<u32>::new());
+        assert!(units.owner[0].owned(10), "a node its forgotten owner alone held stays owned");
+        assert_eq!(of(&units.owner[0], 11), vec![live], "the unit beside a forgotten first takes its place");
+        assert_eq!(of(&units.owner[0], 12), vec![live]);
+        assert_eq!(units.owner[0].more.capacity(), 0, "the room the set grew to is given back");
+        assert!(!units.counted[0].owned(13) && !units.readers[0].owned(14));
+        let asking: Vec<u32> = units.queries[&kept].1.iter().map(|a| a.unit()).collect();
+        assert_eq!(asking, vec![live]);
+        assert!(!units.queries.contains_key(&let_go), "a lookup asked by no unit left, nor by one walked since");
+        assert_eq!(units.by_last[&None], vec![kept]);
+        assert!(!units.forget_due(), "{} units left of {}", units.kept, units.made);
+
+        units.settle(&[vec![10]], &[20], false);
+        let needs = [live, other].map(|u| units.units[u as usize].needs);
+        assert_eq!(needs, [false, false], "a change to a node a forgotten unit alone owned walks nothing");
+        units.owner[0].add(10, other);
+        assert_eq!(units.owner[0].of(10).collect::<Vec<u32>>(), vec![other], "the next owner takes the forgotten place");
+        assert!(units.owner[0].more.is_empty());
+    }
+
+    /// [`Units::forget_due`]: from the floor, then once as many units have
+    /// been made since the last forgetting as it left.
+    #[test]
+    fn units_are_forgotten_once_as_many_are_made_as_were_left() {
+        let mut units = Units::new(1);
+        let grow = |units: &mut Units, to: usize| {
+            while units.units.len() < to {
+                push_unit(units, 0, 0, 0);
+            }
+        };
+        grow(&mut units, FORGET_FROM - 1);
+        assert!(!units.forget_due());
+        grow(&mut units, FORGET_FROM);
+        assert!(units.forget_due());
+        (units.kept, units.made) = (3000, 5000);
+        grow(&mut units, 7999);
+        assert!(!units.forget_due());
+        grow(&mut units, 8000);
+        assert!(units.forget_due());
     }
 }
 

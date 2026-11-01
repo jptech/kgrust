@@ -616,6 +616,46 @@ testing loop every later step uses.
   mark per node (−3.7% of the loop, +22 MiB) and the units' roots dense
   (−0.7%, +18 MiB). `scripts/identity.sh 07562eb`, 304
   roots identical; `fast.sh --lint loop` green, every ratchet +0/−0.
+- **A rebuilt map walks again only what moved, 2026-11-01** (§13, option
+  1). `Units::ask_again` forgets an asker walked since without asking —
+  the lists had kept every unit that ever asked, and a stale record of
+  what each read — and spares one that read only the answer's type where
+  the new answer is typed alike by `Ord` (`same_answer`): its walk would
+  read what it read. Inference's node visits on `risc-v.k` 7.07 M → 4.01 M
+  (`KG_INFER_TIME=1`), `float.k` 1.68 M → 1.55 M, `array.k` 1.46 M →
+  1.30 M; `kg check` of `risc-v.k` 1.970 → 1.775 s, its loop 1.699 →
+  1.510 s (six interleaved runs, medians), `float.k` and `array.k`
+  within noise, peak RSS 786 → 778 MiB. `scripts/identity.sh e2bfc29`,
+  304 roots identical; `KG_INFER_CHECK=1` clean on `risc-v.k`,
+  `float.k`, `array.k`, `cache.k`; `fast.sh --lint loop` green, every
+  ratchet +0/−0.
+- **The units no walk reaches, forgotten, 2026-11-01** (§13, option 3).
+  The incremental walk's sets kept every unit a node was ever in, and
+  each fixpoint's passes mint the declarations above what they changed:
+  by the end of `risc-v.k`'s check 26,588 of its 49,763 units were no
+  longer in the tree at all, and the sets held ~94 MB. `Units::forget`
+  lets them go once as many units have been made as it last left, and
+  shrinks the tables, which keep the room they grew to (freeing the
+  entries alone moved the peak 2 MiB). Peak RSS of `kg check`
+  (interleaved runs, medians): `risc-v.k` 778 → 753 MiB, `float.k` 295 →
+  282, `array.k` 300 → 294; time flat (`risc-v.k`'s loop 1.515 → 1.488 s,
+  its five forgettings 33 ms). `cargo xtask mem`'s footprint, option 1's
+  commit → this: `risc-v.k` checked 770 → 726 MiB, opened in the editor
+  885 → 839, after five edits 1416 → 1409 (within that case's spread);
+  `float.k` checked 291 → 277. Exact by construction — a forgotten unit
+  reached again is walked as new — and `infer-identity` agrees on all 304
+  roots with forgetting at every fixpoint, and with every unit but the
+  spines forgotten; `scripts/identity.sh 069094d`, 304 roots identical.
+  Both changes against `main` (`e2bfc29`), interleaved: `kg check` of
+  `risc-v.k` 1.935 → 1.730 s and 786 → 753 MiB, `float.k` 0.665 s either
+  way and 294 → 282 MiB, `array.k` 0.845 → 0.830 s and 301 → 294 MiB
+  (six runs each, medians); the editor on `risc-v.k` under its recorded
+  settings, the full base library (`bench --filter keystroke-phases
+  --recorded`, two runs each), the first answer after a keystroke 823 and
+  817 → 786 and 784 ms, the last 2073 and 2064 → 1824 and 1823 ms, and
+  `array.k` within noise; under the stage's own settings, a smaller
+  program, unchanged (`risc-v.k`'s first answer 325 and 322 → 327 and
+  321 ms).
 - **The shipped binaries, 2026-10-12.** `cargo xtask dist` builds the
   `ship` profile, `release` with `lto = "fat"` and `codegen-units = 1`:
   `kg check` 6–10% faster in an interleaved A/B, `kg` 30% smaller, its
@@ -987,26 +1027,34 @@ vector (−11 ms, +18 MiB) — the owner sets hold 1.7 M nodes three times
 over, so any per-node side table costs what it saves; and skipping a
 module's walk when nothing in it needs walking (13 ms at most).
 
-**Options, by what they would save** (none built):
+**Options, by what they would save** (2026-10-31; re-measured
+2026-11-01 by a probe patched in for a run, after PR #8 merged):
 
-1. **Re-askable reads, for inference's own lookups.** Ask a rebuilt map's
-   new answer what its askers read of the old one — the declaration's
-   type, its parameters — instead of comparing node ids. Bounded by the
-   87,510 walks above: about half of the wasted visits on `risc-v.k`,
-   some 0.3 s of its check by the walks' cost a visit (an estimate, not a
-   measurement); little on `array.k` and `float.k` (5,000–7,000 walks
-   each). This is `loop-across-edits.md` §8 lever 3 serving
-   a batch compile as well as the editor; the hardest part of the
-   engine, so a written design first.
+1. **Re-askable reads, for inference's own lookups — taken, narrowed**
+   (§10, 2026-11-01). Of the walks a rebuilt map caused, 74% were of a
+   unit that read only the new answer's type, and the type had not
+   changed. `Units::ask_again` spares those, comparing the types by `Ord`
+   (`same_answer`), and forgets an asker walked since without asking.
+   The second is what made the first pay: the askers lists held every
+   unit that ever asked, with what each had read then, and comparing
+   types alone took the visits from 7.07 M only to 6.89 M; with both,
+   4.01 M, and `risc-v.k`'s check 1.97 → 1.78 s. What is left of the
+   lever is the unit that read the answer's expression: asking the new
+   expression what it read of the old, `loop-across-edits.md` §8
+   lever 3 in full.
 2. **The walk down to a unit**: walk only the path to the unit that needs
    it, and apply an ancestor's rules only where a child changed. Needs
    the proof that an ancestor's rules read nothing a recorded read does
-   not cover.
-3. **Owner sets that forget dead units.** A node keeps every unit it was
-   ever owned by, each round's re-minted ones included (eight on average
-   at an add that gets past the first); forgetting units no fixpoint
-   reached would shrink `Owners::add`, `count`'s recounts and the ~80 MB
-   the sets hold.
+   not cover. The probe bounds it at ~10% of the visits: not taken.
+3. **Owner sets that forget dead units — taken** (§10, 2026-11-01). By
+   the end of `risc-v.k`'s check 26,588 of its 49,763 units were no
+   longer in the tree at all and the sets held ~94 MB; `Units::forget`
+   drops the units no walk reaches, and the check's peak RSS goes 778 →
+   753 MiB, its time flat. What stays: the dense first-owner vectors,
+   4 bytes a node three times over (~31 MB), and `sig`'s count, measured
+   after option 1 — 3.68 M nodes counted against 4.01 M visited, 2.09 M
+   of them in a fixpoint's first iteration: the nodes the round's passes
+   minted, each counted once.
 4. **`desugar_touching` for the other passes**: deduction (its `sync`
    before each node must be shown order-free), instantiation, resolution,
    the wrappers, `closureCalls` — each algebra audited for what it hands
