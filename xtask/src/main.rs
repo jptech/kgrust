@@ -300,6 +300,10 @@ enum Cmd {
         /// edits and documents, but cannot build.
         #[arg(long)]
         no_backend: bool,
+        /// Name the archive `kgrust-<LABEL>-<target>` rather than by the
+        /// version (the nightly workflow's `nightly`).
+        #[arg(long)]
+        label: Option<String>,
     },
     /// Install this checkout's `kg` as a release would lay it out: the dist
     /// tree under a prefix, `kg` and `kanagawa` linked into a bin directory.
@@ -733,7 +737,9 @@ fn reference_root(command: &mut Cmd) -> Option<&mut std::path::PathBuf> {
 fn dispatch(command: Cmd) -> Result<()> {
     match command {
         Cmd::Codegen { check, kanagawa_root } => codegen::run(check, &kanagawa_root),
-        Cmd::Dist { kanagawa_root, backend_dir, out, no_backend } => dist::run(&kanagawa_root, &backend_dir, &out, no_backend),
+        Cmd::Dist { kanagawa_root, backend_dir, out, no_backend, label } => {
+            dist::run(&kanagawa_root, &backend_dir, &out, no_backend, label.as_deref())
+        }
         Cmd::Install { kanagawa_root, backend_dir, prefix, bin_dir, no_backend } => {
             let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
             let under_home = |rel: &str| home.as_ref().map(|h| h.join(rel)).ok_or_else(|| anyhow::anyhow!("HOME is unset; pass --prefix and --bin-dir"));

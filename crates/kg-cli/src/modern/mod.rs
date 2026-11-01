@@ -63,8 +63,18 @@ Exit codes: 0 success, 1 errors found, 2 bad usage, or not implemented yet (a
 program `build` cannot lower), 3 the backend crashed during `build` (it runs in
 a worker process, so the crash is reported rather than taking `kg` down).";
 
+/// `kg --version`'s version: `Cargo.toml`'s, unless the build names itself.
+/// The nightly workflow (`.github/workflows/nightly.yml`) builds with
+/// `KG_VERSION=0.2.0-nightly.20261102+abc1234`, so that a nightly says which
+/// `main` it is; no other build sets it. `kanagawa` keeps the reference's own
+/// version line whatever this is.
+pub const VERSION: &str = match option_env!("KG_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 #[derive(Parser, Debug)]
-#[command(name = "kg", version, about = ABOUT, long_about = LONG_ABOUT, disable_help_subcommand = true)]
+#[command(name = "kg", version = VERSION, about = ABOUT, long_about = LONG_ABOUT, disable_help_subcommand = true)]
 pub struct Cli {
     #[command(flatten)]
     pub global: GlobalArgs,

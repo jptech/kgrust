@@ -6,6 +6,17 @@ Notable changes to kgrust, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Nightly prereleases: each night `main` has moved, a `nightly`
+  prerelease of it for Linux (x86_64, arm64) and macOS (Apple silicon),
+  without the code generator, so `kg check`, `fmt`, `lsp` and `doc` work
+  and `kg build` needs `KG_BACKEND_DIR`. A nightly's `kg --version` names
+  its commit (`0.2.0-nightly.20261102+abc1234`). Not releases: those are
+  still tagged by hand after the full gates.
+- `cargo xtask dist --label <LABEL>` names the archive
+  `kgrust-<LABEL>-<target>`, and the archive's README states the version.
+
 ### Changed
 
 - Inference does less over again, with identical results. It walks again

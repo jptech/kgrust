@@ -147,7 +147,10 @@ GitHub's free runners: `test` (the quick tests, `corpus`, `conformance`,
 `check-links.py`), over the workspace but `kg-ptrace`. It covers this
 repository's Rust code, and builds neither the backend nor the reference
 — keep it that way; the parity gates stay local. `scripts/ci.sh` runs the
-same on your machine.
+same on your machine. **Nightly prereleases**
+([`.github/workflows/nightly.yml`](.github/workflows/nightly.yml)) hold to
+the same: `main` packaged by `cargo xtask dist --no-backend` for Linux and
+macOS, tagged `nightly`, replaced each night `main` moves, never a release.
 
 **Worktrees.** `scripts/worktree.sh add <path>`, or `scripts/worktree.sh
 link` inside an existing one, links the gates' data stores from the primary

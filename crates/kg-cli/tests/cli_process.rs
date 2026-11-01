@@ -689,6 +689,16 @@ fn kg_help_and_version_exit_zero() {
     }
 }
 
+/// A build that names itself (`KG_VERSION`, the nightly workflow's) prints
+/// that name; every other build prints `Cargo.toml`'s version.
+#[test]
+fn kg_version_is_the_packages_unless_the_build_names_itself() {
+    let scratch = Scratch::new("kg-version");
+    let run = run_in(KG, scratch.path(), &["--version"]);
+    let expected = option_env!("KG_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    assert_eq!(run.stdout.trim(), format!("kg {expected}"), "{}", run.stderr);
+}
+
 // ---------------------------------------------------------------------------
 // Editions (`docs/editions/README.md`)
 // ---------------------------------------------------------------------------

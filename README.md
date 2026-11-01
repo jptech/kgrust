@@ -34,7 +34,10 @@ the memory.
 
 Release archives will be published on the
 [Releases page](https://github.com/jptech/kgrust/releases); until the first
-one, [build one yourself](#build-from-source). Unpack it and put its `bin` on
+one, [build one yourself](#build-from-source), or take the
+[nightly](https://github.com/jptech/kgrust/releases/tag/nightly): `main`,
+packaged each night it moves, which checks, formats, edits and documents
+but has no code generator for `kg build`. Unpack it and put its `bin` on
 your `PATH`:
 
 ```sh
