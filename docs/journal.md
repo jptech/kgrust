@@ -18610,3 +18610,37 @@ Checked 2026-11-01: `scripts/identity.sh 536d825`, 304 roots identical;
 over stdio, highlight and references at 1280 positions of `risc-v.k` and
 974 of `float32.k` answered the same before and after.
 
+## Two thirds of the walks change nothing — 2026-11-01
+
+Asked where `risc-v.k`'s loop goes, if not to the 9% that would split
+across threads, a profile to the call (`plans/performance.md` §13,
+"Inside the loop, by cause") and counters patched into one run found the
+answer is not how fast inference walks but how much: 179,761 of its
+269,663 unit walks write nothing, 4.9 M of its 7.1 M node visits. Half
+are a symbol map's rebuild at the start of each fixpoint: the round's
+passes mint a new node for every declaration above what they changed, a
+lookup's answer is compared by node id, and every asker is walked again —
+87,510 times, 24 of them finding anything. Comparing what the askers read
+rather than which node they reached is re-askable reads
+(`plans/loop-across-edits.md` §8, lever 3), which a batch compile wants
+as much as the editor.
+
+The changes taken are smaller and exact. The prefix pass's cost was two
+whole-body catas in `moveFunctions` that clone and compare every node
+for algebras that change only names; `desugar_touching` passes the rest
+on. And the parse-time table read every enclosing node's children, and
+theirs, at every mention — the references search's quadratic again
+("A scan per use", above), in the diagnostics every edit refreshes —
+now an index per scope, built once a run and held to the old scan by a
+test over every mention of every corpus file.
+
+Two cheaper fixes for the owner sets were measured and dropped: a mark
+per node took 3.7% off the loop and added 22 MiB, because the sets
+already hold 1.7 M nodes three times over and any table beside them is as
+large. Memory is the other half of the goal (`plans/performance.md` §12).
+
+Checked 2026-11-01: `scripts/identity.sh 07562eb`, 304 roots identical;
+`scripts/fast.sh --lint loop` green, every ratchet +0/−0;
+`a_scope_read_once_answers_as_the_scan_at_every_mention` and
+`a_cata_over_the_shapes_it_touches_mints_what_the_whole_cata_mints`,
+five mutants between them, each caught.

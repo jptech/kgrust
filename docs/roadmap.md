@@ -64,11 +64,15 @@ Independent options, roughly in the order recommended.
    prefix pass splits as the code stands (9% of `risc-v.k`'s loop, ~1% of
    the others'); inference, most of the loop, needs a frozen view of the
    other modules per iteration first. Until then `kg` stays on one thread,
-   with no option for more (§13, item 1).
+   with no option for more (§13, item 1). Where the rest goes (§13,
+   "Inside the loop, by cause"): two thirds of inference's unit walks
+   change nothing, half of them walked again because a rebuilt symbol map
+   answered a lookup with a re-minted declaration.
 4. **The keystroke.** On the largest project, `risc-v.k`, the editor's
    first answer takes ~0.83 s and its last ~2 s. Carrying the library's
    work across edits takes at most ~40% off; the plan's next step (symbol
-   maps per module) and the design after it (re-askable reads) are in
+   maps per module) and the design after it (re-askable reads, which
+   would spare a batch compile those walks too) are in
    [`plans/loop-across-edits.md`](plans/loop-across-edits.md) §6, §8.
 5. **The backend, if taken up** (open, below): the address-ordered
    liveness work list (which swings `risc-v.k`'s backend from ~4 to 30+

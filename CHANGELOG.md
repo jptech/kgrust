@@ -133,6 +133,10 @@ install`.
   the name, rather than once a use: in `risc-v.k`, highlighting `Trap` (177
   uses) took 635 ms and takes 6 ms, its references 680 ms and 17 ms. The
   editor highlights at every move of the cursor.
+- `kg check`, `kg build` and the editor's diagnostics read each scope of a
+  file once for the parse-time checks, rather than every enclosing scope at
+  every name: on `risc-v.k` those checks take 60 ms rather than 114, and the
+  editor's first answer after a keystroke 319 ms rather than ~365.
 - Two programs the reference rejects as parse errors are now one error
   each, in every edition, rather than a cascade: a label in a call of a
   keyword (`mux`, `lutmul`, `concat`, `static`, `cast`, `fan_out`) is
