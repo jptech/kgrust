@@ -351,8 +351,8 @@ impl Filed {
     /// in its order, every time.
     pub fn symbols<'a>(&mut self, modules: impl IntoIterator<Item = &'a ModuleIr>, interner: &Interner, config: Config) -> Symbols {
         let (this, errors) = (interner.intern("$this"), interner.intern("$errors"));
-        let mut map = FxHashMap::default();
         let kept = &mut self.modules[config.slot()];
+        let mut count = 0;
         for (module, ir) in modules.into_iter().enumerate() {
             if kept.len() <= module {
                 kept.resize_with(module + 1, FiledModule::default);
@@ -362,7 +362,15 @@ impl Filed {
             }
             let filer = Filer { arena: &ir.arena, this, errors, config };
             kept[module].refresh(filer, ir.root, self.weighed[module], &mut self.walked);
-            for (key, id) in &kept[module].out {
+            count = module + 1;
+        }
+        // Sized for every entry at once: grown from empty, the table was
+        // rehashed on the way to its size at every build, a third of the
+        // builds' time on `array.k` (2026-11-01).
+        let entries = kept[..count].iter().map(|k| k.out.len()).sum();
+        let mut map = FxHashMap::with_capacity_and_hasher(entries, Default::default());
+        for (module, k) in kept[..count].iter().enumerate() {
+            for (key, id) in &k.out {
                 map.entry(key.clone()).or_insert(Decl { module, id: *id });
             }
         }
