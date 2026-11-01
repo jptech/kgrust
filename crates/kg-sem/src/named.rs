@@ -163,7 +163,7 @@ pub fn unplaced(modules: &mut [crate::infer::Module], interner: &Interner) {
         if t.is_undefined() || t.is_error() || (unfolded && !t.resolved()) {
             continue;
         }
-        let name = callee_name(&module.ir.arena, function, interner);
+        let name = callee_name(&module.ir.arena, function, &t, interner);
         let message = match t.function_params() {
             Some([]) => format!("{name} takes no parameters to name"),
             Some(_) => format!("cannot tell which of {name}'s parameters these arguments name"),
@@ -229,19 +229,22 @@ pub(crate) fn faulted_label(arena: &ExpArena, item: ExpId) -> bool {
     matches!(arena[item].exp, Exp::Labelled { value, .. } if matches!(arena[value].exp, Exp::Error(_)))
 }
 
-/// `` `f` `` for a callee with a name, `this function` for one without.
-fn callee_name(arena: &ExpArena, function: ExpId, interner: &Interner) -> String {
+/// `` `f` `` for a callee with a name, `this function` for one without —
+/// typed `t`. A function template's instance's name is the template's and
+/// its arguments, mangled: the call is of the template the user named,
+/// which its type names. A value's closure type names the closure's
+/// template, and the value is named by its own name.
+fn callee_name(arena: &ExpArena, function: ExpId, t: &Ty, interner: &Interner) -> String {
     let inner = match &arena[function].exp {
         Exp::FunctionSpecifier { function, .. } => *function,
         _ => function,
     };
-    match get_name(arena, inner) {
-        // An instance's name is its template's and its arguments, mangled
-        // (`fixed<|@3|>`): the call is of the template the user named.
-        Some(s) => {
-            let name = interner.resolve(s);
-            format!("`{}`", name.split_once("<|").map_or(&*name, |(template, _)| template))
-        }
+    let template = match t {
+        Ty::Instance { template, concrete, .. } if matches!(**concrete, Ty::Function { .. }) => template.segments().last().copied(),
+        _ => None,
+    };
+    match template.or_else(|| get_name(arena, inner)) {
+        Some(s) => format!("`{}`", interner.resolve(s)),
         None => "this function".to_owned(),
     }
 }
@@ -342,7 +345,7 @@ impl Cx<'_> {
         let declared = self.declared(rw.arena, function);
         let shown = |arena: &ExpArena| match declared.as_ref().and_then(|d| d.param) {
             Some(p) => format!("`{}`", self.interner.resolve(p)),
-            None => callee_name(arena, function, self.interner),
+            None => callee_name(arena, function, &t, self.interner),
         };
         match declared.as_ref().map(|d| &d.names) {
             Some(Some(names)) => {
