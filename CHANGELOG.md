@@ -30,6 +30,10 @@ Notable changes to kgrust, newest first. The format follows
   lists that program's instances, and names the file. That loop is read,
   never run: with `risc-v.k` open, a hover in the library's `core.k`
   answers in 0.88 ms (median of 50), as its "not inferred" did in 0.86.
+- The outline listed an exported class twice, the class and its `export`
+  (and an `extern` one likewise). The class is listed once, `export` in its
+  detail; an export of an instance (`export Ring<4>;`), or of a type
+  declared in another file, keeps an entry of its own.
 
 ## 0.2.0 — language editions, 2026-10-31
 
