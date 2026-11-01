@@ -138,8 +138,8 @@ reference's; `kanagawa` never opts in.
 `kanagawa.toml`, versioned: `1.0` is the reference, a minor edition only
 adds. Per package, so a library and its users each keep their own; every
 extension desugars inside the frontend to reference Kanagawa, so the
-ParseTree walk and the backend never change, and a `kg expand` (not
-built) could print the reference program at any time. Planned in
+ParseTree walk and the backend never change, and `kg expand` prints the
+reference program at any time ([`editions/`](editions/README.md#kg-expand)). Planned in
 [`plans/editions.md`](plans/editions.md); **built on the `editions-pilot`
 branch** (2026-10-30/31, PR #8): edition `1.1`, a preview — named
 arguments, trailing commas, default arguments and named template
