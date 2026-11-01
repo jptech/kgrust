@@ -41,11 +41,16 @@ the labels, so the backend is given the 1.0 call (`crates/kg-sem/src/named.rs`).
 
 - **Positional arguments** fill the parameters from the first, as in 1.0.
 - **A named argument** fills the parameter of that name.
-- **The names are the callee's type's.** A function's and a method's are
-  its declaration's; a closure's are its lambda's; a value of function
-  type has the names its type spells — `(uint8 a, uint8 b) -> uint8 fn`
-  takes `fn(b: x, a: 1)`. A callee whose parameters have no names takes
-  no labels.
+- **The names are the callee's declaration's.** A function's and a
+  method's are its declaration's. A value of function type — a parameter,
+  a variable, a callback — has the names its declared type spells,
+  whatever it holds: `(uint8 a, uint8 b) -> uint8 fn` takes
+  `fn(b: x, a: 1)`, given a lambda or a function whose parameters are
+  named otherwise. A template's function parameter
+  `template <(uint8 x, uint8 y) -> uint8 F>` takes `F(y: 1, x: 2)`,
+  whatever function an instance gives it. A local declared `auto` and
+  given a lambda takes the lambda's names. A declared type that names no
+  parameters takes no labels (an error, below).
 - **Templates.** A method of a template class takes the names of its
   instance's method. A function template's arguments may be named before
   its template arguments are known: deduction matches each named argument
@@ -75,8 +80,8 @@ is classed by what evaluating it can do:
 
 | Class | Holds | Examples |
 |---|---|---|
-| pure | literals, and the enclosing function's own locals and parameters — nothing a call could change | `3`, `p`, `p + 1` |
-| reads | anything else that is read: a member, a global, a memory, a constant — what a call might change | `_m`, `_mem[i]` |
+| pure | literals, constants — a global's, a class's, an enum's, imported or not, folded or not, an array's or a structure's too — and the enclosing function's own locals and parameters: nothing a call could change | `3`, `p`, `p + 1`, `Table[i]`, `Mode::Run` |
+| reads | anything else that is read: a member, a memory, another object's member — what a call might change | `_m`, `_mem[i]` |
 | calls | any argument that calls a function | `g()`, `p + g()` |
 
 Two arguments may swap when neither calls a function, or when one calls
@@ -93,26 +98,32 @@ uint16 h = sub(y: g(), x: p);     // fine: `p` is a parameter, which `g` cannot 
 Write such a call in the parameters' order, or bind one argument to a
 local first. The rule is conservative by design: it never runs side
 effects in another order than written, at the cost of refusing some
-calls that would have been harmless. (A global constant is classed
-*reads*, though no call can change it.)
+calls that would have been harmless. (An imported `const` memory is
+classed *reads*, though no call can change it.) An argument holding a name
+that names nothing is not classed at all: the call is left for the
+ordinary `Symbol name not in scope` at the name, as the reference reports
+it.
 
 ## Errors
 
 Every error is reported once, at the argument it is about; the call is
 otherwise left alone. The fixtures in
 [`tests/editions/named-arguments/reject/`](../../../tests/editions/named-arguments/reject/)
-pin each message.
+(`misnamed.k`, `counts.k`, `templates.k`, `values.k`, `undefined.k`) pin
+every message but the edition's, the backstop's and the parse errors',
+which the parser's unit tests pin.
 
 | Error | When |
 |---|---|
 | `` named arguments need edition 1.1, which `kg` reads from kanagawa.toml: `[package] edition = "1.1"`, or the feature `named-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
-| `` `f` has no parameter named `z` `` | a label names no parameter of the callee |
+| `` `f` has no parameter named `z` `` | a label names no parameter of the callee — a function template's too, its arguments deduced or written |
 | `` the parameter `x` is given an argument twice `` | a named argument fills a parameter a positional one or another named one already filled |
 | `` `f` takes N arguments `` | more positional arguments than parameters |
 | `` `f` is missing an argument for `x` `` | a parameter no argument fills and that has no default (`the thread count`, for a pipelined call) |
 | `` in `f`'s parameter order `x` would be evaluated before `y`, which is written first, and one of them calls a function: … `` | the order-of-evaluation rule above |
 | `` `tid` is the thread's index in pipelined `f`, which no call passes: … `` | a label names a pipelined function's first parameter |
 | `` `p` is not a function whose parameters have names `` | a labelled call whose callee is not a function |
+| `` `g`'s type gives its parameters no names, so a call through it passes them by position `` | a labelled call through a value whose declared function type names none of its parameters |
 | `` `f` takes no parameters to name `` | a labelled call to a function of no parameters |
 | `` cannot tell which of `f`'s parameters these arguments name `` | the callee's parameters never became known (the backstop: no fixture reaches it) |
 | `` the argument `x` is named twice ``, `a positional argument cannot follow a named one` | parse errors, above |
@@ -160,4 +171,7 @@ tokens, the database (`crates/kg-db/tests/editions.rs`: a file read in its
 package's language, a change of language reparsing it, every error), and
 the walk against its twin (`crates/kg-ptbridge/tests/editions.rs`). By
 hand, 2026-10-30: `kg build` of `reorder.k` and of its twin through the
-real backend give the same SystemVerilog, location comments aside.
+real backend give the same SystemVerilog, location comments aside; and
+2026-10-31, of `values.k` (a lambda, a function, an alias and a
+template's parameter as the callee) and of `constants.k`, each against
+its twin — the memory's init-file path aside.

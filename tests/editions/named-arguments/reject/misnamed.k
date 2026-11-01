@@ -1,5 +1,5 @@
 // What a call that names its arguments can get wrong, each reported once,
-// at the argument it is about (`docs/editions/1.1.md`, "Errors").
+// at the argument it is about (`docs/editions/1.1/named-arguments.md`, "Errors").
 //
 // expect-error 30:30: `sub` has no parameter named `z`
 // expect-error 31:20: `sub` is missing an argument for `x`

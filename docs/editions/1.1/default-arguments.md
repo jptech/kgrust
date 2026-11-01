@@ -33,13 +33,22 @@ parameter = attributes type identifier [ "=" expression ]
 
 - **A default is a constant**: a literal, a constant, an enum's constant,
   a template's parameter, or an expression of them — whatever the
-  compiler folds to an integer, a `bool`, a `float` or an enum value.
-  A member, another parameter, a local or a call is not.
-- **Where**: a function's parameter, a method's, a function template's
-  and a lambda's — `[](uint8 a, uint8 b = 1)`. A function *type*'s
-  parameter takes none, `(uint8 a, uint8 b = 1) -> uint8 g` being one
-  error: a call through a value of function type is given no default,
-  the value's own included, as it is no call of that function by name.
+  compiler folds to an integer, a `bool`, a `float` or an enum value —
+  and an argument its parameter's type takes, judged at the declaration
+  as the argument it stands for: `uint8 m = Mode::Run` is one, an
+  integer parameter taking an enum's constant as it takes the argument
+  (`TypeCheck.hs:155-156`). A member, another parameter, a local or a
+  call is not.
+- **Where**: a function's parameter, a method's and a function
+  template's. A function *type*'s parameter takes none,
+  `(uint8 a, uint8 b = 1) -> uint8 g` being one error.
+- **Not through a value.** A default belongs to a declaration, not to a
+  type: a call through a value of function type — a parameter, a
+  variable, a closure, a template's function parameter — is given none,
+  whatever the function or lambda it holds declares, and one short of an
+  argument is the reference's own `Invalid number of arguments`. So a
+  lambda's default, which the syntax allows, is never given: a lambda is
+  called only through a value.
 - **Any parameter may have one**, not only the last: a call gives the
   ones before it by position, or skips them by naming the ones after
   ([named arguments](named-arguments.md)). Template parameters have the
@@ -88,18 +97,23 @@ uint8 c = scale(p, mode: Mode::Idle);     // scale(p, Step + 1, false, Mode::Idl
 | Error | When |
 |---|---|
 | `` default arguments need edition 1.1, which `kg` reads from kanagawa.toml: `[package] edition = "1.1"`, or the feature `default-arguments` alone `` | the syntax in a file whose language lacks the feature: one error a use, in place of the parse errors the reference gives |
-| `` the default of `x` is not a constant a call can be given: … `` | a default that never folds to a constant integer, `bool`, `float` or enum value — reported once, at the default, and at no call of the function |
+| `` the default of `x` is not a constant a call can be given: … `` | a default that never folds to a constant integer, `bool`, `float` or enum value — reported once, at the default, and at no call of the function (a default with a name that names nothing gets the error below instead) |
+| `` Invalid conversion from `bool` to `uint8` `` | a default its parameter's type does not take: the reference's own error, at the default, once, whether or not a call leans on it; a class template's in each instance |
+| `` Symbol name not in scope: `Step` `` | a name in a default that names nothing: at the name, and no call that leans on the default is reported |
 | `` `f` is missing an argument for `x` `` | a call that names its arguments leaves out a parameter with no default |
-| `Invalid number of arguments, expected N` | a call by position leaves out a parameter with no default: the reference's own error |
+| `Invalid number of arguments, expected N` | a call by position leaves out a parameter with no default, or a call through a value leaves out any: the reference's own error |
 | `expected an expression` (a parse error) | `uint8 x =` with nothing after it |
 | `` a function type's parameter takes no default `` (a parse error) | `(uint8 a, uint8 b = 1) -> uint8 g`, in any edition |
 
 The fixtures in
 [`tests/editions/default-arguments/reject/`](../../../tests/editions/default-arguments/reject/)
-pin "not a constant" and the reference's `Invalid number of arguments`;
+pin "not a constant" (`constants.k`), the reference's `Invalid number of
+arguments` (`missing.k`, `values.k`), the conversion (`conversions.k`)
+and the undefined name (`names.k`);
 [`named-arguments/reject/misnamed.k`](../../../tests/editions/named-arguments/reject/misnamed.k)
-pins "missing an argument"; the parser's unit tests pin the edition
-error, the function type's, and that an empty default is an error.
+and `crates/kg-db/tests/editions.rs` pin "missing an argument"; the
+parser's unit tests pin the edition error, the function type's, and that
+an empty default is an error.
 
 ## The tools
 
@@ -128,16 +142,19 @@ receiver.
   leaves out an integer default folded from a constant, a `bool`, an
   enum's constant, a method's and a class template's parameter, and walks
   through the trace backend call for call as its twin, which writes every
-  call whole and which the reference accepts;
-- [`reject/constants.k`](../../../tests/editions/default-arguments/reject/constants.k)
-  and [`reject/missing.k`](../../../tests/editions/default-arguments/reject/missing.k)
-  give exactly the errors they list.
+  call whole and which the reference accepts; so does
+  [`accept/enums.k`](../../../tests/editions/default-arguments/accept/enums.k),
+  an enum's constant as an integer parameter's default;
+- every fixture in [`reject/`](../../../tests/editions/default-arguments/reject/)
+  — `constants.k`, `missing.k`, `values.k`, `conversions.k`, `names.k` —
+  gives exactly the errors it lists.
 
 Unit tests, each proven with `scripts/mutant.sh`: the parser, the
 formatter, the type (`crates/kg-ty/src/ty.rs`: a default is kept as a
 parameter's name is), the database (`crates/kg-db/tests/editions.rs`: the
 defaults placed beside positional and named arguments, an enum's default
-folded after the function is first typed, each error), the language
+folded after the function is first typed, a default judged at its
+declaration, each error), the language
 server's hover and inlay hints, `kg doc`'s signature, and the walk
 (`crates/kg-ptbridge/tests/editions.rs`: a 1.0 package calling a 1.1
 library's function short of its defaulted arguments walks as both

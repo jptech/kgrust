@@ -33,6 +33,11 @@ install`.
   method call cannot be placed), lights it in signature help and is
   offered as a completion, hover shows a parameter's default, and an inlay
   hint shows the defaults a call is given ([`docs/editions/`](docs/editions/README.md)).
+  Named arguments are placed in their parameters' order only where no two
+  arguments could tell — a constant commutes with a call — and a reorder
+  that could change which side effect comes first is an error; a call
+  through a value of function type takes the names its declared type
+  spells, and no defaults. A default is judged where it is written.
   Graded by a new gate, `cargo xtask editions`, which CI runs too
   (`--no-oracle`). A file that uses a feature its edition lacks is told,
   once a use, which edition has it and how to ask for it, where the
