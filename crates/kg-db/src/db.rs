@@ -1565,6 +1565,7 @@ impl Db {
         let parse = self.parse_module(module);
         let root = parse.source_file();
         let parsed = cx.looped.parsed(module).expect("the loop lowered every module of its program");
+        let scopes = crate::passes::undefined_symbols::Scopes::default();
         let whole = crate::passes::undefined_symbols::Whole {
             module,
             file: module.diagnostic_file(),
@@ -1575,6 +1576,7 @@ impl Db {
             looped: &cx.looped,
             interner: &self.interner,
             roots: &cx.roots_of,
+            scopes: &scopes,
         };
         run(&root, whole, &cx.looped)
     }
