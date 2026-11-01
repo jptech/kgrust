@@ -180,7 +180,11 @@ pub fn unplaced(modules: &mut [crate::infer::Module], interner: &Interner) {
                 // copies and never as written (`crate::check`'s `abbreviated`):
                 // its `auto` parameter is never typed.
                 Exp::Function { params, .. } if kg_hir::rewrite::is_abbreviated_template(arena, *params) => continue,
-                Exp::FunctionCall { args, .. } if has_labels(arena, *args) => found.push((m, id, None)),
+                // One with an argument that names nothing waits for pass 9
+                // to report the name ([`Cx::place`]).
+                Exp::FunctionCall { args, .. } if has_labels(arena, *args) && !names_nothing(arena, types, *args) => {
+                    found.push((m, id, None))
+                }
                 // A name in it that names nothing is pass 9's ordinary
                 // error, at the name (`crate::check`'s `Undefined`), which a
                 // second here would replace.
@@ -565,6 +569,14 @@ impl Cx<'_> {
         }
         let filled = given;
         if let Some((early, late)) = self.reordered_effects(rw.arena, types, &filled) {
+            // An argument holding a name that names nothing is pass 9's
+            // ordinary error, at the name (`crate::check`'s `Undefined`), as
+            // the reference reports the call written in either order; what
+            // a call reads cannot be classed while it does not know what it
+            // reads. The call waits, and [`unplaced`] leaves it to pass 9.
+            if filled.iter().any(|a| names_nothing(rw.arena, types, a.value)) {
+                return Placed::Waiting(unchanged);
+            }
             // `early` is the parameter first in order and the argument
             // written after `late`'s: placed, it would be evaluated first.
             let message = format!(
