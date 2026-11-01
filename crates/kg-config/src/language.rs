@@ -193,6 +193,44 @@ impl LanguageMap {
         self.language_in(dir)
     }
 
+    /// Whether the file at `path` is one of the project's own: under its
+    /// root and under no other package's manifest — read in the project's
+    /// language because it is the project's, which `kg expand` rewrites,
+    /// and not a dependency's, which keeps its own.
+    pub fn is_project(&self, path: &Utf8Path) -> bool {
+        let path = normal(path);
+        let (Some(root), Some(dir)) = (&self.root, path.parent()) else { return false };
+        if !dir.starts_with(root) {
+            return false;
+        }
+        if self.fixed {
+            return true;
+        }
+        let mut at = dir;
+        while at != root.as_path() {
+            if at.join(MANIFEST_NAME).is_file() {
+                return false;
+            }
+            match at.parent() {
+                Some(up) => at = up,
+                None => return false,
+            }
+        }
+        true
+    }
+
+    /// The project's root directory, if the map has one.
+    pub fn root(&self) -> Option<&Utf8Path> {
+        self.root.as_deref()
+    }
+
+    /// The same project with its root at `root` — its canonical spelling,
+    /// where the caller keeps its files by theirs.
+    #[must_use]
+    pub fn rooted_at(&self, root: &Utf8Path) -> LanguageMap {
+        LanguageMap { root: Some(normal(root)), language: self.language, fixed: self.fixed, walked: Arc::default(), refused: Arc::default() }
+    }
+
     fn language_in(&self, dir: &Utf8Path) -> Language {
         if let Some(&l) = self.walked.lock().unwrap().get(dir) {
             return l;
@@ -301,6 +339,30 @@ mod tests {
         let e = map.language_of(&root.join("dep2/src/e.k"));
         assert_eq!(e.edition, Edition::V1_0);
         assert!(e.features().has(Feature::NamedArguments), "a dependency keeps the language its manifest names");
+    }
+
+    /// A project's file is under its root and under no other package's
+    /// manifest: what `kg expand` rewrites. A fixed map reads no manifest, and a
+    /// map with no root has no project. Red with the manifest walk gone, a
+    /// vendored dependency's text then rewritten in another language.
+    #[test]
+    fn a_nested_package_is_no_file_of_the_project() {
+        let (_d, root) = tree(&[
+            ("proj/kanagawa.toml", "[package]\nedition = \"1.1\"\n"),
+            ("proj/a.k", ""),
+            ("proj/lib/b.k", ""),
+            ("proj/vendor/dep/kanagawa.toml", "[package]\nname = \"dep\"\n"),
+            ("proj/vendor/dep/src/d.k", ""),
+            ("other/e.k", ""),
+        ]);
+        let proj = root.join("proj");
+        let map = LanguageMap::new(&proj, NAMED);
+        assert!(map.is_project(&proj.join("a.k")));
+        assert!(map.is_project(&proj.join("lib/b.k")));
+        assert!(!map.is_project(&proj.join("vendor/dep/src/d.k")));
+        assert!(!map.is_project(&root.join("other/e.k")));
+        assert!(LanguageMap::fixed(&proj, NAMED).is_project(&proj.join("vendor/dep/src/d.k")));
+        assert!(!LanguageMap::reference().is_project(&proj.join("a.k")));
     }
 
     #[test]

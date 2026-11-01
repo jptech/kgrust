@@ -36,6 +36,7 @@ kg-backend-sys.workspace = true
 kg-vfs.workspace = true
 kg-diag.workspace = true
 kg-doc.workspace = true
+kg-expand.workspace = true
 kg-fmt.workspace = true
 kg-hir.workspace = true
 kg-lsp.workspace = true

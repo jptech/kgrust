@@ -29,6 +29,7 @@ default-members = [
     "crates/kg-db",
     "crates/kg-diag",
     "crates/kg-doc",
+    "crates/kg-expand",
     "crates/kg-fmt",
     "crates/kg-hir",
     "crates/kg-lsp",
@@ -63,6 +64,7 @@ publish = false
 kg-base     = { path = "crates/kg-base" }
 kg-diag     = { path = "crates/kg-diag" }
 kg-doc      = { path = "crates/kg-doc" }
+kg-expand   = { path = "crates/kg-expand" }
 kg-parser   = { path = "crates/kg-parser" }
 kg-syntax   = { path = "crates/kg-syntax" }
 kg-fmt      = { path = "crates/kg-fmt" }

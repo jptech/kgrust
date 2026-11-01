@@ -140,6 +140,24 @@ A name in a signature links to the declaration it resolves to when that one
 is documented in the same site; pass the library's directory along with your
 own to link into it too.")]
     Doc(DocArgs),
+    /// Print a later edition's program as the reference program it stands for.
+    #[command(long_about = "\
+Write a program of a later language edition as the edition 1.0 program it
+stands for: your own text, with only the edition's constructs rewritten —
+trailing commas dropped, labels removed and arguments put in parameter order,
+defaults written into the calls that leave them out, named template arguments
+put in their places. Comments and layout elsewhere are left as they are.
+
+One file goes to stdout; with --out, every file of the project the program
+reaches is written under the directory, at its path in the project. A
+dependency with a manifest of its own, and the standard library, keep their
+own language and are not written.
+
+What has no exact spelling in edition 1.0 is refused, naming the construct, and
+nothing is written: a call its template's instances place differently, a call no
+instance compiles. Every expansion is checked in edition 1.0 and walked into the
+backend against the program before it is given.")]
+    Expand(ExpandArgs),
     /// Simulate, synthesise and program a design on a board (`[board]`).
     #[command(long_about = "\
 Work with the board a manifest's `[board]` names: simulate the project's
@@ -249,6 +267,20 @@ pub struct DocArgs {
     /// Open the site in a browser once written.
     #[arg(long)]
     pub open: bool,
+    #[command(flatten)]
+    pub source: SourceArgs,
+}
+
+#[derive(Args, Debug)]
+pub struct ExpandArgs {
+    /// The program's root files, or directories of them. Defaults to
+    /// `project.sources` from the manifest.
+    #[arg(value_name = "PATH")]
+    pub paths: Vec<String>,
+    /// Write every file of the project the program reaches under this
+    /// directory, at its path in the project, rather than one file to stdout.
+    #[arg(short = 'o', long, value_name = "DIR")]
+    pub out: Option<String>,
     #[command(flatten)]
     pub source: SourceArgs,
 }
@@ -392,6 +424,7 @@ pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         Command::Lsp(args) => lsp(args, err),
         Command::Build(args) => build(&cli.global, args, &styles, out, err),
         Command::Doc(args) => doc(&cli.global, args, out, err),
+        Command::Expand(args) => expand(&cli.global, args, &styles, out, err),
         Command::Board(args) => board::run(&cli.global, args, &styles, out, err),
     }
 }
@@ -448,6 +481,121 @@ fn doc(global: &GlobalArgs, args: &DocArgs, out: &mut dyn Write, err: &mut dyn W
             1
         }
     }
+}
+
+/// `kg expand`: the program as `kg_expand` writes it — one root's file to
+/// stdout, or with `--out` every file of the project under the directory.
+///
+/// Diagnostics go to stderr, unlike `kg check`'s: stdout is the program, for a
+/// pipe. Nothing is written unless all of the program expands, so a refusal
+/// leaves no half of it behind.
+fn expand(global: &GlobalArgs, args: &ExpandArgs, styles: &Styles, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let Some(mut resolved) = resolve(global, &args.source, &args.paths, err) else { return 2 };
+    let files = match collect_inputs(&args.paths, &resolved, err) {
+        Ok(files) if files.is_empty() => {
+            let _ = writeln!(err, "kg: no input files. Pass paths, or list them under `project.sources` in kanagawa.toml.");
+            return 2;
+        }
+        Ok(files) => files,
+        Err(code) => return code,
+    };
+    if args.out.is_none() && files.len() > 1 {
+        let _ = writeln!(err, "kg: {} root files have no one text for stdout; pass --out DIR to write them", files.len());
+        return 2;
+    }
+    // The project's root by the spelling the roots are known by ([`canonical`]).
+    let language = &resolved.settings.language;
+    if let Some(root) = language.root() {
+        resolved.settings.language = language.rooted_at(&canonical(root));
+    }
+    let db = kg_db::Db::new(resolved.settings.clone());
+    let mut roots = Vec::with_capacity(files.len());
+    for path in &files {
+        if db.vfs().read_path(path).is_none() {
+            let _ = writeln!(err, "kg: cannot read {path}");
+            return 2;
+        }
+        roots.push(db.file_id(&canonical(path)));
+    }
+    let outcome = kg_expand::expand(&db, &roots);
+    phases(&db, err);
+    if refused_manifests(&resolved.settings, err) > 0 {
+        return 2;
+    }
+    let expanded = match outcome {
+        kg_expand::Outcome::Expanded(expanded) => expanded,
+        kg_expand::Outcome::Errors(diagnostics) | kg_expand::Outcome::Refused(diagnostics) => {
+            print_diagnostics(&db, &diagnostics, global, styles, err);
+            return 1;
+        }
+    };
+    let Some(dir) = &args.out else {
+        let root = roots[0];
+        let Some(file) = expanded.iter().find(|e| e.file == root) else {
+            let _ = writeln!(err, "kg: {} is no file of the project, which keeps its own language: expand it in its own", files[0]);
+            return 2;
+        };
+        let others = expanded.iter().filter(|e| e.file != root && e.changed).count();
+        if others > 0 {
+            let _ = writeln!(
+                err,
+                "{}: {others} other file{} of the program expand{} too; pass --out DIR to write all of them",
+                styles.warning("note"),
+                plural(others),
+                if others == 1 { "s" } else { "" },
+            );
+        }
+        let _ = write!(out, "{}", file.text);
+        return 0;
+    };
+    write_expanded(&expanded, Utf8Path::new(dir), &resolved.settings, global, out, err)
+}
+
+/// Writes the files under `dir`, each at its path in the project. The sources
+/// themselves are never written: an expansion cannot be taken back, and a
+/// project's `--out` at its own root would overwrite the program.
+fn write_expanded(
+    expanded: &[kg_expand::Expanded],
+    dir: &Utf8Path,
+    settings: &kg_config::Settings,
+    global: &GlobalArgs,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> i32 {
+    let Some(root) = settings.language.root() else {
+        let _ = writeln!(err, "kg: this program has no project to write");
+        return 2;
+    };
+    let mut written = Vec::with_capacity(expanded.len());
+    for file in expanded {
+        let Ok(relative) = file.path.strip_prefix(root) else {
+            let _ = writeln!(err, "kg: {} is outside the project at {root}", file.path);
+            return 2;
+        };
+        written.push((dir.join(relative), file));
+    }
+    // Where the directory will be, by the spelling the sources have: it may not
+    // exist yet, but its parents' symlinks count.
+    let target = dir.parent().filter(|p| !p.as_str().is_empty()).map_or_else(|| canonical(&cwd()), canonical);
+    let target = dir.file_name().map_or_else(|| canonical(dir), |name| target.join(name));
+    for file in expanded {
+        if file.path.strip_prefix(root).is_ok_and(|relative| canonical(&target.join(relative)) == canonical(&file.path)) {
+            let _ = writeln!(err, "kg: --out {dir} would overwrite {}, a source of the program; name another directory", file.path);
+            return 2;
+        }
+    }
+    for (path, file) in &written {
+        let made = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(path, &file.text));
+        if let Err(e) = made {
+            let _ = writeln!(err, "kg: writing {path}: {e}");
+            return 1;
+        }
+    }
+    if !global.quiet {
+        let changed = expanded.iter().filter(|e| e.changed).count();
+        let _ = writeln!(out, "Expanded {} file{} ({changed} changed) into {dir}", expanded.len(), plural(expanded.len()));
+    }
+    0
 }
 
 /// Reports each package manifest a file's language was read from that did
@@ -598,6 +746,39 @@ fn check(
     phases(&db, err);
     let refused = refused_manifests(&resolved.settings, err);
 
+    let (errors, warnings) = print_diagnostics(&db, &diagnostics, global, styles, out);
+
+    if !global.quiet && global.error_format == ErrorFormat::Human {
+        let _ = write!(out, "{}", summary(files.len(), errors, warnings, styles));
+    }
+    // A batch check iterates to the fixpoint, so this is the guard against a
+    // loop that does not converge — a bug, and never a silent one.
+    if let Some(passes) = db.budget_exhausted(&roots) {
+        eprintln!(
+            "{}: template instantiation stopped after {passes} program passes without converging; \
+             instances it had not decided are missing from this check",
+            styles.warning("note"),
+        );
+    }
+
+    // `-W error` promotes: the reference fails the build on any warning
+    // (`Main.hs:98-99`).
+    if refused > 0 {
+        return 2;
+    }
+    let failed = errors > 0 || unreadable > 0 || (resolved.settings.warnings_as_errors && warnings > 0);
+    i32::from(failed)
+}
+
+/// The diagnostics rendered, each with its file's excerpt; how many are errors
+/// and how many warnings.
+fn print_diagnostics(
+    db: &kg_db::Db,
+    diagnostics: &[kg_diag::Diagnostic],
+    global: &GlobalArgs,
+    styles: &Styles,
+    out: &mut dyn Write,
+) -> (usize, usize) {
     let mut errors = 0usize;
     let mut warnings = 0usize;
 
@@ -605,7 +786,7 @@ fn check(
     // holds only the file currently being rendered.
     let here = canonical(&cwd());
     let mut current: Option<(FileId, String, kg_vfs::FileText)> = None;
-    for diagnostic in &diagnostics {
+    for diagnostic in diagnostics {
         if diagnostic.is_error() {
             errors += 1;
         } else {
@@ -645,27 +826,7 @@ fn check(
             }
         }
     }
-
-    if !global.quiet && global.error_format == ErrorFormat::Human {
-        let _ = write!(out, "{}", summary(files.len(), errors, warnings, styles));
-    }
-    // A batch check iterates to the fixpoint, so this is the guard against a
-    // loop that does not converge — a bug, and never a silent one.
-    if let Some(passes) = db.budget_exhausted(&roots) {
-        eprintln!(
-            "{}: template instantiation stopped after {passes} program passes without converging; \
-             instances it had not decided are missing from this check",
-            styles.warning("note"),
-        );
-    }
-
-    // `-W error` promotes: the reference fails the build on any warning
-    // (`Main.hs:98-99`).
-    if refused > 0 {
-        return 2;
-    }
-    let failed = errors > 0 || unreadable > 0 || (resolved.settings.warnings_as_errors && warnings > 0);
-    i32::from(failed)
+    (errors, warnings)
 }
 
 /// `kg fmt`: rewrite sources in the house style, or report which ones would
