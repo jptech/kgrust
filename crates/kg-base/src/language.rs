@@ -5,7 +5,9 @@
 //! pin — and every file is in it unless its own package's manifest says
 //! otherwise. A later edition adds features; a feature only ever gives a
 //! meaning to a program the reference rejects (`docs/plans/editions.md`
-//! §1), so with [`Features::NONE`] no new branch is reachable anywhere.
+//! §1), so with [`Features::NONE`] no program the reference accepts reaches
+//! a new branch: a 1.0 file's later syntax is parsed only to be refused by
+//! name (`kg_parser`'s `Parser::gate`).
 //!
 //! Here, rather than in `kg-config`, because the parser reads it and the
 //! parser depends on nothing above this crate.
@@ -18,8 +20,12 @@ pub enum Feature {
     /// `f(x: 1, y: 2)`: arguments named by their parameters, in any order
     /// (`docs/editions/1.1.md`).
     NamedArguments,
-    /// `f(a, b,)`: a comma before the closing bracket of an argument,
-    /// parameter, template or initializer list (`docs/editions/1.1.md`).
+    /// `f(a, b,)`: a comma before the closing bracket of any list the
+    /// reference separates with commas — arguments, parameters, template
+    /// parameters and arguments, initializers, captures, enum constants,
+    /// function types' parameters, a module's exposure list, attributes and
+    /// a template template parameter's kinds
+    /// (`docs/editions/1.1/trailing-commas.md`).
     TrailingCommas,
     /// `uint8 f(uint8 x, uint8 shift = 0)`: a parameter's default, which a
     /// call may then leave out (`docs/editions/1.1.md`).
@@ -62,14 +68,15 @@ impl Feature {
     }
 
     /// The error for the feature's syntax in a file whose language lacks it:
-    /// which edition has it, and how a package asks for it. The reference
-    /// rejects the same text, so this replaces its parse errors rather than
-    /// adding to what a program is rejected for.
+    /// which edition has it, and how a package asks for it — through `kg`,
+    /// since the compat binary reads no manifest and so never opts in. The
+    /// reference rejects the same text, so this replaces its parse errors
+    /// rather than adding to what a program is rejected for.
     pub fn needed(self) -> String {
         let (what, one) = self.what();
         let edition = Edition::first_with(self);
         format!(
-            "{what} need{} edition {edition}: `[package] edition = \"{edition}\"` in kanagawa.toml, or the feature `{}` alone",
+            "{what} need{} edition {edition}, which `kg` reads from kanagawa.toml: `[package] edition = \"{edition}\"`, or the feature `{}` alone",
             if one { "s" } else { "" },
             self.name(),
         )
@@ -135,7 +142,8 @@ impl fmt::Debug for Features {
     }
 }
 
-/// A frozen bundle of features, versioned: `1.0` is the reference. A minor
+/// A bundle of features, versioned, and frozen once a release ships it
+/// (until then a preview, as `1.1` is): `1.0` is the reference. A minor
 /// version only adds meaning to programs the edition before it rejects; a
 /// major version may also reject what an earlier one accepts — stricter
 /// checks — and is the only kind that may (`docs/editions/README.md`).

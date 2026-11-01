@@ -461,6 +461,7 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 types::type_(p);
             });
             p.expect(L_PAREN);
+            no_label(p, CAST_KW);
             expr(p, ExprMode::Full);
             p.expect(R_PAREN);
             m.complete(p, CAST_EXPR)
@@ -473,6 +474,7 @@ fn primary(p: &mut Parser<'_>) -> Option<CompletedMarker> {
                 expr(p, ExprMode::TemplateArg);
             });
             p.expect(L_PAREN);
+            no_label(p, FAN_OUT_KW);
             expr(p, ExprMode::Full);
             p.expect(R_PAREN);
             m.complete(p, FAN_OUT_EXPR)
@@ -531,6 +533,7 @@ fn keyword_call(p: &mut Parser<'_>, node: SyntaxKind, min: usize, max: usize) ->
     p.bump(kw);
     p.expect(L_PAREN);
     let n = comma_list(p, R_PAREN, |p| {
+        no_label(p, kw);
         expr(p, ExprMode::Full);
     });
     if n < min || n > max {
@@ -542,6 +545,21 @@ fn keyword_call(p: &mut Parser<'_>, node: SyntaxKind, min: usize, max: usize) ->
     }
     p.expect(R_PAREN);
     m.complete(p, node)
+}
+
+/// A label on an operand of a keyword's call, `mux(s, x: 1, 2)`: one error
+/// at it, and the operand parsed on, rather than the cascade of a `:` that
+/// no expression takes. No edition names these operands — they are no
+/// function's parameters — so it is the error in every file; the reference
+/// rejects the `:` (`Parser.hs:868-872`).
+fn no_label(p: &mut Parser<'_>, kw: SyntaxKind) {
+    if p.at(IDENT) && p.nth_at(1, COLON) {
+        p.error(format!("`{}` takes no named arguments", kw.static_text().unwrap_or("this")));
+        let e = p.start();
+        p.bump(IDENT);
+        p.bump(COLON);
+        e.complete(p, ERROR);
+    }
 }
 
 fn arity(min: usize, max: usize) -> String {

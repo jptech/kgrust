@@ -169,7 +169,7 @@ fn module_decl(p: &mut Parser<'_>) {
                     break;
                 }
             }
-            if !p.eat(COMMA) {
+            if !p.eat_list_comma(R_CURLY) {
                 break;
             }
         }
@@ -420,7 +420,7 @@ fn template_param(p: &mut Parser<'_>) {
                 if p.token_pos() == pos {
                     break;
                 }
-                if !p.eat(COMMA) {
+                if !p.eat_list_comma(R_ANGLE) {
                     break;
                 }
             }

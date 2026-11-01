@@ -134,8 +134,13 @@ impl<'t> Parser<'t> {
     }
 
     #[inline]
+    pub fn at_end(&self) -> bool {
+        self.pos >= self.inp.len() || self.stalled.get().is_some()
+    }
+
     /// Whether the file opts into `feature` (`kg_base::language`). Every
     /// rule beyond the reference begins behind this test.
+    #[inline]
     pub fn has(&self, feature: kg_base::language::Feature) -> bool {
         self.inp.features().has(feature)
     }
@@ -172,10 +177,6 @@ impl<'t> Parser<'t> {
         }
         self.bump(COMMA);
         !trailing
-    }
-
-    pub fn at_end(&self) -> bool {
-        self.pos >= self.inp.len() || self.stalled.get().is_some()
     }
 
     /// Current byte position in the token stream. Only for progress assertions.

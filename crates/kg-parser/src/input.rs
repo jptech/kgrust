@@ -67,22 +67,23 @@ impl<'a> Input<'a> {
         self.glued.push(glued_to_next);
     }
 
-    /// Kind of the `idx`-th token, or `EOF` past the end.
-    ///
-    /// There is no `EOF` variant in [`SyntaxKind`]; past-the-end reads return
-    /// `__LAST`, which no real token can be, so `at(...)` is false for every
-    /// real kind and the parser terminates naturally.
-    #[inline]
     /// Lets the grammar accept the language beyond the reference that
     /// `features` names.
     pub fn set_features(&mut self, features: kg_base::language::Features) {
         self.features = features;
     }
 
+    #[inline]
     pub fn features(&self) -> kg_base::language::Features {
         self.features
     }
 
+    /// Kind of the `idx`-th token, or `EOF` past the end.
+    ///
+    /// There is no `EOF` variant in [`SyntaxKind`]; past-the-end reads return
+    /// `__LAST`, which no real token can be, so `at(...)` is false for every
+    /// real kind and the parser terminates naturally.
+    #[inline]
     pub fn kind(&self, idx: usize) -> SyntaxKind {
         self.kind.get(idx).copied().unwrap_or(SyntaxKind::__LAST)
     }

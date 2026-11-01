@@ -1988,7 +1988,18 @@ impl<'a> Lower<'a> {
     fn labelled_items(&mut self, list: &SyntaxNode, mut arg: impl FnMut(&mut Self, &ast::Expr) -> ExpId) -> Vec<ExpId> {
         let mut out = Vec::new();
         let mut label: Option<ast::ArgLabel> = None;
-        for child in list.children() {
+        for element in list.children_with_tokens() {
+            let child = match element {
+                kg_syntax::NodeOrToken::Node(n) => n,
+                // A label with no expression before the comma, `f(x:, 2)` —
+                // the parser's error — labels nothing: not the next one.
+                kg_syntax::NodeOrToken::Token(t) => {
+                    if t.kind() == SyntaxKind::COMMA {
+                        label = None;
+                    }
+                    continue;
+                }
+            };
             if let Some(l) = ast::ArgLabel::cast(child.clone()) {
                 label = Some(l);
             } else if let Some(e) = ast::Expr::cast(child) {
@@ -3462,6 +3473,25 @@ mod tests {
     fn structure(text: &str) -> String {
         let (ir, interner) = lower_str(text);
         ir.structure_string(&interner)
+    }
+
+    /// A label with no expression before its comma, `g(x:, 2)` — the
+    /// parser's error, which the editor still lowers — labels nothing: the
+    /// next argument is not taken for the label's. Red with the pending
+    /// label kept across the comma.
+    #[test]
+    fn a_label_with_no_argument_names_nothing() {
+        use kg_base::language::{Feature, Features};
+        let labelled = |text: &str| {
+            let interner = Interner::new();
+            let options = kg_syntax::ParseOptions { features: Features::NONE.with(Feature::NamedArguments), ..Default::default() };
+            let parse = kg_syntax::parse_file_with(text, options);
+            let file = ast::SourceFile::cast(parse.syntax_node()).expect("root");
+            let ir = lower(&file, FileId(0), &interner);
+            ir.arena.iter().filter(|(_, n)| matches!(n.exp, Exp::Labelled { .. })).count()
+        };
+        assert_eq!(labelled("inline void f()\n{\n    g(x: 1, y: 2);\n}\n"), 2);
+        assert_eq!(labelled("inline void f()\n{\n    g(x:, 2);\n}\n"), 0);
     }
 
     /// A class callback's leading `[[…]]` is its function type's

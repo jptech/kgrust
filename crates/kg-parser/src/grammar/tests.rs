@@ -1803,7 +1803,8 @@ fn an_attributed_array_takes_one_dimension() {
 
 /// Edition 1.1's trailing commas: one comma before the closing bracket of
 /// every list the reference separates with `sepBy` or a `comma >>` recursion
-/// (`Parser.hs:289-291,363,377,551,697,860,871`), each a parse error there.
+/// (`Parser.hs:163,187,289-291,363,370,377,551,697,860,871`), each a parse
+/// error there.
 /// Two commas, or a comma alone, are still errors. Red with any one list's
 /// `Parser::eat_list_comma` left out.
 #[test]
@@ -1820,6 +1821,9 @@ fn a_trailing_comma_closes_a_list_where_the_language_has_them() {
         ("enum constants", "enum E : uint2 { A, B, }"),
         ("a lambda's captures", "static assert([a, b,]() -> uint8 { return a; }() == x);"),
         ("an intrinsic's arguments", "static assert(mux(s, a, b,) == concat(a, b,));"),
+        ("a module's exposure list", "module m { f, module n, }"),
+        ("attributes", "[[latency(2), pure,]] inline uint8 f() { return 1; }"),
+        ("a template template parameter's kinds", "template <template <typename, auto,> typename F> inline void f() {}"),
     ];
     for (what, src) in lists {
         assert_eq!(parse_in(src, trailing).1, Vec::<String>::new(), "{what} with a trailing comma");
@@ -1829,6 +1833,24 @@ fn a_trailing_comma_closes_a_list_where_the_language_has_them() {
     assert!(!parse_in("static assert(f(,));", trailing).1.is_empty(), "a comma alone");
     let named = trailing.with(Feature::NamedArguments);
     assert_eq!(parse_in("static assert(f(1, y: 2,));", named).1, Vec::<String>::new(), "after a named argument");
+}
+
+/// A label on an operand of `mux`, `concat`, `cast` and the other keyword
+/// calls names no parameter in any edition: one error at it, the operand
+/// parsed on, and not the cascade of a `:` no expression takes.
+#[test]
+fn a_keyword_call_takes_no_named_arguments() {
+    let all = Features::all();
+    for (src, at, kw) in [
+        ("static assert(mux(s, x: a, b) == a);", 21, "mux"),
+        ("static assert(concat(a, x: b) == a);", 24, "concat"),
+        ("static assert(cast<uint8>(x: p) == a);", 26, "cast"),
+        ("static assert(fan_out<2>(x: p) == a);", 25, "fan_out"),
+    ] {
+        for features in [Features::NONE, all] {
+            assert_eq!(parse_in(src, features).1, [format!("{at}: `{kw}` takes no named arguments")], "{src} in {features:?}");
+        }
+    }
 }
 
 /// A file without a feature that uses its syntax is told which edition has
@@ -1853,7 +1875,7 @@ fn a_feature_used_without_it_is_one_error_naming_its_edition() {
     }
     assert_eq!(
         Feature::NamedArguments.needed(),
-        "named arguments need edition 1.1: `[package] edition = \"1.1\"` in kanagawa.toml, or the feature `named-arguments` alone"
+        "named arguments need edition 1.1, which `kg` reads from kanagawa.toml: `[package] edition = \"1.1\"`, or the feature `named-arguments` alone"
     );
     assert!(Feature::TrailingCommas.needed().starts_with("a trailing comma needs edition 1.1"));
 }
