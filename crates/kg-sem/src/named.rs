@@ -42,10 +42,10 @@
 //! edition evaluates them in the order *written*. Putting them in their
 //! parameters' order is exact only where no two arguments it swaps could
 //! tell — where neither calls a function, or one calls and the other reads
-//! nothing a call could write (a literal, a local or a parameter of the
-//! enclosing function). Where two could tell, the call is an error that says
-//! so, rather than a program whose side effects run in another order than
-//! written ([`Effect`]).
+//! nothing a call could write (a literal, a constant, a local or a parameter
+//! of the enclosing function). Where two could tell, the call is an error
+//! that says so, rather than a program whose side effects run in another
+//! order than written ([`Effect`]).
 
 use kg_base::{FxHashMap, Interner, Symbol};
 use kg_hir::rewrite::{desugar_within, get_name, Rewriter};
@@ -432,7 +432,7 @@ impl Cx<'_> {
             });
         }
         let filled = given;
-        if let Some((early, late)) = self.reordered_effects(rw.arena, &filled) {
+        if let Some((early, late)) = self.reordered_effects(rw.arena, types, &filled) {
             // `early` is the parameter first in order and the argument
             // written after `late`'s: placed, it would be evaluated first.
             let message = format!(
@@ -519,8 +519,8 @@ impl Cx<'_> {
     /// The first pair of arguments the reordering swaps that could tell it
     /// did — `(i, j)`, parameter positions, `i` written after `j` — if any.
     /// A default is a constant, and is in no written order to keep.
-    fn reordered_effects(&self, arena: &ExpArena, filled: &[Arg]) -> Option<(usize, usize)> {
-        let effects: Vec<Effect> = filled.iter().map(|a| self.effect(arena, a.value)).collect();
+    fn reordered_effects(&self, arena: &ExpArena, types: &TypeMap, filled: &[Arg]) -> Option<(usize, usize)> {
+        let effects: Vec<Effect> = filled.iter().map(|a| self.effect(arena, types, a.value)).collect();
         for i in 0..filled.len() {
             for j in i + 1..filled.len() {
                 let (Some(wi), Some(wj)) = (filled[i].written, filled[j].written) else { continue };
@@ -533,22 +533,28 @@ impl Cx<'_> {
     }
 
     /// What evaluating `id` could do that another argument could see.
-    fn effect(&self, arena: &ExpArena, id: ExpId) -> Effect {
+    fn effect(&self, arena: &ExpArena, types: &TypeMap, id: ExpId) -> Effect {
         match &arena[id].exp {
             Exp::FunctionCall { .. } => Effect::Calls,
             // A closure is made, not run: what it captures is read.
             Exp::Lambda { .. } => Effect::Reads,
-            Exp::NamedValue(q) => {
-                if self.locals.is_local(arena, *q) {
-                    Effect::Pure
-                } else {
-                    Effect::Reads
-                }
-            }
+            // A constant is no state, whether or not it has yet folded to
+            // the literal it names (`Constexpr.hs:280-290`) — an aggregate
+            // never does, and a scalar only once its initializer has, which
+            // nothing orders before a call's placement. The module's own
+            // constant says so by its declaration, typed or not, a `const`
+            // memory's included; an imported one or an enum's, by the type
+            // inference gave the name as it typed the call around it
+            // (`tIsConst`, `Constexpr.hs:280`).
+            Exp::NamedValue(q) => match self.locals.binding(arena, *q) {
+                Some(b) if b.local || b.constant => Effect::Pure,
+                _ if types.is_set(*q) && types.get(*q).is_const() => Effect::Pure,
+                _ => Effect::Reads,
+            },
             exp => {
                 let mut kids = Vec::new();
                 exp.children(&mut kids);
-                kids.into_iter().map(|k| self.effect(arena, k)).max().unwrap_or(Effect::Pure)
+                kids.into_iter().map(|k| self.effect(arena, types, k)).max().unwrap_or(Effect::Pure)
             }
         }
     }
@@ -558,12 +564,14 @@ impl Cx<'_> {
 /// least first.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Effect {
-    /// Reads nothing a call could write: literals, and the enclosing
-    /// function's locals and parameters — a callee cannot reach them. A
-    /// global constant is read as [`Effect::Reads`]: the name is not placed
-    /// as a constant here, and erring toward an error is the safe side.
+    /// Reads nothing a call could write: literals, constants — a global's, a
+    /// class's, an enum's, folded or not — and the enclosing function's
+    /// locals and parameters, which a callee cannot reach. A name this pass
+    /// cannot tell is a constant — one inference has not typed, another
+    /// object's member — is read as [`Effect::Reads`]: erring toward an
+    /// error is the safe side.
     Pure,
-    /// Reads state a call could write: a member, a memory, a global.
+    /// Reads state a call could write: a member, a memory.
     Reads,
     /// Calls a function, which may write anything it can reach.
     Calls,
@@ -597,6 +605,8 @@ struct Locals {
 #[derive(Clone, Copy)]
 struct Binding {
     local: bool,
+    /// Declared `const`, so that nothing writes it once it is made.
+    constant: bool,
     /// The variable or parameter.
     decl: ExpId,
 }
@@ -618,7 +628,8 @@ impl Locals {
                 _ => continue,
             };
             if let Some(n) = get_name(arena, name) {
-                bindings.insert((scope.clone(), n), Binding { local, decl: id });
+                let constant = matches!(arena[ty].exp, Exp::Const(_));
+                bindings.insert((scope.clone(), n), Binding { local, constant, decl: id });
             }
             if let Some(names) = declared_names(arena, ty, Some(closure)) {
                 declared.insert(arena[id].src.head, names);
@@ -627,14 +638,9 @@ impl Locals {
         Locals { bindings, declared, kinds }
     }
 
-    /// Whether the name `q` reads resolves, innermost scope first, to one of
-    /// the enclosing function's locals or parameters. A name it cannot
-    /// place — qualified, imported, a template's parameter — is not.
-    fn is_local(&self, arena: &ExpArena, q: ExpId) -> bool {
-        self.binding(arena, q).is_some_and(|b| b.local)
-    }
-
-    /// The variable or parameter the name `q` reads, innermost scope first.
+    /// The variable or parameter the name `q` reads, innermost scope first;
+    /// `None` for a name it cannot place — qualified, imported, a template's
+    /// parameter.
     fn binding(&self, arena: &ExpArena, q: ExpId) -> Option<Binding> {
         let q = match &arena[q].exp {
             Exp::QualifiedIdentifier(inner) => *inner,
