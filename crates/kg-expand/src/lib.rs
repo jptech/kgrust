@@ -522,6 +522,28 @@ mod tests {
         assert_eq!(expanded(&program(&decl(", uint32 by = Step + 1"), "grow(p)")), program(&decl(", uint32 by"), "grow(p, 3u9)"));
     }
 
+    /// A template's arguments take their parameters' places, what comes before
+    /// the last one written is written as the instance has it, and what comes
+    /// after is left to the reference's own defaults. Red with every parameter
+    /// written, which the walks cannot tell.
+    #[test]
+    fn a_template_argument_takes_its_parameters_place() {
+        let template = "template <auto A = 1, auto B = 2, auto C = 3>\nclass Sized\n{\n}\n\n";
+        let program = |list: &str| format!("{template}class Main\n{{\n    Sized<{list}> _s;\n\npublic:\n    uint8 run(uint8 p)\n    {{\n        return p;\n    }}\n}}\n\nexport Main;\n");
+        assert_eq!(expanded(&program("B: 5")), program("1, 5"));
+        assert_eq!(expanded(&program("C: 5, A: 9,")), program("9, 2, 5"));
+        assert_eq!(expanded(&program("7, C: 5")), program("7, 2, 5"));
+    }
+
+    /// The body of an abbreviated template is compiled only as its instances'
+    /// copies, and is read from those; the function it was made from keeps its
+    /// labels, and is never walked. Red with that function read too.
+    #[test]
+    fn an_abbreviated_templates_call_is_read_from_its_instance() {
+        let program = |call: &str| format!("{SUB}inline auto twice(auto x)\n{{\n    return {call};\n}}\n\n{MAIN}twice(p){END}");
+        assert_eq!(expanded(&program("sub(y: x, x: 1)")), program("sub(1, x)"));
+    }
+
     /// Every file of the project that leans on a default is written, though
     /// it holds no construct of its own. Red with a file whose language has no
     /// features left unscanned while a default is about.
@@ -569,7 +591,8 @@ mod tests {
     }
 
     /// The proof reads the text back: a text that checks clean but says another
-    /// program is refused at the walks. Red with the walks not compared.
+    /// program is refused at the walks, and it reads it in edition 1.0. Red with
+    /// the walks not compared, or with the text read in the project's language.
     #[test]
     fn the_proof_refuses_another_program() {
         let text = call("sub(y: 1, x: p)");
@@ -582,6 +605,8 @@ mod tests {
         let refusals = proved(call("sub(p, 2)")).unwrap_err();
         assert!(refusals[0].message.contains("the walks into the backend show"), "{}", refusals[0].message);
         assert!(proved(call("sub(p, 1)")).is_ok());
+        // Read in edition 1.0: the same program, in 1.1's syntax, is no proof.
+        assert!(proved(call("sub(p, 1,)")).is_err());
     }
 
     /// A callee's text names its function by its last name, before any template

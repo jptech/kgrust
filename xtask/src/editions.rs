@@ -216,7 +216,7 @@ pub fn run(kanagawa_root: &Path, verbose: bool, no_oracle: bool, every_list: boo
                 failures.push(format!("{name}: expected\n      {}\n    got\n      {}", expected.join("\n      "), got.join("\n      ")));
             }
             // No program is written of what does not check: an impure reorder
-            // (`named-arguments/reject/values.k`) is refused at its call, and
+            // (`named-arguments/reject/misnamed.k`) is refused at its call, and
             // is the same error here.
             let (db, file) = db(&root, language, path)?;
             match kg_expand::expand(&db, &[file]) {

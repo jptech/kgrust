@@ -276,7 +276,7 @@ notices a swapped donor ([`../gates.md`](../gates.md#src-donors-need-a-unit-test
   **A reorder is the text reordered.** The backend evaluates arguments in list
   order, and `kg_sem::named` places a call's only where no two it swaps could
   tell (`Effect::commutes`); any other is `kg check`'s error, so a program
-  `kg expand` writes has none (`named-arguments/reject/values.k`). Template
+  `kg expand` writes has none (`named-arguments/reject/misnamed.k`). Template
   parameters skipped by naming a later one are written as the instance has
   them; those after the last one written are left out, as the reference gives
   them their defaults itself (`resolveTemplateArgs`, `Type.hs:1406-1428`).

@@ -42,15 +42,8 @@ pub(crate) fn verify(db: &Db, roots: &[FileId], out: &[Expanded], rendered: &[Re
         Diagnostic::error(FileRange { file, range }, message)
     };
 
-    let mut faults = Vec::new();
-    for &file in &files {
-        for error in read.parse(file).errors() {
-            faults.push(back(FileRange { file, range: error.range }, error.message.clone()));
-        }
-    }
-    if faults.is_empty() {
-        faults = read.check(&read_roots).into_iter().filter(Diagnostic::is_error).map(|d| back(d.range, d.message.clone())).collect();
-    }
+    let faults: Vec<Diagnostic> =
+        read.check(&read_roots).into_iter().filter(Diagnostic::is_error).map(|d| back(d.range, d.message.clone())).collect();
     if !faults.is_empty() {
         return Err(faults);
     }

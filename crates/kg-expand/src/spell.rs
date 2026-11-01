@@ -187,6 +187,25 @@ mod tests {
         assert!(float(F32Bits::from_f32(f32::INFINITY)).is_err());
     }
 
+    /// A template argument the expansion must write is spelled by its kind: an
+    /// integer by its value, a `bool` by its name, the language's own types by
+    /// theirs; what has no name no declaration can hide is refused. Red with
+    /// one of the language's types left out, or with a class let through.
+    #[test]
+    fn a_template_argument_is_spelled_by_its_kind() {
+        let text = |arg: TArg| template_argument(&arg).map(|s| s.text);
+        assert_eq!(text(TArg::Int(ConstInt::from(3i128))).unwrap(), "3");
+        assert_eq!(text(TArg::Int(ConstInt::from(-3i128))).unwrap(), "-3");
+        assert_eq!(text(TArg::Expr("true".into())).unwrap(), "true");
+        assert_eq!(text(TArg::Type(Ty::Unsigned(8).into())).unwrap(), "uint8");
+        assert_eq!(text(TArg::Type(Ty::Signed(4).into())).unwrap(), "int4");
+        assert_eq!(text(TArg::Type(Ty::Boolean.into())).unwrap(), "bool");
+        assert_eq!(text(TArg::Type(Ty::Float.into())).unwrap(), "float32");
+        assert!(text(TArg::Type(Ty::Void.into())).is_err());
+        assert!(text(TArg::Str("s".into())).is_err());
+        assert!(text(TArg::Expr("1 + 1".into())).is_err());
+    }
+
     /// An enum's constant drops its module, which reference text cannot
     /// name, and keeps it in the key two copies compare by. Red with the
     /// module kept in the text.

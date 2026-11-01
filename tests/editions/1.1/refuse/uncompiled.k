@@ -2,10 +2,12 @@
 // there is nothing to read their places off: a template no one instantiates,
 // and a `static if` branch the program does not keep. A call by position that
 // may lean on a default is the same, whose default is about to be deleted — and
-// a call by position of a function with no default needs no edit at all.
-// expect-refusal 26:19: cannot write this call of `add` in edition 1.0: the program compiles no copy of it — no template instance or `static if` branch it keeps holds it, or it was folded to a value — so nothing says where its arguments go
-// expect-refusal 31:20: cannot write this call of `bump` in edition 1.0: the program compiles no copy of it — no template instance or `static if` branch it keeps holds it, or it was folded to a value — so nothing says where its arguments go
-// expect-refusal 47:23: cannot write this call of `add` in edition 1.0: the program compiles no copy of it — no template instance or `static if` branch it keeps holds it, or it was folded to a value — so nothing says where its arguments go
+// a call by position of a function with no default needs no edit at all. A
+// template's named arguments there are the same as a call's.
+// expect-refusal 30:10: cannot write this template argument list of `Sized` in edition 1.0: the program compiles no copy of it — no template instance or `static if` branch it keeps holds it, or it was folded to a value — so nothing says where its arguments go
+// expect-refusal 35:19: cannot write this call of `add` in edition 1.0: the program compiles no copy of it — no template instance or `static if` branch it keeps holds it, or it was folded to a value — so nothing says where its arguments go
+// expect-refusal 40:20: cannot write this call of `bump` in edition 1.0: the program compiles no copy of it — no template instance or `static if` branch it keeps holds it, or it was folded to a value — so nothing says where its arguments go
+// expect-refusal 56:23: cannot write this call of `add` in edition 1.0: the program compiles no copy of it — no template instance or `static if` branch it keeps holds it, or it was folded to a value — so nothing says where its arguments go
 
 inline uint8 add(uint8 x, uint8 y)
 {
@@ -17,9 +19,16 @@ inline uint8 bump(uint8 x, uint8 by = 1)
     return x + by;
 }
 
+template <auto Depth = 1, auto Width = 2>
+class Sized
+{
+}
+
 template <typename T>
 class Unused
 {
+    Sized<Width: 3> _sized;
+
 public:
     uint8 named(uint8 p)
     {
