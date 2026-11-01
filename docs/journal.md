@@ -69,6 +69,7 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-10-30 | Language editions are opt-in per package and numbered `MAJOR.MINOR`: `1.0` is the reference and follows the pin; a minor edition only adds, giving a meaning only to programs the edition before it rejects; only a major one may take away. A file's language is the nearest `kanagawa.toml` above it, with no boundary at an import directory; an unknown edition or feature is an error; `kanagawa` never opts in. Everything desugars to reference Kanagawa before the walk | "Editions, piloted: named arguments in any order — 2026-10-30" |
 | 2026-10-30 | A named argument is moved to its parameter's place only where no two arguments could tell: a reorder that could change which side effect happens first is an error, never rewritten into locals | "Editions, piloted: named arguments in any order — 2026-10-30" |
 | 2026-10-31 | A later edition's syntax in a file without it is one error naming the edition and how to opt in, and the parse goes on as the feature's would: the verdict stays the reference's, the message is ours ([`known-divergences.md`](known-divergences.md) #42) | "An edition the user cannot see is not opted into — 2026-10-31" |
+| 2026-11-01 | The incremental walk forgets what no walk reads any more — an asker walked since without asking, a unit no walk reaches (`Units::forget`) — and what it forgets may only turn a skip into a walk, or a kept count into a count; a new set beside the units forgets with them | "A memory that never forgets is the coarse check again — 2026-11-01" |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -18644,3 +18645,57 @@ Checked 2026-11-01: `scripts/identity.sh 07562eb`, 304 roots identical;
 `a_scope_read_once_answers_as_the_scan_at_every_mention` and
 `a_cata_over_the_shapes_it_touches_mints_what_the_whole_cata_mints`,
 five mutants between them, each caught.
+
+## A memory that never forgets is the coarse check again — 2026-11-01
+
+The two options taken from the last entry's list (`plans/performance.md`
+§13, 1 and 3) turned out to be one lesson twice: the incremental walk
+remembered and never forgot.
+
+**Option 1, the askers.** The first version did what the probe priced.
+When a rebuilt map answered a lookup with a re-minted declaration, it
+spared each asker that had read only the type, where the new type was
+the old one by `Ord`. It saved almost nothing: 7.07 M node visits on
+`risc-v.k` to 6.89 M. The probe had counted what each asker read at the
+walk before. The lists held every unit that had *ever* asked, each with
+the flag its first walk earned. Of 201,187 askers of answers whose type
+held, 185,774 were flagged as having read the expression, and 91,591 of
+those had never read the answer they were flagged for: the flag was an
+earlier walk's, of an earlier answer. Each asker now
+records the pass of the walk that asked, and each unit the pass it was
+last walked. A unit walked since without asking reads the lookup no more,
+so it is dropped. With that, 4.01 M visits, and the check 1.97 → 1.78 s.
+
+**Option 3, the units.** The same shape one level up. Every unit stayed
+in the owner, count and reader sets, in `at` and among the askers long
+after no walk could reach it. By the end of `risc-v.k`'s check, 26,588
+of its 49,763 units were no longer in the tree at all, and the sets held
+~94 MB. `Units::forget` lets
+them go. A unit is live when its parent's last walk reached it and its
+parent is live: the `seen` and `walked` passes the walk already keeps
+decide it in O(units). Freeing the entries moved the peak by only 2 MiB,
+because a hash table keeps the room it grew to. Shrunk, the check of
+`risc-v.k` peaks at 753 MiB against 778, with no change in time.
+
+**Why it is exact.** Forgetting has to be exact by construction, since no
+gate can list every state it might meet. So everything forgotten may only
+turn a skip into a walk, or a kept count into a count. A forgotten unit
+whose root a walk reaches again is walked as new. A count that included
+it is counted again. A node it alone owned stays owned (`GONE`), so a
+change there does not walk everything. Two runs of `infer-identity` test
+the argument rather than the case: one forgets at every fixpoint of every
+root, one forgets every unit but the spines. Both leave all 304 roots
+identical.
+
+**What is left.** `sig`'s count measured after option 1: 3.68 M nodes
+counted against 4.01 M visited. Of those, 2.09 M fall in a fixpoint's
+first iteration, and they are the nodes the round's passes minted, each
+counted once. That cost comes with counting new nodes, so it stays. The
+dense vectors that hold a node's first unit (three sets, ~31 MB) stay too:
+any per-node table beside them costs what it saves (the last entry).
+
+Checked 2026-11-01: `scripts/identity.sh e2bfc29` after option 1 and
+`069094d` after option 3, 304 roots identical at each step; `KG_INFER_CHECK=1`
+clean on `risc-v.k`, `float.k`, `array.k`, `cache.k`; `fast.sh --lint loop`
+green, every ratchet +0/−0; 30 mutants over seven unit tests, each caught by
+its own test's assertion.

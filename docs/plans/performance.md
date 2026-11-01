@@ -629,6 +629,23 @@ testing loop every later step uses.
   304 roots identical; `KG_INFER_CHECK=1` clean on `risc-v.k`,
   `float.k`, `array.k`, `cache.k`; `fast.sh --lint loop` green, every
   ratchet +0/−0.
+- **The units no walk reaches, forgotten, 2026-11-01** (§13, option 3).
+  The incremental walk's sets kept every unit a node was ever in, and
+  each fixpoint's passes mint the declarations above what they changed:
+  by the end of `risc-v.k`'s check 26,588 of its 49,763 units were no
+  longer in the tree at all, and the sets held ~94 MB. `Units::forget`
+  lets them go once as many units have been made as it last left, and
+  shrinks the tables, which keep the room they grew to (freeing the
+  entries alone moved the peak 2 MiB). Peak RSS of `kg check`
+  (interleaved runs, medians): `risc-v.k` 778 → 753 MiB, `float.k` 295 →
+  282, `array.k` 300 → 294; time flat (`risc-v.k`'s loop 1.515 → 1.488 s,
+  its five forgettings 33 ms). `cargo xtask mem`'s footprint, option 1's
+  commit → this: `risc-v.k` checked 770 → 726 MiB, opened in the editor
+  885 → 839, after five edits 1416 → 1409 (within that case's spread);
+  `float.k` checked 291 → 277. Exact by construction — a forgotten unit
+  reached again is walked as new — and `infer-identity` agrees on all 304
+  roots with forgetting at every fixpoint, and with every unit but the
+  spines forgotten; `scripts/identity.sh 069094d`, 304 roots identical.
 - **The shipped binaries, 2026-10-12.** `cargo xtask dist` builds the
   `ship` profile, `release` with `lto = "fat"` and `codegen-units = 1`:
   `kg check` 6–10% faster in an interleaved A/B, `kg` 30% smaller, its
@@ -1019,11 +1036,15 @@ module's walk when nothing in it needs walking (13 ms at most).
    it, and apply an ancestor's rules only where a child changed. Needs
    the proof that an ancestor's rules read nothing a recorded read does
    not cover. The probe bounds it at ~10% of the visits: not taken.
-3. **Owner sets that forget dead units.** A node keeps every unit it was
-   ever owned by, each round's re-minted ones included (eight on average
-   at an add that gets past the first); forgetting units no fixpoint
-   reached would shrink `Owners::add`, `count`'s recounts and the ~80 MB
-   the sets hold.
+3. **Owner sets that forget dead units — taken** (§10, 2026-11-01). By
+   the end of `risc-v.k`'s check 26,588 of its 49,763 units were no
+   longer in the tree at all and the sets held ~94 MB; `Units::forget`
+   drops the units no walk reaches, and the check's peak RSS goes 778 →
+   753 MiB, its time flat. What stays: the dense first-owner vectors,
+   4 bytes a node three times over (~31 MB), and `sig`'s count, measured
+   after option 1 — 3.68 M nodes counted against 4.01 M visited, 2.09 M
+   of them in a fixpoint's first iteration: the nodes the round's passes
+   minted, each counted once.
 4. **`desugar_touching` for the other passes**: deduction (its `sync`
    before each node must be shown order-free), instantiation, resolution,
    the wrappers, `closureCalls` — each algebra audited for what it hands

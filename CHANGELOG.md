@@ -11,6 +11,9 @@ Notable changes to kgrust, newest first. The format follows
 - Inference walks again only the declarations that read what a rebuilt
   symbol map moved: `kg check` of `risc-v.k` 1.97 → 1.78 s, 43% fewer
   nodes visited, with identical results.
+- Inference forgets the declarations no walk reaches any more: peak
+  memory of `kg check` on `risc-v.k` 778 → 753 MiB, and of the editor
+  opening it 885 → 839 MiB, with identical results.
 
 ## 0.2.0 — language editions, 2026-10-31
 
