@@ -598,6 +598,10 @@ pub fn option_values(opts: &LegacyOptions, cmd_args: &str) -> kg_backend_sys::op
 /// [`LegacyOptions::default`], so they are copied unconditionally.
 pub fn settings_from(opts: &LegacyOptions, cwd: &str) -> kg_config::Settings {
     let mut settings = kg_config::Settings::fallback(kg_base::Utf8PathBuf::from(cwd));
+    // The reference reads no manifest, so neither does its command line: a
+    // file under a package of a later edition is still read as the
+    // reference, wherever the shell stands.
+    settings.language = kg_config::LanguageMap::reference();
     // Canonical, as every file the reference finds is (`Parser/IO.hs:104`):
     // an import resolved under a directory is then the same path as the
     // command-line root that names the same file.

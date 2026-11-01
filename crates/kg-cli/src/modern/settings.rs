@@ -157,8 +157,15 @@ pub fn resolve(
             // With no manifest the project, for its language, is where its
             // inputs are — what `--edition` and `--feature` then reach —
             // not where the shell stands, which roots relative paths only.
+            // `--no-manifest` reads none for the language either, a nested
+            // package's included.
             let inputs = if start.is_dir() { start } else { start.parent().unwrap_or(start) };
-            settings.language = kg_config::LanguageMap::new(inputs, settings.language.project());
+            let project = settings.language.project();
+            settings.language = if no_manifest {
+                kg_config::LanguageMap::fixed(inputs, project)
+            } else {
+                kg_config::LanguageMap::new(inputs, project)
+            };
             (settings, Vec::new(), None)
         }
     };
@@ -266,13 +273,8 @@ fn apply_overrides(settings: &mut Settings, overrides: &Overrides) -> Result<(),
         settings.parse_docs = true;
     }
     if overrides.edition.is_some() || !overrides.features.is_empty() {
-        let mut language = settings.language.project();
-        if let Some(e) = &overrides.edition {
-            language.edition = kg_config::parse_edition(e)?;
-        }
-        for f in &overrides.features {
-            language.extra = language.extra.with(kg_config::parse_feature(f)?);
-        }
+        let language =
+            kg_config::overridden(settings.language.project(), overrides.edition.as_deref(), &overrides.features)?;
         settings.language = settings.language.with_project(language);
     }
 

@@ -17,7 +17,7 @@ mod resolve;
 
 pub use board::{Board, BoardSpec, BoardTable};
 pub use discover::{ManifestError, discover, load};
-pub use language::{LanguageMap, LanguageTable, parse_edition, parse_feature};
+pub use language::{LanguageMap, LanguageTable, overridden, parse_edition, parse_feature};
 pub use resolve::{BackendOptions, DEFAULT_TARGET_DEVICE, Settings, Verdicts};
 
 use std::collections::BTreeMap;

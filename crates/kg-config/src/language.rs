@@ -2,7 +2,7 @@
 //! a manifest names it, and which manifest names it for which file
 //! (`docs/editions/README.md`, "Which language a file is in").
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -11,7 +11,7 @@ use kg_base::language::{Edition, Feature, Language};
 use kg_base::language::Features;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{MANIFEST_NAME, Manifest};
+use crate::{MANIFEST_NAME, Manifest, ManifestError};
 
 /// `[language]`: features named on their own, beside the edition.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -32,10 +32,39 @@ impl Manifest {
 }
 
 /// An edition this `kg` does not know is refused, never read as another:
-/// an older tool must not compile a newer program as something else.
+/// an older tool must not compile a newer program as something else. One
+/// written as a number, `edition = 1.1`, is refused with the spelling that
+/// would have been read.
 pub(crate) fn edition<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Edition>, D::Error> {
-    let Some(name) = Option::<String>::deserialize(d)? else { return Ok(None) };
-    parse_edition(&name).map(Some).map_err(serde::de::Error::custom)
+    d.deserialize_any(EditionName).map(Some)
+}
+
+/// A visitor rather than a `String` read and then parsed, so that `toml`
+/// places every refusal at the value, the number's included.
+struct EditionName;
+
+impl serde::de::Visitor<'_> for EditionName {
+    type Value = Edition;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("an edition, as a string such as \"1.1\"")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, name: &str) -> Result<Edition, E> {
+        parse_edition(name).map_err(E::custom)
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Edition, E> {
+        Err(unquoted(&format!("{v:?}")))
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Edition, E> {
+        Err(unquoted(&v.to_string()))
+    }
+}
+
+fn unquoted<E: serde::de::Error>(number: &str) -> E {
+    E::custom(format!("an edition is a string, not a number: write `edition = \"{number}\"`"))
 }
 
 pub(crate) fn edition_name<S: Serializer>(e: &Option<Edition>, s: S) -> Result<S::Ok, S::Error> {
@@ -66,6 +95,19 @@ pub fn parse_feature(name: &str) -> Result<Feature, String> {
     })
 }
 
+/// A language from the command line's `--edition` and `--feature` over
+/// `base`: the edition replaced, the features added.
+pub fn overridden(base: Language, edition: Option<&str>, features: &[String]) -> Result<Language, String> {
+    let mut language = base;
+    if let Some(e) = edition {
+        language.edition = parse_edition(e)?;
+    }
+    for f in features {
+        language.extra = language.extra.with(parse_feature(f)?);
+    }
+    Ok(language)
+}
+
 /// Which language each file is in: a file's own package decides, never the
 /// package that imports it.
 ///
@@ -82,18 +124,48 @@ pub fn parse_feature(name: &str) -> Result<Feature, String> {
 /// means (`docs/plans/editions.md` §1). So the walk needs no boundary at an
 /// import directory, which would miss the common layout of a dependency's
 /// manifest beside the `src/` its users import.
+///
+/// A manifest the walk meets that does not load names no language — its
+/// files are read as the reference — and is kept, for the front door to
+/// report ([`LanguageMap::refused`]): an unknown edition is an error, never
+/// ignored, a dependency's included.
 #[derive(Clone, Debug, Default)]
 pub struct LanguageMap {
     root: Option<Utf8PathBuf>,
     language: Language,
+    /// Reads no manifest ([`LanguageMap::fixed`]).
+    fixed: bool,
     /// Each directory's answer, once walked.
     walked: Arc<Mutex<HashMap<Utf8PathBuf, Language>>>,
+    /// Each manifest met that did not load, by path.
+    refused: Arc<Mutex<BTreeMap<Utf8PathBuf, Arc<ManifestError>>>>,
 }
 
 impl LanguageMap {
     /// The project rooted at `root`, in `language`.
     pub fn new(root: &Utf8Path, language: Language) -> LanguageMap {
-        LanguageMap { root: Some(normal(root)), language, walked: Arc::default() }
+        LanguageMap { root: Some(normal(root)), language, ..LanguageMap::default() }
+    }
+
+    /// The project rooted at `root`, in `language`, reading no manifest:
+    /// every file under `root` is in `language`, every other the
+    /// reference's. What `--no-manifest` asks for, which a nested package's
+    /// manifest would otherwise answer for its own files.
+    pub fn fixed(root: &Utf8Path, language: Language) -> LanguageMap {
+        LanguageMap { fixed: true, ..LanguageMap::new(root, language) }
+    }
+
+    /// Every file in the reference, whatever manifest it sits under: the
+    /// compat binary's, which is the reference's command line, and the
+    /// reference reads no manifest (`docs/plans/editions.md` §1, rule 6).
+    pub fn reference() -> LanguageMap {
+        LanguageMap { fixed: true, ..LanguageMap::default() }
+    }
+
+    /// Each manifest whose language a file was asked for and which did not
+    /// load, in path order — a dependency's, which nothing else reads.
+    pub fn refused(&self) -> Vec<(Utf8PathBuf, Arc<ManifestError>)> {
+        self.refused.lock().unwrap().iter().map(|(p, e)| (p.clone(), Arc::clone(e))).collect()
     }
 
     /// The project's own language.
@@ -105,13 +177,19 @@ impl LanguageMap {
     /// make of the manifest's.
     #[must_use]
     pub fn with_project(&self, language: Language) -> LanguageMap {
-        LanguageMap { root: self.root.clone(), language, walked: Arc::default() }
+        LanguageMap { root: self.root.clone(), language, fixed: self.fixed, walked: Arc::default(), refused: Arc::default() }
     }
 
     /// The language of the file at `path`.
     pub fn language_of(&self, path: &Utf8Path) -> Language {
         let path = normal(path);
         let Some(dir) = path.parent() else { return Language::REFERENCE };
+        if self.fixed {
+            return match &self.root {
+                Some(root) if dir.starts_with(root) => self.language,
+                _ => Language::REFERENCE,
+            };
+        }
         self.language_in(dir)
     }
 
@@ -131,8 +209,15 @@ impl LanguageMap {
         let manifest = dir.join(MANIFEST_NAME);
         if manifest.is_file() {
             // A manifest that does not load names no language: the file is
-            // read as the reference, which is what it was before editions.
-            return crate::load(&manifest).map(|m| m.language()).unwrap_or(Language::REFERENCE);
+            // read as the reference, which is what it was before editions,
+            // and the manifest is reported.
+            return match crate::load(&manifest) {
+                Ok(m) => m.language(),
+                Err(e) => {
+                    self.refused.lock().unwrap().insert(manifest, Arc::new(e));
+                    Language::REFERENCE
+                }
+            };
         }
         match dir.parent() {
             Some(up) => self.language_in(up),
@@ -255,6 +340,68 @@ mod tests {
         let err = crate::discover::parse(text, Utf8Path::new("kanagawa.toml")).unwrap_err();
         assert_eq!(err.span().map(|s| &text[s]), Some("\"9.9\""));
         assert_eq!(err.message(), "unknown edition `9.9`: this kg knows 1.0, 1.1");
+    }
+
+    /// `edition = 1.1`, a TOML float, is the likeliest slip: refused at the
+    /// number, with the spelling that would have been read.
+    #[test]
+    fn an_edition_written_as_a_number_is_told_to_quote_it() {
+        let text = "[package]\nedition = 1.1\n";
+        let err = crate::discover::parse(text, Utf8Path::new("kanagawa.toml")).unwrap_err();
+        assert_eq!(err.span().map(|s| &text[s]), Some("1.1"));
+        assert_eq!(err.message(), "an edition is a string, not a number: write `edition = \"1.1\"`");
+        let err = crate::discover::parse("[package]\nedition = 1\n", Utf8Path::new("kanagawa.toml")).unwrap_err();
+        assert_eq!(err.message(), "an edition is a string, not a number: write `edition = \"1\"`");
+    }
+
+    /// A manifest the walk meets that does not load is read as the
+    /// reference and kept, for the front door to report: a dependency's
+    /// unknown edition is an error, never ignored.
+    #[test]
+    fn a_refused_manifest_is_the_reference_and_is_kept() {
+        let (_d, root) = tree(&[
+            ("proj/kanagawa.toml", "[package]\nedition = \"1.1\"\n"),
+            ("dep/kanagawa.toml", "[package]\nedition = \"9.9\"\n"),
+            ("dep/src/d.k", ""),
+            ("ok/kanagawa.toml", "[package]\nedition = \"1.1\"\n"),
+            ("ok/o.k", ""),
+        ]);
+        let map = LanguageMap::new(&root.join("proj"), NAMED);
+        assert_eq!(map.language_of(&root.join("ok/o.k")), NAMED);
+        assert!(map.refused().is_empty());
+        assert_eq!(map.language_of(&root.join("dep/src/d.k")), Language::REFERENCE);
+        let refused = map.refused();
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].0, root.join("dep/kanagawa.toml"));
+        assert_eq!(refused[0].1.message(), "unknown edition `9.9`: this kg knows 1.0, 1.1");
+        assert_eq!(map.clone().refused().len(), 1, "a clone shares what was met");
+    }
+
+    /// `--no-manifest` reads none, a nested package's included; the compat
+    /// binary reads none, and is the reference everywhere.
+    #[test]
+    fn a_fixed_map_reads_no_manifest() {
+        let (_d, root) = tree(&[
+            ("proj/kanagawa.toml", "[package]\nedition = \"1.1\"\n"),
+            ("proj/a.k", ""),
+            ("proj/pkg/kanagawa.toml", "[package]\nedition = \"1.1\"\n"),
+            ("proj/pkg/b.k", ""),
+            ("dep/kanagawa.toml", "[package]\nedition = \"1.1\"\n"),
+            ("dep/c.k", ""),
+        ]);
+        let proj = root.join("proj");
+        let fixed = LanguageMap::fixed(&proj, Language::REFERENCE);
+        assert_eq!(fixed.language_of(&proj.join("pkg/b.k")), Language::REFERENCE);
+        assert_eq!(fixed.language_of(&root.join("dep/c.k")), Language::REFERENCE);
+        let flagged = fixed.with_project(NAMED);
+        assert_eq!(flagged.language_of(&proj.join("a.k")), NAMED);
+        assert_eq!(flagged.language_of(&proj.join("pkg/b.k")), NAMED, "the flags reach the inputs' tree");
+        assert_eq!(flagged.language_of(&root.join("dep/c.k")), Language::REFERENCE);
+        let reference = LanguageMap::reference();
+        for path in [proj.join("a.k"), proj.join("pkg/b.k"), root.join("dep/c.k")] {
+            assert_eq!(reference.language_of(&path), Language::REFERENCE, "{path}");
+        }
+        assert!(fixed.refused().is_empty() && reference.refused().is_empty());
     }
 
     /// A directory removed when dropped; the crate has no temp-dir

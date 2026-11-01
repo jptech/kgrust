@@ -178,6 +178,18 @@ pub struct SourceArgs {
     /// Parse documentation comments.
     #[arg(long)]
     pub parse_docs: bool,
+    #[command(flatten)]
+    pub language: LanguageArgs,
+    /// Warning switch: `all`, `error`, `<name>` or `no-<name>`; repeatable,
+    /// applied in order.
+    #[arg(short = 'W', value_name = "SWITCH")]
+    pub warn: Vec<String>,
+}
+
+/// The language flags, shared by every command that reads source: over the
+/// manifest's `[package] edition` and `[language] features`.
+#[derive(Args, Debug, Clone, Default)]
+pub struct LanguageArgs {
     /// The project's language edition (`1.0`, the reference, by default),
     /// over the manifest's `[package] edition`. A dependency's and the
     /// standard library's stay their own.
@@ -187,10 +199,6 @@ pub struct SourceArgs {
     /// names one; repeatable.
     #[arg(long = "feature", value_name = "NAME")]
     pub features: Vec<String>,
-    /// Warning switch: `all`, `error`, `<name>` or `no-<name>`; repeatable,
-    /// applied in order.
-    #[arg(short = 'W', value_name = "SWITCH")]
-    pub warn: Vec<String>,
 }
 
 impl SourceArgs {
@@ -203,8 +211,8 @@ impl SourceArgs {
             no_implicit_base: self.no_implicit_base,
             target_device: self.target_device.clone(),
             parse_docs: self.parse_docs,
-            edition: self.edition.clone(),
-            features: self.features.clone(),
+            edition: self.language.edition.clone(),
+            features: self.language.features.clone(),
             warnings: self.warn.clone(),
         }
     }
@@ -212,14 +220,8 @@ impl SourceArgs {
     /// The language the flags alone name — for the one-file commands that
     /// read no manifest.
     fn language(&self) -> Result<kg_base::language::Language, String> {
-        let mut language = kg_base::language::Language::REFERENCE;
-        if let Some(e) = &self.edition {
-            language.edition = kg_config::parse_edition(e)?;
-        }
-        for f in &self.features {
-            language.extra = language.extra.with(kg_config::parse_feature(f)?);
-        }
-        Ok(language)
+        let flags = &self.language;
+        kg_config::overridden(kg_base::language::Language::REFERENCE, flags.edition.as_deref(), &flags.features)
     }
 }
 
@@ -277,6 +279,8 @@ pub struct FmtArgs {
     /// Override `[fmt] sort-imports`.
     #[arg(long)]
     pub sort_imports: bool,
+    #[command(flatten)]
+    pub language: LanguageArgs,
 }
 
 #[derive(Args, Debug)]
@@ -423,6 +427,9 @@ fn doc(global: &GlobalArgs, args: &DocArgs, out: &mut dyn Write, err: &mut dyn W
     };
     match kg_doc::write(&db, &inputs, &site) {
         Ok(written) => {
+            if refused_manifests(&resolved.settings, err) > 0 {
+                return 2;
+            }
             let _ = writeln!(
                 out,
                 "Documented {} modules, {} declarations ({} with documentation): {}",
@@ -441,6 +448,19 @@ fn doc(global: &GlobalArgs, args: &DocArgs, out: &mut dyn Write, err: &mut dyn W
             1
         }
     }
+}
+
+/// Reports each package manifest a file's language was read from that did
+/// not load (`LanguageMap::refused`) — a dependency's, which `resolve` never
+/// reads — as a refused project manifest is reported; its files were read
+/// as the reference, which errors in them may then say instead. Returns how
+/// many: any one fails the command, as the project's own would.
+fn refused_manifests(settings: &kg_config::Settings, err: &mut dyn Write) -> usize {
+    let refused = settings.language.refused();
+    for (_, error) in &refused {
+        let _ = writeln!(err, "kg: {error}");
+    }
+    refused.len()
 }
 
 /// `[package] name` from the manifest, if there is one and it has one.
@@ -576,6 +596,7 @@ fn check(
     // on which warnings exist.
     let diagnostics = db.check(&roots);
     phases(&db, err);
+    let refused = refused_manifests(&resolved.settings, err);
 
     let mut errors = 0usize;
     let mut warnings = 0usize;
@@ -640,6 +661,9 @@ fn check(
 
     // `-W error` promotes: the reference fails the build on any warning
     // (`Main.hs:98-99`).
+    if refused > 0 {
+        return 2;
+    }
     let failed = errors > 0 || unreadable > 0 || (resolved.settings.warnings_as_errors && warnings > 0);
     i32::from(failed)
 }
@@ -658,9 +682,11 @@ fn fmt(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> i32 {
-    // `fmt` takes no source-resolution flags — it never follows an import — but
-    // it still wants the manifest, for `[fmt]` and for `project.sources`.
-    let Some(resolved) = resolve(global, &SourceArgs::default(), &args.paths, err) else { return 2 };
+    // `fmt` takes no source-resolution flags but the language's — it never
+    // follows an import — and it still wants the manifest, for `[fmt]`, for
+    // `project.sources` and for each file's language.
+    let source = SourceArgs { language: args.language.clone(), ..SourceArgs::default() };
+    let Some(resolved) = resolve(global, &source, &args.paths, err) else { return 2 };
     let Some(config) = fmt_config(&resolved.settings.fmt, args, err) else { return 2 };
 
     let files = match collect_inputs(&args.paths, &resolved, err) {
@@ -1097,7 +1123,7 @@ fn compile(
     }
     let rejected = db.check(&roots).iter().any(kg_diag::Diagnostic::is_error);
     phases(&db, err);
-    if rejected {
+    if rejected || !resolved.settings.language.refused().is_empty() {
         // Rendered by `check`, exactly as `kg check` would; the exit code is its.
         let check_args = CheckArgs { paths: args.paths.clone(), source: args.source.clone() };
         return check(global, &check_args, styles, out, err);
