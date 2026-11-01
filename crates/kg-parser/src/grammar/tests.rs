@@ -1896,6 +1896,11 @@ fn a_parameter_may_have_a_default_where_the_language_has_them() {
     assert!(shape.contains("(PARAM bool z = false)"), "{shape}");
     assert!(!parse(src).1.is_empty(), "the reference rejects a default");
     assert!(!parse_in("inline void f(uint8 x =) {}", defaults).1.is_empty(), "a default with no expression");
+    // A function type's parameter takes none: one error, in every edition.
+    for features in [Features::NONE, Features::all()] {
+        let (_, errors) = parse_in("inline uint8 f((uint8 a, uint8 b = 1) -> uint8 g) { return g(1, 2); }", features);
+        assert_eq!(errors, ["33: a function type's parameter takes no default"], "{features:?}");
+    }
 }
 
 /// Edition 1.1's named template arguments: `Name: e` in a template's
