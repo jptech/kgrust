@@ -23,6 +23,16 @@
 //! argument not yet named after one that is — `sub(y: 1, |` — lights the
 //! first parameter no argument fills, the one left to name.
 //!
+//! "None" has one spelling every client reads so. LSP 3.17 has none for
+//! `activeParameter`: omitted, or out of the signature's range, it "defaults
+//! to 0 if the active signature has parameters", and VS Code's client
+//! (`vscode-languageclient` 9) turns a missing one into 0; 3.18's `null`
+//! needs a capability `lsp-types` 0.97 neither reads nor can send. What 3.17
+//! does say is that a signature with no parameters ignores it. So a label
+//! that names none is answered with the signature's label and no
+//! `parameters` — which carry nothing but the spans the lit one is
+//! underlined by — and no `activeParameter`.
+//!
 //! # The instance a call compiles
 //!
 //! A template's written parameters say `T x`; the call says which `T`. Where
@@ -98,21 +108,24 @@ pub fn signature_help(
                     value: instance_documentation(looped.looped(), &answer, &signature.name, names),
                 }))
             });
+            // `Some(None)` where the argument's label names no parameter:
+            // none is lit, which the protocol can say only of a signature
+            // whose parameters it is not told (the module docs).
+            let lit = (parameters > 0).then(|| active_parameter(&labels, active as usize, &signature.names));
+            let spans = signature
+                .params
+                .into_iter()
+                .map(|(start, end)| ParameterInformation {
+                    label: ParameterLabel::LabelOffsets([start, end]),
+                    documentation: None,
+                })
+                .collect();
             Some(SignatureHelp {
-                active_parameter: (parameters > 0).then(|| active_parameter(&labels, active as usize, &signature.names)),
+                active_parameter: lit.flatten(),
                 signatures: vec![SignatureInformation {
                     label: signature.label,
                     documentation,
-                    parameters: Some(
-                        signature
-                            .params
-                            .into_iter()
-                            .map(|(start, end)| ParameterInformation {
-                                label: ParameterLabel::LabelOffsets([start, end]),
-                                documentation: None,
-                            })
-                            .collect(),
-                    ),
+                    parameters: (lit != Some(None)).then_some(spans),
                     active_parameter: None,
                 }],
                 active_signature: Some(0),
@@ -207,22 +220,22 @@ fn signature_of(decl: &SyntaxNode) -> Option<Signature> {
 }
 
 /// The parameter the `active`th argument fills, as the module docs say: the
-/// one its label names — `names.len()`, which lights none, where it names
-/// none — and after a named argument, the first no argument fills; else the
-/// one its position gives, clamped.
-fn active_parameter(labels: &[Option<String>], active: usize, names: &[String]) -> u32 {
+/// one its label names — none where it names none — and after a named
+/// argument, the first no argument fills; else the one its position gives,
+/// clamped.
+fn active_parameter(labels: &[Option<String>], active: usize, names: &[String]) -> Option<u32> {
     let index = |label: &str| names.iter().position(|n| n == label);
     if let Some(Some(label)) = labels.get(active) {
-        return index(label).unwrap_or(names.len()) as u32;
+        return index(label).map(|i| i as u32);
     }
     if labels[..active.min(labels.len())].iter().any(Option::is_some) {
         let positional = labels.iter().take_while(|l| l.is_none()).count();
         let named: Vec<usize> = labels.iter().flatten().filter_map(|l| index(l)).collect();
         if let Some(free) = (positional..names.len()).find(|i| !named.contains(i)) {
-            return free as u32;
+            return Some(free as u32);
         }
     }
-    (active as u32).min(names.len().saturating_sub(1) as u32)
+    Some((active as u32).min(names.len().saturating_sub(1) as u32))
 }
 
 fn utf16_len(s: &str) -> u32 {
@@ -333,9 +346,15 @@ inline void main()
     }
 
     /// A named argument lights the parameter its label names, not the one
-    /// its position would; one that names none lights none (the count, out
-    /// of range); and an argument not yet named after a named one lights the
-    /// parameter left to fill. Red with the commas counted alone.
+    /// its position would; and an argument not yet named after a named one
+    /// lights the parameter left to fill. Red with the commas counted alone.
+    ///
+    /// One that names none lights none: the signature, without the
+    /// parameters a client would light one of. Corrected 2026-10-31: this
+    /// asserted `Some(3)`, the count, out of range — which LSP 3.17 says
+    /// "defaults to 0", the first parameter lit (`SignatureHelp`'s
+    /// `activeParameter`; the module docs). Red with the parameters sent,
+    /// or the count.
     #[test]
     fn a_named_argument_lights_the_parameter_it_names() {
         let text = "inline uint8 sub(uint8 x, uint8 y, uint8 z)\n{\n    return x - y - z;\n}\n\ninline uint8 main()\n{\n    return sub(z: 1, x: 2, );\n}\n";
@@ -343,7 +362,10 @@ inline void main()
         assert_eq!(active_in_1_1("x", text, Position::new(7, 22)), Some(0), "on `x: 2`");
         assert_eq!(active_in_1_1("next", text, Position::new(7, 27)), Some(1), "the slot after: `y` is left");
         let wrong = text.replace("x: 2", "w: 2");
-        assert_eq!(active_in_1_1("none", &wrong, Position::new(7, 22)), Some(3), "`w` names no parameter");
+        let none = help_in_1_1("none", &wrong, Position::new(7, 22)).expect("a signature");
+        assert_eq!(none.active_parameter, None, "`w` names no parameter");
+        assert_eq!(none.signatures[0].label, "sub(uint8 x, uint8 y, uint8 z) -> uint8");
+        assert_eq!(none.signatures[0].parameters, None, "a client lights one of the parameters it is told");
     }
 
     /// Off any argument list — on the callee's name, on a declaration — the
