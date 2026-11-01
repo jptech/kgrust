@@ -893,6 +893,16 @@ pub(crate) fn token_with_range(root: &SyntaxNode, range: TextRange) -> Option<Sy
     root.covering_element(range).into_token().filter(|t| t.text_range() == range)
 }
 
+/// The `.name` whose call or template arguments `token` labels one of —
+/// `f` of `v.f(x: 1)` for `x`, `g` of `o.template g<N: 1>()` for `N` — the
+/// name a label of a member's parameter is resolved through, or `None`
+/// where `token` is no label or what it follows is no member selector.
+pub fn labelled_member(token: &SyntaxToken) -> Option<SyntaxToken> {
+    let probe = labelled_callee(token).or_else(|| labelled_template(token))?;
+    let name = identifier_at(&token.parent_ancestors().last()?, probe)?;
+    is_member_selector(&name).then_some(name)
+}
+
 /// Where the callee of the call whose argument `token` labels is named, or
 /// `None` when `token` is no label.
 fn labelled_callee(token: &SyntaxToken) -> Option<TextSize> {

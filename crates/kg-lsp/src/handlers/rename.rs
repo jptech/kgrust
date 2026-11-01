@@ -42,6 +42,12 @@
 //!   since skipping the use and taking it would each leave some instance
 //!   naming a member it does not have. A file nobody has open is typed by a
 //!   loop of its own, run to the fixpoint for the search;
+//! * **a method's parameter with a label the search cannot place** —
+//!   `v.f(x: 1)`'s `x` is placed as the `.f` it follows is: where that `.f`
+//!   is unplaced by the rule above, or its instances reach this parameter's
+//!   method and another class's (a template's body calling `f` on two
+//!   classes), the label names a parameter of each, and the refusal names
+//!   its file and line;
 //! * **a declaration in the base library** is not the project's to rename;
 //! * **a declaration in a generated module** (`.cmdargs`, `.options`) has no
 //!   text to edit (`Parser/IO.hs:101-102`);
@@ -289,8 +295,9 @@ fn searched(state: &GlobalState, db: &Db, key: &Key) -> Verdict<Found> {
     if let Some(unsure) = found.unsure {
         let at = state.vfs().read(unsure.file).map(|t| t.line_index.line_col(unsure.at).line + 1);
         let file = state.vfs().path(unsure.file).and_then(|p| p.file_name().map(str::to_owned)).unwrap_or_default();
+        let spelled = if unsure.label { format!("{name}:") } else { format!(".{name}") };
         return Err(Refusal::Because(format!(
-            "`.{name}` at {file}:{} {}, so the rename cannot tell whether it is a use",
+            "`{spelled}` at {file}:{} {}, so the rename cannot tell whether it is a use",
             at.unwrap_or_default(),
             unsure.why
         )));
@@ -777,6 +784,83 @@ inline void main()
         );
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The project of [`project`] in edition 1.1, `helper.k` declaring a
+    /// class whose method has a parameter `x`, open, and `main.k` on disk
+    /// holding `main_k`.
+    fn counter_project(tag: &str, main_k: &str) -> (std::path::PathBuf, GlobalState, Uri) {
+        let (dir, state, helper, _main) = project(tag);
+        let manifest = "[package]\nedition = \"1.1\"\n\n[project]\nimport-dirs = [\"src\"]\ntarget-device = \"mock\"\nimplicit-base = false\n";
+        std::fs::write(dir.join("kanagawa.toml"), manifest).unwrap();
+        std::fs::write(dir.join("src").join("helper.k"), COUNTER).unwrap();
+        std::fs::write(dir.join("src").join("main.k"), main_k).unwrap();
+        state.did_open(helper.clone(), COUNTER.to_owned(), 1);
+        (dir, state, helper)
+    }
+
+    const COUNTER: &str = "class Counter\n{\npublic:\n    uint8 add(uint8 x)\n    {\n        return x;\n    }\n}\n";
+
+    /// A method's parameter is renamed at a label of a call of the method
+    /// in a file nobody has open, the call's receiver typed by that file's
+    /// own loop. Red with a callee after a `.` not read for its name
+    /// (`kg_db::navigate::callee_name`), which leaves the label naming
+    /// nothing.
+    #[test]
+    fn a_method_s_parameter_is_renamed_at_its_label_in_an_unopened_file() {
+        let main_k = "import helper\n\ninline uint8 main()\n{\n    static Counter c;\n    return c.add(x: 1);\n}\n";
+        let (dir, state, helper) = counter_project("method-label", main_k);
+        let edit = rename(&state, &params(&helper, Position::new(3, 20), "step")).unwrap().unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let at = |file: &str, line, col| (file.to_owned(), line, col, "step".to_owned());
+        assert_eq!(edits(edit), vec![at("helper.k", 3, 20), at("helper.k", 5, 15), at("main.k", 5, 17)]);
+    }
+
+    /// A label of a method call whose receiver no loop types — in a file
+    /// nobody has open, `c` what an undeclared function returns — is placed
+    /// no better than the `.add` it follows, and the rename is refused,
+    /// naming the label, the file and the line. Red with a label placed on
+    /// its own resolution alone, which finds no parameter and edits around
+    /// it.
+    #[test]
+    fn a_label_of_a_method_no_loop_places_refuses_the_rename() {
+        let main_k = "import helper\n\ninline uint8 main()\n{\n    auto c = nothing();\n    return c.add(x: 1);\n}\n";
+        let (dir, state, helper) = counter_project("method-label-unplaced", main_k);
+        let refused = rename(&state, &params(&helper, Position::new(3, 20), "step"));
+        std::fs::remove_dir_all(&dir).unwrap();
+        match refused {
+            Err(Refusal::Because(message)) => assert!(
+                message.starts_with("`x:` at main.k:6 labels a call whose method cannot be resolved"),
+                "{message}"
+            ),
+            other => panic!("expected a refusal naming main.k:6, got {other:?}"),
+        }
+    }
+
+    /// A label in a template's body whose instances call the method of two
+    /// classes names a parameter of each: renaming one class's leaves the
+    /// other's call naming none, and the rename is refused rather than
+    /// made in part. Red with the label left unnoted, which edits the
+    /// declaration and its body and leaves `_c.add(x: 1)` naming no
+    /// parameter of `A::add`.
+    #[test]
+    fn a_label_two_instances_read_apart_refuses_the_rename() {
+        use crate::handlers::references::tests::{lay_out_1_1, open_one};
+        let text = "class A\n{\npublic:\n    uint8 add(uint8 x) { return x; }\n}\n\nclass B\n{\npublic:\n    uint8 add(uint8 x) { return x + 1; }\n}\n\n\
+                    template <typename C>\nclass User\n{\n    C _c;\n\npublic:\n    uint8 go() { return _c.add(x: 1); }\n}\n\n\
+                    class Top\n{\n    User<A> _a;\n    User<B> _b;\n\npublic:\n    uint8 run() { return _a.go() + _b.go(); }\n}\n";
+        let files = [("main.k", text)];
+        let (dir, state, src) = lay_out_1_1("rename-label-instances", &files);
+        let uri = open_one(&state, &src, &files, "main.k");
+        let refused = rename(&state, &params(&uri, Position::new(3, 20), "q"));
+        std::fs::remove_dir_all(&dir).unwrap();
+        match refused {
+            Err(Refusal::Because(message)) => assert!(
+                message.starts_with("`x:` at main.k:19 labels a call that reaches this parameter's method in some instances"),
+                "{message}"
+            ),
+            other => panic!("expected a refusal naming main.k:19, got {other:?}"),
+        }
     }
 
     /// A `.Go` in a file nobody has open whose receiver no loop types —

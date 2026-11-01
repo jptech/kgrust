@@ -114,7 +114,9 @@
 //! parameter likewise, through a named template argument (`Buffer<Size:
 //! 8>`), in the files whose language has those. A project of edition 1.0
 //! has none, and searches a parameter in its open buffers, as it did before
-//! editions.
+//! editions. A label of a method's call (`v.f(x: 1)`) is a use of `x` in
+//! whichever methods `v.f` reaches, and is in doubt wherever that `.f` is
+//! (`walk`).
 
 use std::cell::OnceCell;
 
@@ -311,7 +313,8 @@ pub(crate) fn search_plan(db: &Db, buffers: &[FileId]) -> Vec<(FileId, Vec<FileI
 pub(crate) struct Found {
     /// Every occurrence that resolves to the target, in search order.
     pub(crate) hits: Vec<FileRange>,
-    /// The first `.name` spelled as a member target whose receiver does not
+    /// The first `.name` spelled as a member target, or label of a `.name`
+    /// spelled as a member parameter's function, whose receiver does not
     /// say whether it is a use ([`Unsure`]): a reference list under-reports
     /// it, and a rename refuses on it (`super::rename`).
     pub(crate) unsure: Option<Unsure>,
@@ -327,11 +330,14 @@ pub(crate) struct Found {
     pub(crate) loops: usize,
 }
 
-/// A `.name` the search could not place: where, and why.
+/// A `.name`, or a label of a `.name`'s call, the search could not place:
+/// where, which, and why.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Unsure {
     pub(crate) file: FileId,
     pub(crate) at: TextSize,
+    /// A label (`x:` of `v.f(x: 1)`), where `false` is a member selector.
+    pub(crate) label: bool,
     pub(crate) why: &'static str,
 }
 
@@ -355,10 +361,10 @@ pub(crate) struct Unsure {
 /// roots, so a program without the module has no use of it.
 pub(crate) fn search(db: &Db, buffers: &[FileId], target: &Definition, needle: &str, bound: Bound) -> Found {
     let plan = search_plan(db, buffers);
-    let member = selectable(db, target);
+    let member = Member::of(db, target);
     let mut found = Found::default();
     for (root, files) in &plan {
-        walk(db, &[*root], files, Reading::Editor, target, Some(needle), member, &mut found);
+        walk(db, &[*root], files, Reading::Editor, target, Some(needle), &member, &mut found);
     }
     let labels_only = !importable(db, target);
     let labels = labelled(db, target);
@@ -389,7 +395,7 @@ pub(crate) fn search(db: &Db, buffers: &[FileId], target: &Definition, needle: &
         let forget = Forget { db, roots };
         if db.program(&forget.roots).contains(target.def.module) {
             found.held += 1;
-            walk(db, &forget.roots, &[file], Reading::Once, target, Some(needle), member, &mut found);
+            walk(db, &forget.roots, &[file], Reading::Once, target, Some(needle), &member, &mut found);
         }
     }
     found
@@ -447,12 +453,28 @@ pub(crate) fn occurrences(
     target: &Definition,
     needle: Option<&str>,
 ) -> Vec<FileRange> {
-    let member = selectable(db, target);
+    let member = Member::of(db, target);
     let mut found = Found::default();
     for (root, files) in plan {
-        walk(db, &[*root], files, Reading::Editor, target, needle, member, &mut found);
+        walk(db, &[*root], files, Reading::Editor, target, needle, &member, &mut found);
     }
     found.hits
+}
+
+/// How a `.` reaches the target of a search, which is what decides where a
+/// use of it can be in doubt.
+struct Member {
+    /// The target is a member ([`selectable`]): `v.f` may name it.
+    selected: bool,
+    /// The target is a parameter of a member function or template, named
+    /// as here: `v.f(x: 1)`'s `x` may name it, through `v.f`.
+    labelled_through: Option<String>,
+}
+
+impl Member {
+    fn of(db: &Db, target: &Definition) -> Member {
+        Member { selected: selectable(db, target), labelled_through: member_owner(db, target) }
+    }
 }
 
 /// One search entry: `files` resolved under the program `roots` root, a
@@ -472,6 +494,14 @@ pub(crate) fn occurrences(
 /// refuse most renames of a common member name, the base library being full
 /// of templates; the cost is a use the loop had not reached, which a rename
 /// then misses and the next full check reports.
+///
+/// A label is placed as the `.name` it follows is, where `target` is a
+/// parameter of a member: `v.f(x: 1)`'s `x` names `f`'s `x` in whichever
+/// declarations `v.f` reaches, so a `.f` spelled as the target's function
+/// or template, and unplaced by the rules above, leaves its label unplaced
+/// too. In a template's body whose instances reach `f` in two classes, the
+/// label is one text naming two parameters, and a rename of one would
+/// leave the other's call naming none.
 #[allow(clippy::too_many_arguments)]
 fn walk(
     db: &Db,
@@ -480,7 +510,7 @@ fn walk(
     reading: Reading,
     target: &Definition,
     needle: Option<&str>,
-    member: bool,
+    member: &Member,
     found: &mut Found,
 ) {
     let cell: OnceCell<Option<EditorLoop>> = OnceCell::new();
@@ -500,7 +530,7 @@ fn walk(
             }
             let selector = kg_db::navigate::is_member_selector(&token);
             if let Some(needle) = needle
-                && (token.text() != needle || (selector && !member))
+                && (token.text() != needle || (selector && !member.selected))
             {
                 continue;
             }
@@ -508,20 +538,39 @@ fn walk(
             if matches!(reached.as_slice(), [one] if one == target) {
                 found.hits.push(FileRange::new(file, token.text_range()));
             }
-            if !(selector && member) || found.unsure.is_some() {
+            if found.unsure.is_some() {
                 continue;
             }
+            // What the `.name` reaches — the selector itself, or the one a
+            // label follows — and which of those would be the target's.
+            let through = member
+                .labelled_through
+                .as_deref()
+                .and_then(|owner| kg_db::navigate::labelled_member(&token).filter(|callee| callee.text() == owner));
+            let (reaches, label) = match &through {
+                Some(callee) => (db.definitions_at_through(&looped, roots, file, probe(callee)), true),
+                None if selector && member.selected => (reached, false),
+                None => continue,
+            };
+            let ours = |d: &Definition| {
+                if label { db.parameters_of(d).contains(target) || db.template_parameters_of(d).contains(target) } else { d == target }
+            };
             let edited = cell.get().and_then(Option::as_ref).is_some_and(|l| !l.is_current());
             let in_template = || token.parent_ancestors().any(|n| n.kind() == SyntaxKind::TEMPLATE_DECL);
-            let why = match reached.as_slice() {
-                _ if edited => "is typed as the buffer was before an edit that broke its parse",
-                [] if in_template() => continue,
-                [] => "cannot be resolved through its receiver here",
-                [_] => continue,
-                several if several.contains(target) => "reaches this member in some instances and another in others",
+            let why = match (reaches.as_slice(), label) {
+                (_, false) if edited => "is typed as the buffer was before an edit that broke its parse",
+                (_, true) if edited => "labels a call typed as the buffer was before an edit that broke its parse",
+                ([], _) if in_template() => continue,
+                ([], false) => "cannot be resolved through its receiver here",
+                ([], true) => "labels a call whose method cannot be resolved through its receiver here",
+                ([_], _) => continue,
+                (several, false) if several.iter().any(ours) => "reaches this member in some instances and another in others",
+                (several, true) if several.iter().any(ours) => {
+                    "labels a call that reaches this parameter's method in some instances and another in others"
+                }
                 _ => continue,
             };
-            found.unsure = Some(Unsure { file, at: token.text_range().start(), why });
+            found.unsure = Some(Unsure { file, at: token.text_range().start(), label, why });
         }
     }
     if reading == Reading::Once && cell.get().is_some() {
@@ -545,6 +594,30 @@ pub(crate) fn selectable(db: &Db, target: &Definition) -> bool {
         }
     }
     false
+}
+
+/// The name of the member function or member template whose parameter
+/// `target` is — what a label naming it follows after a `.` — or `None`
+/// where `target` is no parameter, or its owner is no member of an
+/// aggregate ([`selectable`]'s walk, through any `template` between).
+fn member_owner(db: &Db, target: &Definition) -> Option<String> {
+    let tree = db.item_tree(target.def.module);
+    let param = tree.item(target.def.item)?;
+    if !matches!(param.kind, DefKind::FuncParam | DefKind::TemplateParam) {
+        return None;
+    }
+    let owner = param.parent.and_then(|p| tree.item(p))?;
+    let mut at = owner;
+    while let Some(parent) = at.parent.and_then(|p| tree.item(p)) {
+        match parent.kind {
+            DefKind::Struct | DefKind::Union | DefKind::Class => {
+                return owner.qualified_name.last().map(|n| db.interner().resolve(n).to_string());
+            }
+            DefKind::Template => at = parent,
+            _ => return None,
+        }
+    }
+    None
 }
 
 /// Whether another file can name `target`: a declaration at the top level
