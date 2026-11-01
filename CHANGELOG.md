@@ -129,6 +129,10 @@ install`.
 
 ### Changed
 
+- References, highlight and rename read each file once for every use of
+  the name, rather than once a use: in `risc-v.k`, highlighting `Trap` (177
+  uses) took 635 ms and takes 6 ms, its references 680 ms and 17 ms. The
+  editor highlights at every move of the cursor.
 - Two programs the reference rejects as parse errors are now one error
   each, in every edition, rather than a cascade: a label in a call of a
   keyword (`mux`, `lutmul`, `concat`, `static`, `cast`, `fan_out`) is

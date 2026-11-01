@@ -587,6 +587,19 @@ testing loop every later step uses.
   over stdio on a copy of `risc-v.k` under a manifest importing
   `library/`, ~1.35 → ~0.95 s an edit. What would bring that under
   400 ms is the library's inference carried across edits — W7.5d again.
+- **The editor's searches and a parameter's size, 2026-11-01** (PR #8).
+  References, highlight and rename answered every use alone, each answer
+  reading the file again — for a name bound at the top of the file, a scan
+  of the whole file per use; one `Db::resolver` per file reads it once,
+  answers identical at every 11th identifier of `risc-v.k` and every 7th
+  of `float32.k` over stdio. Highlight of `Trap` in `risc-v.k` (177 uses)
+  635 → 5.6 ms warm, its references 680 → 17 ms. And edition 1.1's
+  default, inline in `TFuncParam`, had grown every parameter of every
+  function type from 40 bytes to 112; boxed, 48: `kg check` of `risc-v.k`
+  801 → 787 MiB peak RSS (`cargo xtask mem`'s footprint 801 → 774),
+  `array.k` 284 → 279, time unchanged; `scripts/identity.sh 536d825`, 304
+  roots identical. A survey of every other request on `risc-v.k` and
+  `float32.k` (60 identifiers each, warm) found none past 20 ms.
 - **The shipped binaries, 2026-10-12.** `cargo xtask dist` builds the
   `ship` profile, `release` with `lto = "fat"` and `codegen-units = 1`:
   `kg check` 6–10% faster in an interleaved A/B, `kg` 30% smaller, its
@@ -901,6 +914,27 @@ Frontend, ours; ordered by what the numbers say a user would feel:
    per module), inference reading other modules mid-iteration, the
    interner's one `Mutex`. Measure the headroom (which passes split
    cleanly, and their share) before designing.
+   *Measured 2026-11-01, deferred* (`KG_LOOP_PROFILE=1 kg check`, the
+   release build of PR #8's head): the loop is 1.51 s of `risc-v.k`'s 1.94 s, inference
+   0.89 s of it (its walks 0.63 s), instantiation 0.16, deduction 0.14,
+   the prefix 0.14, the wrappers 0.06. Only the prefix splits as the code
+   stands — each module rewritten in place, the interner shared — and it
+   is 9% of `risc-v.k`'s loop and 0.5–2% of `array.k`'s, `float.k`'s and
+   `cache.k`'s: at most 1.1× on one program, nothing on the rest, not worth
+   a flag. Inference cannot: each module's walk reads every other
+   module's live arena and types as they stood when the iteration began,
+   through overlays of what the iteration overwrote in place
+   (`crates/kg-sem/src/infer.rs`, `Program::iterate`), and the walks share
+   the incremental bookkeeping (`Units`) and the read door's record.
+   Walks on threads need a frozen view of the other modules per
+   iteration: a copy, which is what the overlays replaced (1.3 s of
+   `array.k`'s 17 s in 2026-09, §10), or every write buffered per module
+   until the iteration ends, which changes how a walk reads its own
+   module. Deduction, instantiation and the wrappers read the program's
+   symbols and the other modules' snapshots, and mint ids in order. So
+   `kg` stays on one thread with no option to ask for more; the
+   prerequisite is the frozen view, which the editor's re-askable reads
+   (`loop-across-edits.md` §8) would want too.
 2. **The tail rounds' floor** (above): the symbol maps merged
    incrementally rather than rebuilt (`loop-across-edits.md` §6 step 4,
    which then pays in a batch run too: ~17% of `array.k`'s loop), and

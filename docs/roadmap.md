@@ -60,7 +60,11 @@ Independent options, roughly in the order recommended.
    and `float.k` spend half their loop in a tail of cheap rounds that
    rebuild the symbol maps and re-run deduction
    ([`plans/performance.md`](plans/performance.md) §13). Speeds `kg check`
-   and the editor alike. Measure the parallel headroom first.
+   and the editor alike. The headroom, measured 2026-11-01: only the
+   prefix pass splits as the code stands (9% of `risc-v.k`'s loop, ~1% of
+   the others'); inference, most of the loop, needs a frozen view of the
+   other modules per iteration first. Until then `kg` stays on one thread,
+   with no option for more (§13, item 1).
 4. **The keystroke.** On the largest project, `risc-v.k`, the editor's
    first answer takes ~0.83 s and its last ~2 s. Carrying the library's
    work across edits takes at most ~40% off; the plan's next step (symbol

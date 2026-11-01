@@ -18573,3 +18573,40 @@ loop` green, every ratchet +0/-0 (infer-identity 304/304, edit-identity
 ratchet +0/-0, 2040 tests passed. Its `mem` reads `risc-v.k`'s check at
 801 MiB and the editor after five edits at 1421 MiB, against 780 and
 1355 MiB at `3ff57ab`'s render — within budget, not yet attributed.
+
+## A scan per use, and a field that tripled a type — 2026-11-01
+
+Two costs no gate saw, found by measuring the branch rather than grading it:
+
+- **References and highlight were quadratic in a name's uses.** The search
+  answered every use alone (`Db::definitions_at_through`), and an answer
+  alone reads the file again: its declarations by name token, and, for a
+  name bound at the top of the file, each enclosing scope's subtree
+  scanned for the binder — the whole file, at every use. `Trap` in
+  `risc-v.k` (177 uses) took 635 ms to highlight, and the editor asks at
+  every move of the cursor; a local used 8,000 times in one function took
+  about 17 s. The language server's own answer, `Db::resolver`, built for
+  the defaults hint the day before, reads the file once for many names.
+  The walk now makes one per file: 5.6 ms and 17 ms. What the resolver
+  saves is only what it reads of the file — a member through the loop
+  reads none of it — so its identity test now runs through a loop too.
+- **A default inline made every parameter 112 bytes.** `TFuncParam` is
+  kept for every parameter of every function type in every module's type
+  map and cloned with the type; `default: Option<TDefault>` held a whole
+  `ConstValue` (72 bytes) beside a 40-byte parameter, in every program,
+  the reference's included, which never has one. Boxed, a parameter pays
+  a pointer: `kg check` of `risc-v.k` 801 → 787 MiB, below `main`'s last
+  render (780 MiB at `3ff57ab`, footprint) by `cargo xtask mem`'s measure
+  (774). `a_parameter_pays_a_pointer_for_its_default` keeps it at 48
+  bytes. Taking the box off does not compile, so its mutant over-aligns
+  the struct instead: a mutant caught by a compile error proves nothing.
+
+Multi-threading the loop was measured and left (`plans/performance.md`
+§13, item 1): only the prefix pass splits as the code stands, 9% of
+`risc-v.k`'s loop, and inference needs a frozen view of the other modules
+per iteration first. `kg` stays on one thread, with no option for more.
+
+Checked 2026-11-01: `scripts/identity.sh 536d825`, 304 roots identical;
+over stdio, highlight and references at 1280 positions of `risc-v.k` and
+974 of `float32.k` answered the same before and after.
+
