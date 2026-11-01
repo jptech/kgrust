@@ -1784,7 +1784,7 @@ impl Cx<'_> {
                     attrs: self.flags(*attr),
                     ty: TyRef::new(self.ty(p)),
                     name: self.name_of(*name),
-                    default: default.map(|d| self.default_of(d)),
+                    default: default.map(|d| Box::new(self.default_of(d))),
                 }),
                 _ => None,
             })

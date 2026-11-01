@@ -190,8 +190,11 @@ pub struct TFuncParam {
     /// carried in the type as a parameter's name is, so a call in another
     /// module reads it where it reads the parameters. No reference
     /// parameter has one. Like the name, left out of `==` and `Hash`, kept
-    /// in `Ord` and [`hash_strict`].
-    pub default: Option<TDefault>,
+    /// in `Ord` and [`hash_strict`]. Boxed: a folded [`kg_const::ConstValue`]
+    /// is 72 bytes, and inline it made every parameter of every function
+    /// type — a reference program's included, which has no default —
+    /// nearly three times its size (40 bytes to 112, 2026-11-01).
+    pub default: Option<Box<TDefault>>,
 }
 
 /// A parameter's default argument, as inference has it.
@@ -607,7 +610,7 @@ impl Ty {
             // its type resolves, and one typed early would carry
             // `Unfolded` for good. No reference parameter has a default.
             Ty::Function { ret, params, .. } => {
-                ret.resolved() && params.iter().all(|p| p.ty.resolved() && p.default != Some(TDefault::Unfolded))
+                ret.resolved() && params.iter().all(|p| p.ty.resolved() && p.default.as_deref() != Some(&TDefault::Unfolded))
             }
             Ty::Closure { func_ty, capture, .. } => func_ty.resolved() && capture.resolved(),
             Ty::Enum(_, x) => x.resolved(),
@@ -948,7 +951,7 @@ mod tests {
             kind: FunctionKind::FreeFunction,
             attrs: TAttrSet::new(),
             ret: r(Ty::Void),
-            params: vec![TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: None, default }],
+            params: vec![TFuncParam { attrs: TAttrSet::new(), ty: r(Ty::Unsigned(8)), name: None, default: default.map(Box::new) }],
         };
         let hash = |t: &Ty, strict: bool| {
             let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -965,6 +968,17 @@ mod tests {
         assert_ne!(zero.cmp(&none), std::cmp::Ordering::Equal);
         assert_ne!(hash(&zero, true), hash(&one, true));
         assert_ne!(hash(&zero, true), hash(&none, true));
+    }
+
+    /// A function type's parameter stays small: one is kept for every
+    /// parameter of every function type in every module's type map, and
+    /// cloned with the type. A default inline made it 112 bytes, where it
+    /// had been 40 (2026-11-01); boxed, a parameter with none — every
+    /// reference program's — pays a pointer. Red with the parameter grown
+    /// to 64 bytes (over-aligned); taking the box off does not compile.
+    #[test]
+    fn a_parameter_pays_a_pointer_for_its_default() {
+        assert!(std::mem::size_of::<TFuncParam>() <= 48, "{} bytes", std::mem::size_of::<TFuncParam>());
     }
 
     #[test]

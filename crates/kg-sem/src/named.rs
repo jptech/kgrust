@@ -551,7 +551,7 @@ impl Cx<'_> {
         }
         // A default not yet folded may fold in a later round; one that never
         // does is an error at its declaration ([`unplaced`]).
-        if filled.iter().zip(&params).any(|(a, p)| a.is_none() && p.default == Some(TDefault::Unfolded)) {
+        if filled.iter().zip(&params).any(|(a, p)| a.is_none() && p.default.as_deref() == Some(&TDefault::Unfolded)) {
             return Placed::Waiting(unchanged);
         }
         let mut given = Vec::with_capacity(slots);
@@ -559,7 +559,7 @@ impl Cx<'_> {
             given.push(match a {
                 Some(a) => a,
                 None => {
-                    let Some(TDefault::Value(v)) = &params[slot].default else { unreachable!("a slot left empty has a default") };
+                    let Some(TDefault::Value(v)) = params[slot].default.as_deref() else { unreachable!("a slot left empty has a default") };
                     let Some(value) = default_argument(rw, args, function, v) else {
                         return Placed::Waiting(unchanged);
                     };
