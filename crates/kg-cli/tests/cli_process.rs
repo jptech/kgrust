@@ -571,6 +571,71 @@ fn kg_check_json_format_is_one_object_per_line() {
     }
 }
 
+const GUIDE: &str = include_str!("../../kg-doc/tests/fixtures/guide.md");
+const IN_CLASS: &str = include_str!("../../kg-doc/tests/fixtures/in-class.k");
+const DOCUMENTED: &str = include_str!("../../kg-doc/tests/fixtures/documented.k");
+
+/// `kg doc --check`: a guide's code blocks and a source's doc comments'
+/// through the frontend, each failure at the block's own line of the file
+/// that holds it, in `check`'s formats — and no site written.
+#[test]
+fn kg_doc_check_points_into_the_documentation_and_writes_nothing() {
+    let scratch = Scratch::new("doc-check");
+    scratch.file("guide.md", GUIDE);
+    scratch.file("in-class.k", IN_CLASS);
+    scratch.file("documented.k", DOCUMENTED);
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "guide.md", "documented.k"]);
+    assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("--> guide.md:50:15"), "{}", run.stdout);
+    assert!(run.stdout.contains("--> documented.k:30:30"), "{}", run.stdout);
+    assert!(run.stdout.contains("note: the code block at line 47, checked as a whole file"), "{}", run.stdout);
+    assert!(
+        run.stdout.contains("checked 7 code blocks in 2 files (1 skipped as invalid): 2 failed, 2 errors"),
+        "{}",
+        run.stdout
+    );
+    assert!(!scratch.path().join("target").exists(), "`--check` writes no site");
+
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "--error-format=json", "-v", "doc", "--check", "guide.md"]);
+    assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.stdout.lines().count(), 1, "one object, no verdicts or summary: {}", run.stdout);
+    assert!(run.stdout.contains("\"file\":\"guide.md\",\"line\":50,\"column\":15"), "{}", run.stdout);
+
+    scratch.file("good.md", "```\ninline void fine() {}\n```\n");
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "good.md"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("checked 1 code block in 1 file: no problems found"), "{}", run.stdout);
+
+    // A directory holds sources and Markdown alike.
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "."]);
+    assert!(
+        run.stdout.contains("checked 8 code blocks in 4 files (1 skipped as invalid): 2 failed, 2 errors"),
+        "{}",
+        run.stdout
+    );
+
+    // `--all-blocks` is `chkdoc`'s selection: `sandcastle.md`'s `cpp` blocks are Kanagawa.
+    scratch.file("cpp.md", "```cpp\ninline void c() {\n```\n");
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "cpp.md"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("checked 0 code blocks in 1 file"), "{}", run.stdout);
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "--all-blocks", "cpp.md"]);
+    assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("--> cpp.md:"), "{}", run.stdout);
+
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "-q", "doc", "--check", "good.md"]);
+    assert_eq!((run.code, run.stdout.as_str()), (0, ""), "`-q` prints no summary");
+
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "gone.md"]);
+    assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
+    assert!(run.stderr.contains("cannot read gone.md"), "{}", run.stderr);
+
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--all-blocks", "good.md"]);
+    assert_eq!(run.code, 2, "`--all-blocks` is `--check`'s: {}", run.stderr);
+    let run = run_in(KG, scratch.path(), &["--no-manifest", "doc", "--check", "--out", "site", "good.md"]);
+    assert_eq!(run.code, 2, "`--check` writes no site to put anywhere: {}", run.stderr);
+}
+
 #[test]
 fn kg_fmt_checks_then_writes_and_the_second_run_is_a_no_op() {
     let scratch = Scratch::new("fmt");

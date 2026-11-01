@@ -42,7 +42,8 @@ The Kanagawa toolchain.
 What works today: `check` (parse, resolve, fold and type-check, following
 imports), `lsp` (the language server, over stdio), `fmt` (the comment-preserving
 formatter), `dump` (token stream, CST, AST, IR, instances), `explain` (error and warning
-reference), `doc` (a static API-documentation site from the doc comments) and
+reference), `doc` (a static API-documentation site from the doc comments, or with
+`--check` the code blocks in your documentation checked) and
 `build` (the frontend, then the reference's C++ backend through
 its ParseTree ABI — `libkanagawa-backend`, found via `KG_BACKEND_DIR`; a
 program the walk cannot yet lower is refused with exit 2, never compiled
@@ -138,7 +139,20 @@ parameters and members, and a search over all of them.
 
 A name in a signature links to the declaration it resolves to when that one
 is documented in the same site; pass the library's directory along with your
-own to link into it too.")]
+own to link into it too.
+
+`--check` writes nothing: it checks the Kanagawa code blocks in the
+documentation with the frontend, as the reference's `chkdoc` compiles its own
+docs', and exits 1 if one fails. In a Markdown file a fenced block is Kanagawa
+when it is untagged or tagged `kanagawa` (`--all-blocks`: every block but
+`C++`, `bash` and `md`, chkdoc's rule); in a source's doc comments, when it is
+tagged `kanagawa`. A block passes if it compiles as a whole file or as the body
+of a function, against the base library or the library's `mini-base.k`.
+`<!-- invalid -->` on the line before the fence skips a block, `<!-- name.k -->`
+checks it in that file beside the document, at its `***` line; a block whose
+first line is `module a.b` can be imported by the blocks after it. Diagnostics
+point at the block's lines in the document. Directories are searched for `.k`
+and `.md` files.")]
     Doc(DocArgs),
     /// Simulate, synthesise and program a design on a board (`[board]`).
     #[command(long_about = "\
@@ -249,6 +263,14 @@ pub struct DocArgs {
     /// Open the site in a browser once written.
     #[arg(long)]
     pub open: bool,
+    /// Check the Kanagawa code blocks in the documentation — Markdown files
+    /// and doc comments — instead of writing the site; exit 1 if one fails.
+    #[arg(long, conflicts_with_all = ["out", "title", "open"])]
+    pub check: bool,
+    /// With `--check`: in Markdown, every fenced block but those tagged
+    /// `C++`, `bash` or `md` is Kanagawa, as the reference's `chkdoc` has it.
+    #[arg(long, requires = "check")]
+    pub all_blocks: bool,
     #[command(flatten)]
     pub source: SourceArgs,
 }
@@ -391,6 +413,7 @@ pub fn run(argv: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         Command::Fmt(args) => fmt(&cli.global, args, &styles, out, err),
         Command::Lsp(args) => lsp(args, err),
         Command::Build(args) => build(&cli.global, args, &styles, out, err),
+        Command::Doc(args) if args.check => doc_check(&cli.global, args, &styles, out, err),
         Command::Doc(args) => doc(&cli.global, args, out, err),
         Command::Board(args) => board::run(&cli.global, args, &styles, out, err),
     }
@@ -448,6 +471,104 @@ fn doc(global: &GlobalArgs, args: &DocArgs, out: &mut dyn Write, err: &mut dyn W
             1
         }
     }
+}
+
+/// `kg doc --check`: every Kanagawa code block of the inputs' documentation
+/// through the frontend (`kg_doc::check`) — a Markdown file's fenced blocks,
+/// a source's doc comments' — each failure's diagnostics in `kg check`'s
+/// formats, pointing into the file that holds the block.
+fn doc_check(global: &GlobalArgs, args: &DocArgs, styles: &Styles, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let Some(resolved) = resolve(global, &args.source, &args.paths, err) else { return 2 };
+    if global.verbose >= 2 {
+        let _ = write!(out, "{}", describe_settings(&resolved));
+    }
+    let documentation = |p: &Utf8Path| matches!(p.extension(), Some("k" | "md"));
+    let files = match collect_inputs_with(&args.paths, &resolved, err, &documentation) {
+        Ok(files) if files.is_empty() => {
+            let _ = writeln!(err, "kg: no input files. Pass paths, or list them under `project.sources` in kanagawa.toml.");
+            return 2;
+        }
+        Ok(files) => files,
+        Err(code) => return code,
+    };
+    let select = if args.all_blocks { kg_doc::check::Select::Chkdoc } else { kg_doc::check::Select::Kanagawa };
+    let mut checker = kg_doc::check::Checker::new(resolved.settings.clone(), select);
+    let here = canonical(&cwd());
+    let (mut passed, mut failed, mut skipped, mut unreadable, mut errors) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    for path in &files {
+        let Some(report) = checker.check_file(&canonical(path)) else {
+            let _ = writeln!(err, "kg: cannot read {path}");
+            unreadable += 1;
+            continue;
+        };
+        let vfs = checker.vfs();
+        let name = vfs.path(report.file).map_or_else(|| path.to_string(), |p| shown(&p, &here));
+        for block in &report.blocks {
+            let verdict = match &block.verdict {
+                kg_doc::check::Verdict::Passed { context, mini_base } => {
+                    passed += 1;
+                    format!("passed, {}", kg_doc::check::how(context, *mini_base))
+                }
+                kg_doc::check::Verdict::Skipped => {
+                    skipped += 1;
+                    "skipped, `<!-- invalid -->`".to_owned()
+                }
+                kg_doc::check::Verdict::Failed => {
+                    failed += 1;
+                    styles.error("failed")
+                }
+            };
+            // Every block's verdict, but never inside the JSON stream.
+            if global.verbose >= 1 && global.error_format != ErrorFormat::Json {
+                let _ = writeln!(out, "{name}:{}: {verdict}", block.line);
+            }
+            for diagnostic in &block.diagnostics {
+                errors += usize::from(diagnostic.is_error());
+                let _ = write!(out, "{}", render_in(vfs, diagnostic, &here, global.error_format, styles));
+            }
+        }
+    }
+    let refused = refused_manifests(&resolved.settings, err);
+    if !global.quiet && global.error_format == ErrorFormat::Human {
+        let blocks = passed + failed;
+        let skipped = if skipped > 0 { format!(" ({skipped} skipped as invalid)") } else { String::new() };
+        let file_word = if files.len() == 1 { "file" } else { "files" };
+        let head = format!("{blocks} code block{} in {} {file_word}{skipped}", plural(blocks), files.len());
+        if failed == 0 && unreadable == 0 {
+            let _ = writeln!(
+                out,
+                "{} {head}: no problems found (the backend's checks run under `kg build`)",
+                styles.green("checked")
+            );
+        } else {
+            let mut parts = vec![styles.error(&format!("{failed} failed"))];
+            if errors > 0 {
+                parts.push(styles.error(&format!("{errors} error{}", plural(errors))));
+            }
+            if unreadable > 0 {
+                parts.push(styles.error(&format!("{unreadable} unreadable")));
+            }
+            let _ = writeln!(out, "checked {head}: {}", parts.join(", "));
+        }
+    }
+    if refused > 0 {
+        return 2;
+    }
+    i32::from(failed > 0 || unreadable > 0)
+}
+
+/// One diagnostic in `kg check`'s shape, its files read from `vfs`: the
+/// diagnostic's own, and any a label points into. One with no file to
+/// excerpt prints its message alone, as `check` prints it.
+fn render_in(vfs: &kg_vfs::Vfs, diagnostic: &kg_diag::Diagnostic, here: &Utf8Path, format: ErrorFormat, styles: &Styles) -> String {
+    let file = diagnostic.range.file;
+    let (Some(path), Some(text)) = (vfs.path(file), vfs.read(file)) else {
+        return format!("{}: {}\n", styles.error("error"), diagnostic.message);
+    };
+    let name = shown(&path, here);
+    let source = Source { name: &name, text: &text.text, line_index: &text.line_index };
+    let locate = |range: kg_base::FileRange| Some(render::Located { name: shown(&vfs.path(range.file)?, here), text: vfs.read(range.file)? });
+    render::render_with(diagnostic, &source, &locate, format, styles)
 }
 
 /// Reports each package manifest a file's language was read from that did
@@ -870,6 +991,16 @@ fn collect_inputs(
     resolved: &Resolved,
     err: &mut dyn Write,
 ) -> Result<Vec<Utf8PathBuf>, i32> {
+    collect_inputs_with(paths, resolved, err, &|p| p.extension() == Some("k"))
+}
+
+/// [`collect_inputs`], directories walked for the files `keep` takes.
+fn collect_inputs_with(
+    paths: &[String],
+    resolved: &Resolved,
+    err: &mut dyn Write,
+    keep: &dyn Fn(&Utf8Path) -> bool,
+) -> Result<Vec<Utf8PathBuf>, i32> {
     let requested: Vec<Utf8PathBuf> = if paths.is_empty() {
         resolved.sources.clone()
     } else {
@@ -886,7 +1017,7 @@ fn collect_inputs(
             return Err(2);
         }
         if path.is_dir() {
-            collect_dir(&path, &mut files);
+            collect_dir(&path, &mut files, keep);
         } else {
             files.push(path);
         }
@@ -896,13 +1027,13 @@ fn collect_inputs(
     Ok(files)
 }
 
-fn collect_dir(dir: &Utf8Path, files: &mut Vec<Utf8PathBuf>) {
+fn collect_dir(dir: &Utf8Path, files: &mut Vec<Utf8PathBuf>, keep: &dyn Fn(&Utf8Path) -> bool) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else { continue };
         if path.is_dir() {
-            collect_dir(&path, files);
-        } else if path.extension() == Some("k") {
+            collect_dir(&path, files, keep);
+        } else if keep(&path) {
             files.push(path);
         }
     }

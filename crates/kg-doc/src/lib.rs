@@ -13,7 +13,12 @@
 //! program's own resolution ([`kg_db::db::Db::definitions_at`]), so an
 //! overloaded or shadowed name links where the compiler would look — when
 //! that declaration is on one of the site's pages.
+//!
+//! [`check`] is the other half, `kg doc --check`: the Kanagawa code blocks
+//! in the documentation — Markdown files and these same doc comments —
+//! compiled by the frontend, as the reference's `chkdoc` compiles its own.
 
+pub mod check;
 mod markdown;
 mod model;
 mod render;
