@@ -53,7 +53,14 @@ depends on; none is scheduled.
   (`scripts/build-backend.sh`), proven on macOS; the repository public
   since 2026-10-11, its CI testing the Rust tools on Linux and macOS. Left:
   a release archive per platform (the backend untested on Linux) and
-  signing/notarisation on macOS.
+  signing/notarisation on macOS. *Nightlies, 2026-11-01:*
+  `.github/workflows/nightly.yml` publishes `main` as a rolling `nightly`
+  prerelease, for Linux x86_64 and arm64 and macOS on Apple silicon,
+  without the code generator, which the free runners cannot build (`kg
+  build` then wants `KG_BACKEND_DIR`); `kg --version` names the commit,
+  as it does from any checkout (`0.2.0-dev+abc1234`,
+  `crates/kg-cli/build.rs`), and only `cargo xtask dist --release` says
+  the plain version.
 - **The extension is not published.** A Marketplace / Open VSX release
   that bundles or downloads `kg` per platform is what puts the editor in
   front of anyone. The reference ships its own VS Code package
@@ -149,7 +156,11 @@ read rather than reproduced.
 ### 2.8 Other editors and the wider ecosystem
 
 The server is editor-agnostic; documented configurations for Neovim,
-Helix, Zed and Emacs cost little. A **tree-sitter grammar** — generated
+Helix, Zed and Emacs cost little. *Neovim, 2026-11-01:* a plugin in
+`editors/nvim`, with the filetype, a syntax file `cargo xtask codegen`
+generates beside the VS Code grammar, an `indentexpr` that follows `kg
+fmt`'s layout, and `kg lsp` enabled through `vim.lsp.config`. A headless
+smoke test drives it, and it is not in CI. A **tree-sitter grammar** — generated
 from `grammar/kanagawa.ungram` or the parser — is what Helix, Zed and
 Neovim highlight with and what GitHub's linguist could use. A **web
 playground** (the frontend built to WebAssembly: check, hover, format, no

@@ -18,6 +18,15 @@
 //!   README.md
 //! ```
 //!
+//! `--label <LABEL>` names the archive `kgrust-<label>-<target>` instead:
+//! the nightly workflow's `nightly`, so that its download links stay put
+//! from one night to the next.
+//!
+//! The name does not say what the binaries report, which is `kg-cli`'s
+//! `VERSION`: `--release` builds them to say the plain version, `KG_VERSION`
+//! to say what it holds, and anything else to say `<version>-dev+<commit>`.
+//! The archive's README states what they said when asked.
+//!
 //! Then `<name>.tar.gz` and its `.sha256` beside the staged directory. The
 //! notices are generated, not kept by hand: Kanagawa's own license for the
 //! backend and the library; LLVM's, MLIR's and CIRCT's, linked statically
@@ -31,16 +40,20 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: bool) -> Result<()> {
+pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: bool, label: Option<&str>, release: bool) -> Result<()> {
     let workspace = crate::fresh::workspace();
-    let version = env!("CARGO_PKG_VERSION");
+    let package = env!("CARGO_PKG_VERSION");
     let target = host_target()?;
-    let name = format!("kgrust-{version}-{target}");
+    let name = archive_name(label, package, &target);
     let stage = out.join(&name);
-    let kanagawa_root = stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, &stage)?;
+    let kanagawa_root = stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, &stage, release.then_some(package))?;
+    let version = reported_version(&stage)?;
+    if release && version != package {
+        bail!("a release must report {package}, and this one says {version}");
+    }
     copy(&workspace.join("LICENSE"), &stage.join("LICENSE"))?;
     std::fs::write(stage.join("THIRD-PARTY-NOTICES.md"), notices(&workspace, &kanagawa_root, no_backend)?)?;
-    std::fs::write(stage.join("README.md"), readme(&name, no_backend))?;
+    std::fs::write(stage.join("README.md"), readme(&name, &version, no_backend))?;
 
     let archive = out.join(format!("{name}.tar.gz"));
     let status = Command::new("tar").arg("-czf").arg(&archive).arg("-C").arg(out).arg(&name).status()?;
@@ -54,11 +67,29 @@ pub fn run(kanagawa_root: &Path, backend_dir: &Path, out: &Path, no_backend: boo
     Ok(())
 }
 
+/// The archive's name and its top directory's: by the label if there is
+/// one, else by the version.
+fn archive_name(label: Option<&str>, version: &str, target: &str) -> String {
+    format!("kgrust-{}-{target}", label.unwrap_or(version))
+}
+
+/// What the staged `kg` says it is, so that the README cannot disagree.
+fn reported_version(stage: &Path) -> Result<String> {
+    let output = Command::new(stage.join("bin").join(if cfg!(windows) { "kg.exe" } else { "kg" })).arg("--version").output()?;
+    let text = String::from_utf8(output.stdout)?;
+    match text.trim().strip_prefix("kg ") {
+        Some(version) if output.status.success() => Ok(version.to_owned()),
+        _ => bail!("`kg --version` said {text:?}"),
+    }
+}
+
 /// Builds `kg` and `kanagawa` (the `ship` profile) and lays out `stage` as
 /// an archive's tree minus its notices and README: `bin/`, then `share/kanagawa/`.
 /// `cargo xtask install` stages the same tree, so what it installs is what a
-/// release holds. Returns the canonical reference checkout.
-fn stage_tree(workspace: &Path, kanagawa_root: &Path, backend_dir: &Path, no_backend: bool, stage: &Path) -> Result<PathBuf> {
+/// release holds. `named` is the version the binaries are to report; without
+/// one, the build inherits this environment, `KG_VERSION` included. Returns the
+/// canonical reference checkout.
+fn stage_tree(workspace: &Path, kanagawa_root: &Path, backend_dir: &Path, no_backend: bool, stage: &Path, named: Option<&str>) -> Result<PathBuf> {
     let kanagawa_root = kanagawa_root.canonicalize().with_context(|| {
         format!("no kanagawa checkout at {} — `git submodule update --init third_party/kanagawa`", kanagawa_root.display())
     })?;
@@ -72,10 +103,12 @@ fn stage_tree(workspace: &Path, kanagawa_root: &Path, backend_dir: &Path, no_bac
     }
 
     eprintln!("dist: building kg and kanagawa (the `ship` profile)");
-    let status = Command::new(env!("CARGO"))
-        .args(["build", "--profile", "ship", "-p", "kg-cli", "--bin", "kg", "--bin", "kanagawa"])
-        .current_dir(workspace)
-        .status()?;
+    let mut build = Command::new(env!("CARGO"));
+    build.args(["build", "--profile", "ship", "-p", "kg-cli", "--bin", "kg", "--bin", "kanagawa"]).current_dir(workspace);
+    if let Some(version) = named {
+        build.env("KG_VERSION", version);
+    }
+    let status = build.status()?;
     if !status.success() {
         bail!("cargo build failed");
     }
@@ -112,7 +145,7 @@ pub fn install(kanagawa_root: &Path, backend_dir: &Path, prefix: &Path, bin_dir:
             bail!("{} is a regular file, not a link — remove it first (`cargo uninstall kg-cli` if cargo put it there)", link.display());
         }
     }
-    stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, prefix)?;
+    stage_tree(&workspace, kanagawa_root, backend_dir, no_backend, prefix, None)?;
     std::fs::create_dir_all(bin_dir)?;
     for bin in &bins {
         let link = bin_dir.join(bin);
@@ -315,7 +348,7 @@ fn linked_crates(workspace: &Path) -> Result<Vec<Crate>> {
     Ok(crates)
 }
 
-fn readme(name: &str, no_backend: bool) -> String {
+fn readme(name: &str, version: &str, no_backend: bool) -> String {
     let build = if no_backend {
         "This archive has no code generator: `kg check`, `kg fmt`, `kg lsp` and `kg doc` work; `kg build` needs \
          `libkanagawa-backend` (`KG_BACKEND_DIR`).\n"
@@ -324,7 +357,7 @@ fn readme(name: &str, no_backend: bool) -> String {
     };
     format!(
         "# {name}\n\n\
-         The kgrust toolchain for [Kanagawa](https://github.com/microsoft/kanagawa).\n\n\
+         The kgrust toolchain for [Kanagawa](https://github.com/microsoft/kanagawa), version `{version}`.\n\n\
          Put `bin` on your `PATH`:\n\n\
          ```sh\nexport PATH=\"$PWD/bin:$PATH\"\nkg check my_design.k\n```\n\n\
          The standard library ships in `share/kanagawa/library` and is used when a project names no import \
@@ -361,3 +394,17 @@ FOR ANY DAMAGES OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_archive_is_named_by_its_label_else_by_its_version() {
+        assert_eq!(archive_name(None, "0.2.0", "aarch64-apple-darwin"), "kgrust-0.2.0-aarch64-apple-darwin");
+        assert_eq!(
+            archive_name(Some("nightly"), "0.2.0-nightly.20261102+abc1234", "x86_64-unknown-linux-gnu"),
+            "kgrust-nightly-x86_64-unknown-linux-gnu"
+        );
+    }
+}

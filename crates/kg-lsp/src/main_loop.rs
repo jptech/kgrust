@@ -47,10 +47,11 @@ impl ExitCode {
     }
 }
 
-/// Runs the server over stdio. This is what `kg lsp` calls.
-pub fn run_server() -> anyhow::Result<ExitCode> {
+/// Runs the server over stdio, reporting `version` to the editor as its own.
+/// This is what `kg lsp` calls, with `kg --version`'s.
+pub fn run_server(version: &str) -> anyhow::Result<ExitCode> {
     let (connection, io_threads) = Connection::stdio();
-    let exit = run_server_on(connection);
+    let exit = run_server_on(connection, version);
     io_threads.join()?;
     exit
 }
@@ -59,7 +60,7 @@ pub fn run_server() -> anyhow::Result<ExitCode> {
 ///
 /// Split out so the end-to-end test can drive the real loop with
 /// `Connection::memory()` and no process, no pipes and no sleeping.
-pub fn run_server_on(connection: Connection) -> anyhow::Result<ExitCode> {
+pub fn run_server_on(connection: Connection, version: &str) -> anyhow::Result<ExitCode> {
     let (id, params) = connection.initialize_start()?;
     let params: lsp_types::InitializeParams = serde_json::from_value(params)?;
 
@@ -70,7 +71,7 @@ pub fn run_server_on(connection: Connection) -> anyhow::Result<ExitCode> {
 
     let result = serde_json::json!({
         "capabilities": capabilities::server_capabilities(encoding),
-        "serverInfo": { "name": "kg-lsp", "version": env!("CARGO_PKG_VERSION") },
+        "serverInfo": { "name": "kg-lsp", "version": version },
     });
     connection.initialize_finish(id, result)?;
 
@@ -479,8 +480,11 @@ fn report_manifests(
     for message in state.take_config_errors() {
         crate::log(MessageType::WARNING, format!("kanagawa.toml: {message}"));
     }
-    let problems: FxHashMap<_, _> = state.manifest_problems().into_iter().collect();
+    // The lock before the list: the lane reports as it finishes a check, beside
+    // the main loop reloading. A list read first could be sent after a newer
+    // one, putting a fixed manifest's mark back and saying it again.
     let mut shown = lock(shown);
+    let problems: FxHashMap<_, _> = state.manifest_problems().into_iter().collect();
     for path in shown.keys().filter(|p| !problems.contains_key(*p)) {
         if let Some(uri) = crate::uri::path_to_uri(path) {
             send_diagnostics(sender, handlers::cleared_diagnostics(&uri));

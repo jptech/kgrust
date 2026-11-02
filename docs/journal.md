@@ -18789,6 +18789,91 @@ Checked 2026-11-01: `scripts/identity.sh 094fefc`, 304 roots identical;
 `fast.sh --lint loop` green, every ratchet +0/−0
 (`plans/performance.md` §10).
 
+## A half split that needed a width, and a hover that may read but not run — 2026-11-01
+
+The three editor bugs of 2026-10-11 ("The VS Code extension, tried on a
+scratch project") all reproduced over stdio and are fixed; `CHANGELOG.md`
+says what changed. Three things did not fit there.
+
+**The half split's example does not split.** `inline uint32 add_one(uint32
+x) { return x + 1; }` formats to itself at the default width. There are two
+real shapes. One takes a width: over it, the parameter list broke and the
+body stayed on the `)` line (`kg fmt --line-width 40` on that very line;
+`test/logic/loop_test_cases_2.k:58-60`, 118 columns, is the corpus's only
+instance). The other takes no width at all: inside a body written on one
+line, an `else`, a `switch`'s brace and the declaration after `template
+<…>` each emitted a hard break, and the next run, finding the body no longer
+collapsed, laid it out Allman. That is a formatter that is not idempotent,
+under a `fmt-check` that was green at every width, because no corpus file
+holds such a body: comparing the builds before and after over every `.k` in
+the reference, only `loop_test_cases_2.k` moves. `fmt-check` is blind to it
+for good; `crates/kg-fmt/tests/style.rs` holds it.
+
+The first shape had a choice in it. A line too long to keep could stay whole
+and over the width, or be laid out Allman; it goes Allman, so a "preserve"
+(§10.2) preserves a one-line body only while it is one line that fits. Not
+fixed, the same list-around-a-body at the default width elsewhere: an `if
+(check(…long…)) { go(); }` and a lambda still break their list and leave `)) {
+go(); }` behind, and a class body written on one line stays one line over the
+width.
+
+**Hover reads a program; it never runs one.** Inside a template of `lib.k`,
+`lib.k`'s own loop instantiates nothing, so nothing is typed there. A
+`Definition` names a module and an item, not a program, so the one resolved
+under `lib.k`'s root is good in the loop of `main.k`, which imports it: `add_n`
+answered `Unsigned(33)` in `add_n<3>` and `add_n<7>`. The hover now asks the
+other open files of the project, but only through `Db::editor_loop_ready`,
+which answers from the memo and otherwise not at all. Running a program for a
+hover would cost a check of it and a slot of the 8 the memo holds. So with only
+`lib.k` open the answer stays "Type not yet inferred", which is true; opening a
+file that instantiates the template is what changes it. Only the first program
+that answers is shown; inlay hints, signature help and completion still answer
+from the file's own root.
+
+Latency, 2026-11-01, release build over stdio, median of 50 hovers, `risc-v.k`
+and `core.k` both open: in `risc-v.k`, 3.71 → 3.75 ms; on `core.k`'s `mul`,
+0.86 ms ("not yet inferred") → 0.88 ms (`const int66 mul`, in 12 instances).
+The first hover in `core.k` after opening it went 2.66 → 23.4 ms: the importer's
+`TextMap`, once.
+
+**A file beyond the manifest's root has no project.** Not fixed. Go-to-definition
+into a library named by an import dir outside the root, as the reference's is
+from a scratch project, opens a file with no manifest above it:
+`ConfigStore::settings_for` gives it the fallback settings, and with them a `Db`
+of its own. A source build bundles no library, so those settings have no import
+dirs, and the file reports `Option: undefined symbol` though its project compiles
+it (`core.k`, 2026-11-01). The hover above cannot reach it either, the importers
+being in the other `Db`. The cure is probably there: prefer a loaded manifest
+whose import dirs hold the file.
+
+Checked 2026-11-01: `cargo test --workspace --profile quick`, 2060 passed;
+`fmt-check` at widths 100, 80, 60, 40 and 25, 405/405; `fast.sh --lint loop` green,
+every ratchet +0/−0.
+
+## A flaky test that was a real race — 2026-11-01
+
+`a_dependency_s_refused_manifest_is_marked` failed on a pull request that touched
+no Rust: `fixed, its mark goes: ["unknown edition 9.9…"]`. It passed on re-run,
+and would have kept doing so. The failure was the server's. Placing a mark, `refused`
+read the manifest again for the text its span indexes, so a save between the load
+and that read paired the old error's offset with the new text. The range gave it
+away: line 2 column 0, the end of the fixed file, or line 0 column 0, a file caught
+truncated. A different place compares as a new problem, so the mark was published
+ahead of the reload that was about to clear it. Now the error carries the text it
+refused (`ManifestError::text`), and nothing reads the file twice.
+
+The test takes 2 ms, so a race in it is cheap to measure. Interleaved, three rounds,
+`seq 1 30000 | xargs -P 48 -n1` over a wrapper running the test binary with `--exact`,
+2026-11-01: the old build failed 3174, 2005 and 1652 of 30,000, and the new one 0, 0
+and 0. Below ~16 parallel it hardly shows (1 of 800), and the rate moves tenfold with
+the machine's load, so a sample at one load says little: two earlier fixes looked
+good at 7 of 30,000 until the next round said 33.
+
+Moved in the same change, unmeasured: `report_manifests` takes its lock before it reads
+the list, so a list read before a reload cannot be sent after the reload's. The A/B
+gives that no credit (0 of 90,000 with or without it); it is there because the order
+was wrong.
+
 ## What the documentation's code blocks are — 2026-11-01
 
 `kg doc --check` ports upstream's `chkdoc` (`spec/cli.md` §8.9). Four things

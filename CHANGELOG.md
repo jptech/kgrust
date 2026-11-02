@@ -8,11 +8,26 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Added
 
+- Nightly prereleases: each night `main` has moved, a `nightly`
+  prerelease of it for Linux (x86_64, arm64) and macOS (Apple silicon),
+  without the code generator, so `kg check`, `fmt`, `lsp` and `doc` work
+  and `kg build` needs `KG_BACKEND_DIR`. A nightly's `kg --version` names
+  its commit (`0.2.0-nightly.20261102+abc1234`). Not releases: those are
+  still tagged by hand after the full gates.
+- A build from a checkout says what it is: `kg --version`, `kanagawa
+  --version`'s second line and the language server's `serverInfo` report
+  `0.2.0-dev+abc1234`, and only `cargo xtask dist --release` the plain
+  `0.2.0`.
+- `cargo xtask dist --label <LABEL>` names the archive
+  `kgrust-<LABEL>-<target>`, and the archive's README states the version.
+- A Neovim plugin (`editors/nvim`, Neovim 0.11+). `.k` files open as
+  Kanagawa, with highlighting generated from the parser's keyword list,
+  indentation that follows `kg fmt`'s layout, and `kg lsp` attached.
 - `kg doc --check [PATH]...` checks the Kanagawa code blocks in your
   documentation and writes nothing. It reads fenced blocks tagged `kanagawa`,
   in Markdown files and in the doc comments `kg doc` renders; untagged blocks
-  are passed over and counted, or read too with `--all-blocks`. A block may be a whole file or the body of a
-  function. `<!-- invalid -->` on the line before the fence skips it, and
+  are passed over and counted, or read too with `--all-blocks`. A block may
+  be a whole file or the body of a function. `<!-- invalid -->` on the line before the fence skips it, and
   `module a.b` on its first line lets later blocks import it. Errors point at
   the block's own line in the file that holds it, in `kg check`'s formats, and
   the exit code is 1. These are the conventions of upstream's `chkdoc`, and
@@ -34,6 +49,32 @@ Notable changes to kgrust, newest first. The format follows
   `array.k` takes 0.86 → 0.71 s, and its last answer in the editor after a
   keystroke comes ~16% sooner; `float.k` and `risc-v.k` gain 2–4%, with
   memory unchanged.
+
+### Fixed
+
+- `kg check` and `kg build` ignored `--edition` and `--feature` for a project
+  named through a symlink, and read a later edition's program as edition 1.0.
+- A `kanagawa.toml` saved while a check was finishing could have its error
+  marked again, in the wrong place, before the fix cleared it: the mark was
+  placed by reading the file a second time.
+- Hover inside a template defined in another file said "Type not yet
+  inferred": a file is answered as its own program, which instantiates
+  only what the file itself uses. Where that program has no type to show,
+  the hover now reads the program of another open file that imports it,
+  lists that program's instances, and names the file. That loop is read,
+  never run: with `risc-v.k` open, a hover in the library's `core.k`
+  answers in 0.88 ms (median of 50), as its "not inferred" did in 0.86.
+- The outline listed an exported class twice, the class and its `export`
+  (and an `extern` one likewise). The class is listed once, `export` in its
+  detail; an export of an instance (`export Ring<4>;`), or of a type
+  declared in another file, keeps an entry of its own.
+- `kg fmt` (and editor formatting) half split a function body written on
+  one line. Where the line was too long, it broke the parameters and left
+  the body on the `)` line, `) { return x + 1; }`; it now keeps the line
+  whole where it fits and lays the body out Allman where it does not. And
+  an `else`, a `switch`'s brace or the declaration after `template <…>`
+  inside a one-line body went to a line of their own, which the next run
+  then laid out differently again; they stay on the line.
 
 ## 0.2.0 — language editions, 2026-10-31
 

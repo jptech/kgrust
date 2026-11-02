@@ -31,7 +31,7 @@ const SUMMARY: &str = "Kanagawa Compiler 0.0.0 (local), (C) Microsoft";
 pub fn version_text() -> String {
     format!(
         "{SUMMARY}\nkgrust `kanagawa` compatibility front end {}\n",
-        env!("CARGO_PKG_VERSION")
+        crate::modern::VERSION
     )
 }
 

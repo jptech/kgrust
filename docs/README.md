@@ -11,6 +11,7 @@ the why).
 |---|---|---|
 | [`../README.md`](../README.md) | current | what kgrust is, installing, the quick start, the editor, building from source |
 | [`../editors/vscode/README.md`](../editors/vscode/README.md) | current | the VS Code extension and what the language server provides |
+| [`../editors/nvim/README.md`](../editors/nvim/README.md) | current | the Neovim plugin: installing it, its options, how its indentation follows `kg fmt`, its headless test |
 | [`known-divergences.md`](known-divergences.md) | current | every deliberate difference from the reference compiler, each with what removing it would cost |
 | [`editions/`](editions/README.md) | current | the language editions: `1.0` is the reference, later ones opt-in per package; each edition's page lists everything that differs from the one before |
 | [`spec/cli.md`](spec/cli.md) §9–10 | current, with an as-built box | the command line and `kanagawa.toml` |
