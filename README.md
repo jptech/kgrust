@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/jptech/kgrust/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jptech/kgrust/actions/workflows/ci.yml)
 
-[Install](#install) · [Quick start](#quick-start) · [Boards](#boards) · [Editor](#editor) · [Build from source](#build-from-source) · [Parity and speed](#parity-and-speed) · [Development](#development)
+[Install](#install) · [Quick start](#quick-start) · [Editions](#language-editions) · [Boards](#boards) · [Editor](#editor) · [Build from source](#build-from-source) · [Parity and speed](#parity-and-speed) · [Development](#development)
 
 </div>
 
@@ -25,7 +25,8 @@ the memory.
 | `kg build` | Compile to SystemVerilog through Kanagawa's code generator |
 | `kg lsp` | The language server: live diagnostics, inferred bit widths, navigation, rename |
 | `kg fmt` | Format sources, every comment kept |
-| `kg doc` | A searchable documentation site from your doc comments |
+| `kg doc` | A searchable documentation site from your doc comments; `--check` checks the Kanagawa code blocks in your docs |
+| `kg expand` | A later edition's program as the reference program it stands for |
 | `kg explain` | The reference for an error code or a warning |
 | `kg board` | A design on a board, or on a simulated one: generated wiring, a Python API, cocotb, bitstreams |
 | `kanagawa` | A drop-in replacement for the reference compiler's command line |
@@ -34,7 +35,10 @@ the memory.
 
 Release archives will be published on the
 [Releases page](https://github.com/jptech/kgrust/releases); until the first
-one, [build one yourself](#build-from-source). Unpack it and put its `bin` on
+one, [build one yourself](#build-from-source), or take the
+[nightly](https://github.com/jptech/kgrust/releases/tag/nightly): `main`,
+packaged each night it moves, which checks, formats, edits and documents
+but has no code generator for `kg build`. Unpack it and put its `bin` on
 your `PATH`:
 
 ```sh
@@ -91,6 +95,34 @@ shadow = "deny"
 
 `kg check` with no arguments then checks the whole project; `kg --help` shows the rest.
 
+## Language editions
+
+A package can opt into language changes beyond the reference, and nothing else changes
+what a program means. Without the opt-in, every file is edition `1.0`, the reference
+language exactly.
+
+```toml
+[package]
+edition = "1.1"              # a preview: it may still change
+```
+
+Edition `1.1` makes call sites say what they mean:
+
+```cpp
+uint8 scale(uint8 value, uint8 shift = 1, bool round = false) { ... }
+
+scale(x)                     // shift and round take their defaults
+scale(x, round: true)        // named arguments, in any order
+FIFO<uint8, Size: 4>         // named template arguments
+add(1, 2,)                   // a trailing comma
+```
+
+Each feature is rewritten inside the frontend into the program edition `1.0` would have
+written, so the code generator gets exactly what the reference compiler would give it,
+and `kg expand` shows you that program, your own text with only those constructs rewritten.
+`kanagawa` never opts in. [The editions](docs/editions/README.md) lists every feature,
+how to take one alone, and what each edition adds.
+
 ## Boards
 
 `kg board` takes a design onto a board, or onto a simulated one when you have none. It
@@ -140,6 +172,10 @@ what it shows is what `kg build` will do:
 `npm install && npx @vscode/vsce package`, install the `.vsix`, and keep `kg` on
 your `PATH`.
 
+**Neovim** (0.11+): the plugin is in [`editors/nvim`](editors/nvim/README.md): the
+filetype, highlighting and indentation, with `kg lsp` attached. With lazy.nvim, add
+`'jptech/kgrust'` with the two-line `config` its README gives.
+
 **Any other editor:** point its LSP client at `kg lsp` (stdio) for `*.k` files.
 
 ## Build from source
@@ -161,6 +197,9 @@ scripts/build-backend.sh                    # → target/backend/dist/bin/libkan
 cargo xtask dist                            # → target/dist/kgrust-<version>-<target>.tar.gz
 cargo xtask install                         # the same tree under ~/.local/share/kgrust, linked into ~/.cargo/bin
 ```
+
+A build from a checkout says so, and which commit it is: `kg --version` prints
+`kg 0.2.0-dev+abc1234`, and a nightly `kg 0.2.0-nightly.20261102+abc1234`.
 
 `cargo xtask install` is the way to put your checkout's `kg` on the `PATH` (`--prefix`
 and `--bin-dir` move either half; run it again to update). `cargo install --path

@@ -18790,6 +18790,142 @@ Checked 2026-11-01: `scripts/identity.sh 094fefc`, 304 roots identical;
 `fast.sh --lint loop` green, every ratchet +0/−0
 (`plans/performance.md` §10).
 
+## A half split that needed a width, and a hover that may read but not run — 2026-11-01
+
+The three editor bugs of 2026-10-11 ("The VS Code extension, tried on a
+scratch project") all reproduced over stdio and are fixed; `CHANGELOG.md`
+says what changed. Three things did not fit there.
+
+**The half split's example does not split.** `inline uint32 add_one(uint32
+x) { return x + 1; }` formats to itself at the default width. There are two
+real shapes. One takes a width: over it, the parameter list broke and the
+body stayed on the `)` line (`kg fmt --line-width 40` on that very line;
+`test/logic/loop_test_cases_2.k:58-60`, 118 columns, is the corpus's only
+instance). The other takes no width at all: inside a body written on one
+line, an `else`, a `switch`'s brace and the declaration after `template
+<…>` each emitted a hard break, and the next run, finding the body no longer
+collapsed, laid it out Allman. That is a formatter that is not idempotent,
+under a `fmt-check` that was green at every width, because no corpus file
+holds such a body: comparing the builds before and after over every `.k` in
+the reference, only `loop_test_cases_2.k` moves. `fmt-check` is blind to it
+for good; `crates/kg-fmt/tests/style.rs` holds it.
+
+The first shape had a choice in it. A line too long to keep could stay whole
+and over the width, or be laid out Allman; it goes Allman, so a "preserve"
+(§10.2) preserves a one-line body only while it is one line that fits. Not
+fixed, the same list-around-a-body at the default width elsewhere: an `if
+(check(…long…)) { go(); }` and a lambda still break their list and leave `)) {
+go(); }` behind, and a class body written on one line stays one line over the
+width.
+
+**Hover reads a program; it never runs one.** Inside a template of `lib.k`,
+`lib.k`'s own loop instantiates nothing, so nothing is typed there. A
+`Definition` names a module and an item, not a program, so the one resolved
+under `lib.k`'s root is good in the loop of `main.k`, which imports it: `add_n`
+answered `Unsigned(33)` in `add_n<3>` and `add_n<7>`. The hover now asks the
+other open files of the project, but only through `Db::editor_loop_ready`,
+which answers from the memo and otherwise not at all. Running a program for a
+hover would cost a check of it and a slot of the 8 the memo holds. So with only
+`lib.k` open the answer stays "Type not yet inferred", which is true; opening a
+file that instantiates the template is what changes it. Only the first program
+that answers is shown; inlay hints, signature help and completion still answer
+from the file's own root.
+
+Latency, 2026-11-01, release build over stdio, median of 50 hovers, `risc-v.k`
+and `core.k` both open: in `risc-v.k`, 3.71 → 3.75 ms; on `core.k`'s `mul`,
+0.86 ms ("not yet inferred") → 0.88 ms (`const int66 mul`, in 12 instances).
+The first hover in `core.k` after opening it went 2.66 → 23.4 ms: the importer's
+`TextMap`, once.
+
+**A file beyond the manifest's root has no project.** Not fixed. Go-to-definition
+into a library named by an import dir outside the root, as the reference's is
+from a scratch project, opens a file with no manifest above it:
+`ConfigStore::settings_for` gives it the fallback settings, and with them a `Db`
+of its own. A source build bundles no library, so those settings have no import
+dirs, and the file reports `Option: undefined symbol` though its project compiles
+it (`core.k`, 2026-11-01). The hover above cannot reach it either, the importers
+being in the other `Db`. The cure is probably there: prefer a loaded manifest
+whose import dirs hold the file.
+
+Checked 2026-11-01: `cargo test --workspace --profile quick`, 2060 passed;
+`fmt-check` at widths 100, 80, 60, 40 and 25, 405/405; `fast.sh --lint loop` green,
+every ratchet +0/−0.
+
+## A flaky test that was a real race — 2026-11-01
+
+`a_dependency_s_refused_manifest_is_marked` failed on a pull request that touched
+no Rust: `fixed, its mark goes: ["unknown edition 9.9…"]`. It passed on re-run,
+and would have kept doing so. The failure was the server's. Placing a mark, `refused`
+read the manifest again for the text its span indexes, so a save between the load
+and that read paired the old error's offset with the new text. The range gave it
+away: line 2 column 0, the end of the fixed file, or line 0 column 0, a file caught
+truncated. A different place compares as a new problem, so the mark was published
+ahead of the reload that was about to clear it. Now the error carries the text it
+refused (`ManifestError::text`), and nothing reads the file twice.
+
+The test takes 2 ms, so a race in it is cheap to measure. Interleaved, three rounds,
+`seq 1 30000 | xargs -P 48 -n1` over a wrapper running the test binary with `--exact`,
+2026-11-01: the old build failed 3174, 2005 and 1652 of 30,000, and the new one 0, 0
+and 0. Below ~16 parallel it hardly shows (1 of 800), and the rate moves tenfold with
+the machine's load, so a sample at one load says little: two earlier fixes looked
+good at 7 of 30,000 until the next round said 33.
+
+Moved in the same change, unmeasured: `report_manifests` takes its lock before it reads
+the list, so a list read before a reload cannot be sent after the reload's. The A/B
+gives that no credit (0 of 90,000 with or without it); it is there because the order
+was wrong.
+
+## What the documentation's code blocks are — 2026-11-01
+
+`kg doc --check` ports upstream's `chkdoc` (`spec/cli.md` §8.9). Four things
+about it look arbitrary until you have run it.
+
+**Only the tag says a block is Kanagawa, unless you ask for `chkdoc`'s rule.**
+`chkdoc` compiles everything but `C++`, `bash` and `md`, which is right only
+for its four documents: `sandcastle.md`'s `cpp` blocks are Kanagawa, and
+`BUILDING.md`'s seven untagged shell blocks would be 265 errors if it were ever
+in the list. Untagged-means-Kanagawa was the first default, since all of
+upstream's checked blocks are untagged; the owner turned it down the same day
+as a dangerous default for ordinary READMEs. So the default takes `kanagawa`
+alone, `--all-blocks` is `chkdoc`'s rule, and an untagged block passed over is
+counted and said, so that a check of nothing does not pass for a clean one: over
+upstream's four documents the default checks 0 and says 319 were passed over. In
+doc comments the library's two untagged fences are an import line
+(`data/vector.k:9-11`) and a hex key (`data/random/toeplitz.k:18-27`), so there
+the tag is needed even under `--all-blocks`. The library has no tagged block today, so a
+walk of `library/` checks no doc comment: 128 files, 10 blocks checked, all
+from `processor/risc_v/user-guide.md`. That walk also exits 1 on
+`processor/risc_v/verification.md`, which is not UTF-8 and holds no fence.
+
+**The notes are once per block because of that shell.** A block that is not
+Kanagawa recovers into hundreds of errors, and `chkdoc` prints all four
+attempts'. Here one attempt speaks, the one whose first error is furthest into
+the block, and only its first diagnostic carries the note naming the block.
+The attempts' order decides nothing else: any attempt that compiles passes.
+
+**Stripping the markers grades the opt-outs.** With `<!-- invalid -->` removed
+from `programming-guide.md`, this frontend rejects 10 of the 12 blocks. The
+other two (2026-11-01, `kg-oracle --errors` and the reference compiler on the
+extracted programs):
+
+- The closure capture at the original line 3235 is accepted by the reference
+  too, as a function's body. The guide calls it illegal; only the marker keeps
+  `chkdoc` from finding out. Nothing here is wrong.
+- The `static if` with `x` twice, at line 3957, is `Error 33` from the
+  reference's backend and silent from `kg-oracle`. That is the blind spot of a
+  frontend-only check (`known-divergences.md` #43).
+
+**A block's module lasts for its file.** `chkdoc` leaves `a/b.k` in its working
+directory, so a later document could import it by accident. Here it is an
+overlay beside the document and gone when that document is done. No upstream
+document depends on the difference: all four pass with it.
+
+Grade: `kg doc --check --all-blocks --no-manifest -I <library> -D
+MemoryLength=32 --target-device mock -v` over copies of the four documents, 331
+blocks, 319 passed (218 as a whole file, 101 as a body, none needing
+`mini-base.k`), 12 skipped, 0 failed. Without the define, the one block naming
+`MemoryLength` fails, as it would under `chkdoc`.
+
 ## What the loop placed, read back: `kg expand` — 2026-11-01
 
 `kg expand` prints the reference program a later edition's program stands

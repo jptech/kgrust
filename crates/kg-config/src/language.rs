@@ -180,6 +180,18 @@ impl LanguageMap {
         LanguageMap { root: self.root.clone(), language, fixed: self.fixed, walked: Arc::default(), refused: Arc::default() }
     }
 
+    /// The project's root directory, if the map has one.
+    pub fn root(&self) -> Option<&Utf8Path> {
+        self.root.as_deref()
+    }
+
+    /// The same project with its root at `root` — its canonical spelling,
+    /// where the caller keeps its files by theirs.
+    #[must_use]
+    pub fn rooted_at(&self, root: &Utf8Path) -> LanguageMap {
+        LanguageMap { root: Some(normal(root)), language: self.language, fixed: self.fixed, walked: Arc::default(), refused: Arc::default() }
+    }
+
     /// The language of the file at `path`.
     pub fn language_of(&self, path: &Utf8Path) -> Language {
         let path = normal(path);
@@ -217,18 +229,6 @@ impl LanguageMap {
             }
         }
         true
-    }
-
-    /// The project's root directory, if the map has one.
-    pub fn root(&self) -> Option<&Utf8Path> {
-        self.root.as_deref()
-    }
-
-    /// The same project with its root at `root` — its canonical spelling,
-    /// where the caller keeps its files by theirs.
-    #[must_use]
-    pub fn rooted_at(&self, root: &Utf8Path) -> LanguageMap {
-        LanguageMap { root: Some(normal(root)), language: self.language, fixed: self.fixed, walked: Arc::default(), refused: Arc::default() }
     }
 
     fn language_in(&self, dir: &Utf8Path) -> Language {

@@ -642,7 +642,7 @@ impl ConfigStore {
         self.fallback = None;
         self.dependencies.retain(|manifest, problem| match kg_config::load(manifest) {
             Err(err) if manifest.is_file() => {
-                *problem = refused(manifest, &err);
+                *problem = refused(&err);
                 true
             }
             _ => false,
@@ -665,7 +665,7 @@ impl ConfigStore {
             }
             self.reported.push(manifest.clone());
             self.errors.push(format!("{err}"));
-            self.dependencies.insert(manifest.clone(), refused(&manifest, &err));
+            self.dependencies.insert(manifest.clone(), refused(&err));
         }
     }
 
@@ -718,7 +718,7 @@ impl ConfigStore {
                 if !self.reported.contains(&manifest) {
                     self.reported.push(manifest.clone());
                     self.errors.push(format!("{err}"));
-                    self.problems.insert(manifest.clone(), refused(&manifest, &err));
+                    self.problems.insert(manifest.clone(), refused(&err));
                 }
                 self.fallback(start.as_deref())
             }
@@ -742,12 +742,12 @@ impl ConfigStore {
     }
 }
 
-/// A manifest refused whole, as the editor marks it: the text `toml`
-/// refused, read again for the span to index — a manifest is small, and
-/// this runs once a load.
-fn refused(manifest: &Utf8Path, err: &kg_config::ManifestError) -> ManifestProblem {
-    let span = err.span().zip(std::fs::read_to_string(manifest).ok()).map(|(s, t)| (s, Arc::from(t)));
-    ManifestProblem { message: err.message(), span, refused: true }
+/// A manifest refused whole, as the editor marks it: the span in the text
+/// `toml` refused. Never the file read again, which may have been written
+/// since: an offset from the old text in the new one marks the wrong place,
+/// and reads as a new problem while the fix is on its way.
+fn refused(err: &kg_config::ManifestError) -> ManifestProblem {
+    ManifestProblem { message: err.message(), span: err.span().zip(err.text()), refused: true }
 }
 
 /// Interns a path-like name as a `file:` URI, for tests that need a document
@@ -933,6 +933,26 @@ mod tests {
         assert_eq!(settings.import_dirs, [root.join("bad/lib")]);
         let errors = state.take_config_errors();
         assert!(errors.len() == 1 && errors[0].contains("no board at"), "{errors:?}");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A manifest's mark is placed in the text that was refused. Read again for
+    /// the span, a manifest written in between took the old offset into the new
+    /// text: a different place, so a new problem, published ahead of the reload
+    /// about to clear it. Red with the file read again
+    /// (`a_dependency_s_refused_manifest_is_marked` failed on CI that way).
+    #[test]
+    fn a_manifest_problem_is_marked_in_the_text_that_was_refused() {
+        let dir = std::env::temp_dir().join(format!("kg-lsp-refused-text-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = Utf8PathBuf::from_path_buf(dir.join("kanagawa.toml")).unwrap();
+        std::fs::write(&manifest, "[package]\nedition = \"9.9\"\n").unwrap();
+        let err = kg_config::load(&manifest).unwrap_err();
+        std::fs::write(&manifest, "[package]\nedition = \"1.1\"\n").unwrap();
+
+        let (span, text) = refused(&err).span.expect("`toml` says where");
+        assert_eq!(&text[span], "\"9.9\"");
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

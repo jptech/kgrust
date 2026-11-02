@@ -1311,6 +1311,34 @@ redirected (`chkdoc.cpp:206-220`). Success is `returnCode == 0` (`chkdoc.cpp:110
 This is the only in-tree user of `--define=<name>=<val>` (`=` separator) and of the
 abbreviated `--base=`.
 
+**What it reads.** A line scanner over the Markdown, not a Markdown parser:
+
+- A fence is a line starting with three backticks at column 0 (`chkdoc.cpp:326`), so
+  never `~~~` and never a fence indented in a list.
+- A block whose opening line starts ```` ```C++ ````, ```` ```bash ```` or ```` ```md ````
+  is not compiled (`chkdoc.cpp:332`, case-sensitive prefixes). Every other block is, so
+  `sandcastle.md`'s `cpp` blocks are read as Kanagawa.
+- The line before the fence may be an HTML comment (`StripHtmlComment`,
+  `chkdoc.cpp:14-29`; `prevLine`, `:376-383`). `<!-- invalid -->` skips the block
+  (`:185-188`). Any other comment names a context file, compiled once, with no `--base`,
+  in place of the default contexts (`:190-196`).
+- A context is a file with exactly one `***` line, which the block replaces
+  (`chkdoc.cpp:79-101`). `tools/chkdoc/contexts/emptyfile.k` makes the block the file;
+  `emptyfunction.k` makes it the body of `inline void FunctionName()`, a `;` after it.
+- A block whose first line is exactly `module a.b` is written to `a/b.k` in the working
+  directory before it is tried, even under `<!-- invalid -->`, and the blocks after it
+  import it (`chkdoc.cpp:136-173,345-347`).
+- An empty block and an unterminated fence throw (`chkdoc.cpp:338-341,386-389`).
+
+CMake runs it over four files of `doc/`: `effective-kanagawa.md`,
+`mapping-to-hardware.md`, `sandcastle.md` and `programming-guide.md`
+(`tools/chkdoc/CMakeLists.txt:105-108`). At the pin it takes 324 blocks, 12 of them
+`<!-- invalid -->`, all in `programming-guide.md`. Only one block needs the
+`MemoryLength` define (`programming-guide.md:4523`).
+
+`kg doc --check` is this project's counterpart (§9's box); what it does differently is
+in [`known-divergences.md`](../known-divergences.md#cli), #43–#46.
+
 ### 8.10 Complete set of distinct flags exercised by the whole test suite
 
 `--Wall`, `--Werror`, `--Wconversion`, `--Wredundant-import`,
@@ -1376,6 +1404,24 @@ warning switches and 27 (28) of the 90 other flags are exercised; 7 warning swit
 >   compat binary's for the same options. Any other `-Z` key is refused.
 > * `kg fmt` overrides `[fmt]` with `--line-width`, `--indent`,
 >   `--use-tabs`, `--newline`, `--sort-imports`; `--check`, `--stdout`.
+> * `kg doc --check [PATH]...` (2026-11-01; `kg_doc::check`) writes no site.
+>   It checks the Kanagawa code blocks of the documentation with the
+>   frontend, as §8.9's `chkdoc` compiles upstream's, and refuses `-o`,
+>   `--title` and `--open`. With no paths it reads `project.sources`; a
+>   directory yields its `.k` and `.md` files; a named file that is not `.k`
+>   is read as Markdown. A block is Kanagawa when it is tagged `kanagawa`;
+>   untagged Markdown blocks are passed over, and a line after the summary
+>   says how many. `--all-blocks` takes `chkdoc`'s set in Markdown instead,
+>   every block but `C++`, `bash` and `md`; a doc comment's block still needs
+>   the tag. A block passes as a whole file or as a function's
+>   body, against the base library or the import path's `mini-base.k`.
+>   `<!-- invalid -->` on the line before the fence skips it, `<!-- name.k -->`
+>   checks it in that file beside the document, and `module a.b` on its first
+>   line makes it importable by the file's later blocks. Failures print in
+>   `--error-format`, at the block's line and column in the file holding it,
+>   and exit 1, as an unreadable file does; `-v` adds each block's verdict,
+>   except under `json`. To check as `chkdoc` does: `--all-blocks -D
+>   MemoryLength=32 --target-device mock`.
 > * The language (2026-10-31; [`../editions/`](../editions/README.md)):
 >   `check`, `build`, `doc`, `fmt` and `dump` take `--edition <VERSION>`
 >   and `--feature <NAME>` (repeatable), which replace the project's
