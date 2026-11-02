@@ -6,6 +6,11 @@ Notable changes to kgrust, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `kg check` and `kg build` ignored `--edition` and `--feature` for a project
+  named through a symlink, and read a later edition's program as edition 1.0.
+
 ### Changed
 
 - Inference does less over again, with identical results. It walks again

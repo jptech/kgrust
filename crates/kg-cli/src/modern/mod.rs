@@ -532,6 +532,12 @@ fn resolve(
             for dir in &mut settings.import_dirs {
                 *dir = canonical(dir);
             }
+            // The language's root by the spelling the files are known by, or
+            // a project reached through a symlink has no file under it, and
+            // `--edition` and `--feature` reach nothing.
+            if let Some(root) = settings.language.root() {
+                settings.language = settings.language.rooted_at(&canonical(root));
+            }
             Some(resolved)
         }
         Err(message) => {
@@ -718,7 +724,7 @@ fn fmt(
             skipped += 1;
             continue;
         };
-        let features = resolved.settings.language_of(path).features();
+        let features = resolved.settings.language_of(&canonical(path)).features();
         let formatted = match kg_fmt::format_file_in(&text, &config, features) {
             Ok(formatted) => formatted,
             Err(error) => {
