@@ -136,10 +136,17 @@ debug = 1
 # 6–10% faster and `kg` 30% smaller, its output over the corpus identical
 # (2026-10-12, docs/journal.md). It takes a minute more to build, so the gates
 # and `cargo xtask` stay on `release`. Not `dist`: that is the archives' folder.
+#
+# Stripped: `release`'s `debug = 1` left 49 of the Linux `kg`'s 59.5 MiB in
+# `.debug_*` sections, where macOS keeps debug info out of the binary (the
+# first nightly, 2026-11-01). `debug = false` as well saves no build time, only
+# 0.5 GiB of its peak. A panic still names its file and line; a backtrace no
+# longer names functions.
 [profile.ship]
 inherits = "release"
 lto = "fat"
 codegen-units = 1
+strip = true
 
 # macOS defaults to `unpacked`, which keeps every `.rcgu.o` beside the rlib for
 # the debugger and never collects them: one rebuild leaves ~7k files per crate,
