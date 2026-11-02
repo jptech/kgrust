@@ -143,9 +143,11 @@ for: your own text, with only the edition's constructs rewritten. Trailing
 commas are dropped, labels are removed and arguments put in their parameters'
 order, defaults are written into the calls that leave them out, and named
 template arguments are put in their places. Comments and layout elsewhere stay
-as they are (a comment between two arguments stays where it is when they swap),
-and a file that uses nothing of a later edition comes back byte for byte.
+as they are (a comment between two arguments stays where it is when they swap,
+and a default added after a line's last argument lands before that line's
+trailing comment), and a file that uses nothing of a later edition comes back byte for byte.
 
+<!-- invalid -->
 ```kanagawa
 // edition 1.1                              // kg expand
 const uint8 Step = 2;                       const uint8 Step = 2;

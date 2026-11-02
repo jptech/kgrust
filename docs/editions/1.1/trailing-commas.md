@@ -33,6 +33,7 @@ Alone, on any edition: `[language] features = ["trailing-commas"]`.
 The comma earns its keep in a list written one element a line. Adding an
 element is then one new line, and a review's diff shows that line alone:
 
+<!-- invalid -->
 ```kanagawa
 enum Opcode : uint4
 {
@@ -50,6 +51,7 @@ uint8 total = sum(
 It pairs with [named arguments](named-arguments.md), which tend to be
 written one a line:
 
+<!-- invalid -->
 ```kanagawa
 uint32 c = acc.add(
     value: a,

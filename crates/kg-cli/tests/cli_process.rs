@@ -578,6 +578,23 @@ const DOCUMENTED: &str = include_str!("../../kg-doc/tests/fixtures/documented.k"
 /// `kg doc --check`: a guide's code blocks and a source's doc comments'
 /// through the frontend, each failure at the block's own line of the file
 /// that holds it, in `check`'s formats — and no site written.
+/// Our own edition pages, checked as a user checks theirs. The fragments among
+/// their blocks say so (`<!-- invalid -->`), so a whole example that stops
+/// compiling turns this red.
+#[test]
+fn the_edition_pages_code_blocks_check() {
+    let Some(root) = corpus_root() else {
+        kg_base::corpus_absent("no corpus; set KANAGAWA_ROOT");
+        return;
+    };
+    let library = root.join("library");
+    let library = library.to_str().expect("a UTF-8 path");
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let run = run_in(KG, &repo, &["--no-manifest", "doc", "--check", "--edition", "1.1", "-I", library, "docs/editions"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("no problems found"), "{}", run.stdout);
+}
+
 #[test]
 fn kg_doc_check_points_into_the_documentation_and_writes_nothing() {
     let scratch = Scratch::new("doc-check");

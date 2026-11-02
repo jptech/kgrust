@@ -12,6 +12,7 @@ Alone, on any edition: `[language] features = ["named-arguments"]`.
 
 ## Syntax
 
+<!-- invalid -->
 ```kanagawa
 uint16 a = sub(y: q, x: p);       // every argument named, any order
 uint16 b = sub(p, y: q);          // positional first, then named
@@ -88,6 +89,7 @@ Two arguments may swap when neither calls a function, or when one calls
 and the other is pure. If the parameters' order would swap any other pair,
 the call is an error, at the argument that would move ahead:
 
+<!-- invalid -->
 ```kanagawa
 uint32 d = sub(y: g(), x: h());   // error: in `sub`'s parameter order `x` would be
                                   // evaluated before `y`, which is written first,
