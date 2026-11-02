@@ -63,8 +63,18 @@ Exit codes: 0 success, 1 errors found, 2 bad usage, or not implemented yet (a
 program `build` cannot lower), 3 the backend crashed during `build` (it runs in
 a worker process, so the crash is reported rather than taking `kg` down).";
 
+/// The version this build reports. A build that names itself sets
+/// `KG_VERSION`: a release, `cargo xtask dist --release`, as `0.2.0`, and a
+/// nightly (`.github/workflows/nightly.yml`) as
+/// `0.2.0-nightly.20261102+abc1234`. Any other build says it is not a release,
+/// and which commit it is: `0.2.0-dev+abc1234` (`build.rs`).
+pub const VERSION: &str = match option_env!("KG_VERSION") {
+    Some(version) => version,
+    None => env!("KG_DEV_VERSION"),
+};
+
 #[derive(Parser, Debug)]
-#[command(name = "kg", version, about = ABOUT, long_about = LONG_ABOUT, disable_help_subcommand = true)]
+#[command(name = "kg", version = VERSION, about = ABOUT, long_about = LONG_ABOUT, disable_help_subcommand = true)]
 pub struct Cli {
     #[command(flatten)]
     pub global: GlobalArgs,
@@ -532,6 +542,12 @@ fn resolve(
             for dir in &mut settings.import_dirs {
                 *dir = canonical(dir);
             }
+            // The language's root by the spelling the files are known by, or
+            // a project reached through a symlink has no file under it, and
+            // `--edition` and `--feature` reach nothing.
+            if let Some(root) = settings.language.root() {
+                settings.language = settings.language.rooted_at(&canonical(root));
+            }
             Some(resolved)
         }
         Err(message) => {
@@ -718,7 +734,7 @@ fn fmt(
             skipped += 1;
             continue;
         };
-        let features = resolved.settings.language_of(path).features();
+        let features = resolved.settings.language_of(&canonical(path)).features();
         let formatted = match kg_fmt::format_file_in(&text, &config, features) {
             Ok(formatted) => formatted,
             Err(error) => {
@@ -1023,7 +1039,7 @@ fn lsp(args: &LspArgs, err: &mut dyn Write) -> i32 {
     let _ = args.stdio;
     // A server idles between checks, and an idle allocator returns nothing.
     kg_alloc::purge_eagerly();
-    match kg_lsp::run_server() {
+    match kg_lsp::run_server(VERSION) {
         Ok(exit) => exit.code(),
         Err(e) => {
             let _ = writeln!(err, "kg lsp: {e}");

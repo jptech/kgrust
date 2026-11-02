@@ -147,7 +147,10 @@ GitHub's free runners: `test` (the quick tests, `corpus`, `conformance`,
 `check-links.py`), over the workspace but `kg-ptrace`. It covers this
 repository's Rust code, and builds neither the backend nor the reference
 — keep it that way; the parity gates stay local. `scripts/ci.sh` runs the
-same on your machine.
+same on your machine. **Nightly prereleases**
+([`.github/workflows/nightly.yml`](.github/workflows/nightly.yml)) hold to
+the same: `main` packaged by `cargo xtask dist --no-backend` for Linux and
+macOS, tagged `nightly`, replaced each night `main` moves, never a release.
 
 **Worktrees.** `scripts/worktree.sh add <path>`, or `scripts/worktree.sh
 link` inside an existing one, links the gates' data stores from the primary
@@ -216,9 +219,10 @@ gate sees: read the library's diff for renamed parameters, and say so in
 the changelog.
 
 **Releasing.** Set the version in `Cargo.toml`'s `[workspace.package]`; full
-gates green on `main`; `scripts/build-backend.sh`; `cargo xtask dist`;
-smoke-test the unpacked archive outside the checkout, nothing configured
-(`kg check`, `kg build`, `kg doc` on a small design); add the
+gates green on `main`; `scripts/build-backend.sh`; `cargo xtask dist
+--release` (any other build says `-dev+<commit>`); smoke-test the unpacked
+archive outside the checkout, nothing configured (`kg --version` exactly the
+version, `kg check`, `kg build`, `kg doc` on a small design); add the
 [`CHANGELOG.md`](CHANGELOG.md) entry; tag `vX.Y.Z` on `main`; attach each
 platform's archive and `.sha256` to the release.
 

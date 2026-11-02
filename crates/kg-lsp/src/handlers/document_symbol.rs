@@ -119,7 +119,12 @@ fn collect(
                 sym.range = convert::range(index, enc, node.text_range());
             }
         }
-        // `export T;` / `extern T;` name a type that lives elsewhere.
+        // `export T;` / `extern T;` declare nothing: they name a type, most
+        // often the class just above them. That class is already in the
+        // outline, so the keyword joins its detail rather than listing it
+        // twice. A type no entry above is named for — one declared in
+        // another file, or an instance (`export Ring<4>;`) — keeps an entry
+        // of its own.
         EXPORT_DECL | EXTERN_DECL => {
             let name = squash(
                 &node
@@ -128,8 +133,18 @@ fn collect(
                     .map(|t| t.text().to_string())
                     .unwrap_or_default(),
             );
-            if !name.is_empty() {
-                let kw = if node.kind() == EXPORT_DECL { "export" } else { "extern" };
+            let kw = if node.kind() == EXPORT_DECL { "export" } else { "extern" };
+            // A type's entry: a class (`export Main;`), an enum (`export RVG;`,
+            // `test/library/processor/risc-v/mmio/mmio.k:21`), a struct or
+            // union, an alias.
+            let types = [SymbolKind::CLASS, SymbolKind::STRUCT, SymbolKind::ENUM, SymbolKind::TYPE_PARAMETER];
+            let declared = out.iter_mut().rev().find(|s| s.name == name && types.contains(&s.kind));
+            if let Some(declared) = declared {
+                declared.detail = Some(match declared.detail.take() {
+                    Some(detail) => format!("{kw} {detail}"),
+                    None => kw.to_owned(),
+                });
+            } else if !name.is_empty() {
                 out.push(symbol(
                     index,
                     enc,
@@ -368,6 +383,31 @@ mod tests {
         let flat: Vec<_> = flatten(&out).into_iter().map(|s| (s.name, s.kind)).collect();
         assert!(flat.contains(&("free".to_owned(), SymbolKind::FUNCTION)), "{flat:?}");
         assert!(flat.contains(&("member".to_owned(), SymbolKind::METHOD)), "{flat:?}");
+    }
+
+    /// An exported class is listed once, the export in its detail, and so are
+    /// an `extern` one and an exported enum; an export naming an instance,
+    /// for which no entry in the outline is named, keeps its own. Red with
+    /// every `export T;` listed beside the type it names (found 2026-10-11
+    /// trying the VS Code extension: the class and its export).
+    #[test]
+    fn an_exported_class_is_listed_once() {
+        let src = "class Top\n{\npublic:\n    uint32 go(uint32 x) { return x; }\n}\n\nexport Top;\n\n\
+                   class fmul\n{\npublic:\n    uint32 op(uint32 x);\n}\n\nextern fmul;\n\n\
+                   enum Mode : uint2\n{\n    A,\n    B\n}\n\nexport Mode;\n\n\
+                   template <auto N>\nclass Ring\n{\n}\n\nexport Ring<4>;\n";
+        assert!(parsed(src), "the fixture must parse or this test asserts nothing");
+        let out: Vec<_> = symbols(src).into_iter().map(|s| (s.name, s.kind, s.detail)).collect();
+        assert_eq!(
+            out,
+            vec![
+                ("Top".to_owned(), SymbolKind::CLASS, Some("export".to_owned())),
+                ("fmul".to_owned(), SymbolKind::CLASS, Some("extern".to_owned())),
+                ("Mode".to_owned(), SymbolKind::ENUM, Some("export : uint2".to_owned())),
+                ("Ring".to_owned(), SymbolKind::CLASS, Some("template <auto N>".to_owned())),
+                ("Ring<4>".to_owned(), SymbolKind::INTERFACE, Some("export".to_owned())),
+            ]
+        );
     }
 
     #[test]

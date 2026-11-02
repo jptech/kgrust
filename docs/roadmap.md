@@ -7,7 +7,7 @@ project got here is in [`history/`](history/README.md) — the parity sprint
 ([`history/sprint-parity.md`](history/sprint-parity.md)) and the handoff
 written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10-11.md)).
 
-## Where it stands (2026-10-12)
+## Where it stands (2026-11-01)
 
 - **The frontend is at parity with the reference** on everything the
   reference's own corpus can grade: every decidable conformance assertion
@@ -19,13 +19,20 @@ written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10
   RTL, source-location comments aside (269 of 274 programs; the reference
   fails on the other 5), built from the `third_party/kanagawa` submodule
   by `scripts/build-backend.sh`.
+- **Language editions** (0.2.0, 2026-11-01): a package opts in with
+  `[package] edition`; `1.0` is the reference, and `1.1`, a preview, adds
+  named arguments, trailing commas, default arguments and named template
+  arguments, each rewritten inside the frontend into the program `1.0`
+  would have written. Graded by the `editions` gate; the user's pages are
+  [`editions/`](editions/README.md).
 - **The tools:** `kg check`, `build`, `fmt`, `lsp`, `doc`, `dump`,
-  `explain`, and the argv-compatible `kanagawa`; a release archive from
-  `cargo xtask dist` (and `cargo xtask install`, the same tree linked into
-  `~/.cargo/bin`); the VS Code extension in `editors/vscode`, which
-  packages (`npm run package`) and installs locally — completion after
-  `::` (an enum's constants with their values) its latest feature.
+  `explain`, `board`, and the argv-compatible `kanagawa`; a release
+  archive from `cargo xtask dist` (and `cargo xtask install`, the same
+  tree linked into `~/.cargo/bin`); the VS Code extension in
+  `editors/vscode`, which packages (`npm run package`) and installs
+  locally.
 - **Published** at [github.com/jptech/kgrust](https://github.com/jptech/kgrust),
+  with no release yet (`0.2.0` is `Cargo.toml`'s version, untagged), and
   with CI on every push and pull request (`scripts/ci.sh`: the Rust code
   on Linux, and on macOS for `main`). The backend build and the parity
   gates are tested on macOS only; on Linux the backend's build compiles
@@ -52,9 +59,10 @@ Independent options, roughly in the order recommended.
    until a run's silent and false-alarm buckets are empty.
 2. **Publishing.** A release per platform (`cargo xtask dist`; on Linux the
    backend build wants finishing — at fewer jobs than Docker's 8 GB
-   allowed — and the archive trying), the VS Code extension on a
-   marketplace (it packages already; its publisher and name are open,
-   below), doc tests for Markdown code blocks like upstream's `chkdoc`
+   allowed — and the archive trying; nightly prereleases without the code
+   generator are built by `.github/workflows/nightly.yml`, 2026-11-01),
+   the VS Code extension on a marketplace (it packages already; its
+   publisher and name are open, below), doc tests for Markdown code blocks like upstream's `chkdoc`
    ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
 3. **The loop on more than one core, and its tail rounds.** The loop runs
    on one core where the reference gains 2.2–3.5× from sixteen; `array.k`
@@ -65,28 +73,35 @@ Independent options, roughly in the order recommended.
    prefix pass splits as the code stands (9% of `risc-v.k`'s loop, ~1% of
    the others'); inference, most of the loop, needs a frozen view of the
    other modules per iteration first. Until then `kg` stays on one thread,
-   with no option for more (§13, item 1). Where the rest goes (§13,
-   "Inside the loop, by cause"): two thirds of inference's unit walks
-   change nothing, half of them walked again because a rebuilt symbol map
-   answered a lookup with a re-minted declaration.
+   with no option for more (§13, item 1). Where the rest went (§13,
+   "Inside the loop, by cause"): walks re-run because a rebuilt symbol map
+   re-minted a declaration, and symbol maps discarded by inference's own
+   folds — both taken 2026-11-01 (§13, options 1, 3 and 5; with them,
+   §11's `kg check` of `risc-v.k` went 1.95 → 1.66 s and `array.k` 0.80 →
+   0.68 s since 2026-10-11). What is left there is deferred, each option
+   with its ceiling and the spike to run first: confirming walks, 27–30%
+   of inference's unit visits (option 7), and visits to modules with
+   nothing new, 4–23% of the loop (option 8).
 4. **The keystroke.** On the largest project, `risc-v.k`, the editor's
-   first answer takes ~0.83 s and its last ~2 s. Carrying the library's
-   work across edits takes at most ~40% off; the plan's next step (symbol
-   maps per module) and the design after it (re-askable reads, which
-   would spare a batch compile those walks too) are in
-   [`plans/loop-across-edits.md`](plans/loop-across-edits.md) §6, §8.
+   first answer takes ~0.78 s and its last ~1.8 s (2026-11-01, `cargo
+   xtask bench --filter keystroke-phases --recorded`). Carrying the
+   library's work across edits takes at most ~40% off. Within a run the
+   symbol maps are now kept and repaired, so what is left of the plan's
+   step 4 is carrying them across edits; the design after it (re-askable
+   reads, which would spare a batch compile those walks too) is to be
+   written ([`plans/loop-across-edits.md`](plans/loop-across-edits.md) §6,
+   §8).
 5. **The backend, if taken up** (open, below): the address-ordered
    liveness work list (which swings `risc-v.k`'s backend from ~4 to 30+
    minutes), a no-op `GlobalDataPropagation`, a whole-run cache in
    `kg build` ([`plans/backend-survey.md`](plans/backend-survey.md) §3).
 6. **Smaller:** the editor's rename follow-ups (members through lambdas and
-   abbreviated templates); three found trying the VS Code extension
-   (2026-10-11) — hover inside a template defined in another file says
-   "Type not yet inferred" (an open file is answered as its own root, and a
-   module instantiates nothing; answering through the open files that
-   import it would fix it), the outline lists an exported class twice (the
-   class and its `export`), and the formatter half-splits a function body
-   written on one line; moving the parser's template checks onto the
+   abbreviated templates); a library file beyond the manifest's root has no
+   project, so going to a definition in one reports false errors on a source
+   build, and hover there cannot reach the program that imports it (journal,
+   2026-11-01); the formatter's half split in an `if` with a long condition
+   and a lambda with long parameters, which keep their one-line bodies on
+   the closing `)`'s line; moving the parser's template checks onto the
    sorted lowering (a verdict change, through `errors` and `conformance`);
    the 18 recovery positions where ours would mislead (divergence #30);
    the one-shot memory peak; `kg explain` prose for the backend's codes;
@@ -140,12 +155,12 @@ adds. Per package, so a library and its users each keep their own; every
 extension desugars inside the frontend to reference Kanagawa, so the
 ParseTree walk and the backend never change, and a `kg expand` (not
 built) could print the reference program at any time. Planned in
-[`plans/editions.md`](plans/editions.md); **built on the `editions-pilot`
-branch** (2026-10-30/31, PR #8): edition `1.1`, a preview — named
+[`plans/editions.md`](plans/editions.md); **shipped in 0.2.0** (PR #8,
+merged 2026-11-01, which answered whether kgrust extends the language at
+all: below, under the decisions): edition `1.1`, a preview — named
 arguments, trailing commas, default arguments and named template
 arguments — behind the `editions` gate; the user's pages are
-[`editions/`](editions/README.md). Merging it answers the open question
-below.
+[`editions/`](editions/README.md).
 
 *Language, edition-gated, each desugared to reference Kanagawa:*
 
@@ -223,7 +238,6 @@ Each blocks only its own item; the work assumes the first answer meanwhile.
 | Whether the reference's round order binds after parity (it decides whether a demand-driven elaboration, possibly on salsa, is open) | it binds | [`plans/loop-across-edits.md`](plans/loop-across-edits.md) §8 |
 | The query layer's substrate: hand-rolled, or salsa | hand-rolled | [`plans/loop-across-edits.md`](plans/loop-across-edits.md) §8 |
 | Rename in a project with no manifest: refuse, or scan the declaring file's directories | searches the open buffers' programs | [`history/handoff-2026-10-11.md`](history/handoff-2026-10-11.md) |
-| Whether kgrust extends the language at all, behind editions (a direction beyond parity) | built on `editions-pilot` (PR #8: edition `1.1`, a preview — named arguments, trailing commas, default arguments, named template arguments); its merge is the owner's answer | [`plans/editions.md`](plans/editions.md), [`editions/`](editions/README.md) |
 | Lints beyond the reference's six warnings (width surprises) | none | [`plans/developer-tooling.md`](plans/developer-tooling.md) §2.5 |
 | The VS Code extension's publisher and display name (distinct from upstream's own extension) | unset | [`plans/developer-tooling.md`](plans/developer-tooling.md) §2.1 |
 | Where the platform layer lives (here, or a repository of its own) and whether the release archive carries it | here, in `platform/`; shipped since 2026-10-17, so that an installed `kg board` works (two lines of `xtask/src/dist.rs`) | [`plans/platform-layer.md`](plans/platform-layer.md) §8 |
@@ -241,6 +255,12 @@ Each blocks only its own item; the work assumes the first answer meanwhile.
 - **Developer-experience features are pulled forward** (2026-09-06): after
   each frontend slice, one tooling slice lands, rather than all of them
   waiting.
+- **The language grows behind editions only** (2026-11-01, the owner's
+  merge of PR #8): existing code is untouched and new code opts in per
+  package; every extension claims only programs the reference rejects and
+  is rewritten to reference Kanagawa inside the frontend, so the walk and
+  the backend never change; `kanagawa` never opts in
+  ([`plans/editions.md`](plans/editions.md)).
 - **No port of the reference's pretty-printer** (2026-10-09): `kanagawa
   pretty` and `--dump-source` are booked divergences; `kg fmt` is the
   formatter.

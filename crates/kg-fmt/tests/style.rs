@@ -168,3 +168,59 @@ fn a_stray_semicolon_after_a_type_body_stays_where_it_was() {
     let src = "class C\n{\n};\n\nclass D\n{\n}\n";
     assert_eq!(fmt(src), src);
 }
+
+/// Formats at `width`, and again, which must change nothing.
+#[track_caller]
+fn fmt_at(width: usize, src: &str) -> String {
+    let config = Fmt { line_width: width, ..Fmt::default() };
+    let once = format_file(src, &config).expect("the fixture should parse and format");
+    assert_eq!(format_file(&once, &config).unwrap(), once, "a second run moved what the first laid out");
+    once
+}
+
+#[test]
+fn a_one_line_body_is_kept_where_its_line_fits_and_laid_out_allman_where_not() {
+    // §2.3, §10.2: the author's collapse is kept where the declaration fits
+    // on its line. Where it does not, the body is laid out as 13 375 of 13 546
+    // are, and the header breaks only for its own width. Width alone used to
+    // break the parameters around a body left on the `)` line, `( uint32 x`
+    // above `) { return x + 1; }` (found 2026-10-11 trying the VS Code
+    // extension, at a manifest's narrower `line-width`).
+    let one = "inline uint32 add_one(uint32 x) { return x + 1; }\n";
+    assert_eq!(fmt_at(100, one), one);
+    assert_eq!(fmt_at(40, one), "inline uint32 add_one(uint32 x)\n{\n    return x + 1;\n}\n");
+    assert_eq!(
+        fmt_at(25, one),
+        "inline uint32 add_one\n    ( uint32 x\n    )\n{\n    return x + 1;\n}\n",
+        "a header too long for the line breaks too, and the body is still Allman"
+    );
+    // `test/logic/loop_test_cases_2.k:58`, 118 columns: the corpus's only
+    // one-line body too long for the default width.
+    let corpus = "inline void TransitiveControlFlowBackPressure_3_2_2(unit::tag_t tag)  \
+                  {TransitiveControlFlowBackPressure<3, 2, 2>(tag);}\n";
+    assert_eq!(
+        fmt_at(100, corpus),
+        "inline void TransitiveControlFlowBackPressure_3_2_2(unit::tag_t tag)\n{\n    \
+         TransitiveControlFlowBackPressure<3, 2, 2>(tag);\n}\n"
+    );
+    // An attribute or a doc comment on a line of its own ends a line before
+    // the body's, and does not count against it.
+    for above in ["[[async]]\ninline void stub(uint32 x) {}\n", "//| Does nothing.\ninline void stub(uint32 x) {}\n"] {
+        assert_eq!(fmt_at(40, above), above);
+    }
+}
+
+#[test]
+fn nothing_breaks_inside_a_body_written_on_one_line() {
+    // An `else` (§2.2), a `switch`'s brace (§2.6) and the declaration after
+    // `template <…>` (§3.2) go on lines of their own — but not inside a body
+    // the author collapsed, which then came out half split and, collapsed
+    // no longer, Allman on the next run.
+    for src in [
+        "inline uint32 pick(uint32 x) { if (x == 0) return 1; else return x; }\n",
+        "inline uint32 arm(uint32 x) { uint32 r; switch (x) { case 0: r = 1; break; default: r = 2; break; } return r; }\n",
+        "class K { template <auto N> inline uint32 f() { return N; } }\n",
+    ] {
+        assert_eq!(fmt_at(200, src), src);
+    }
+}
