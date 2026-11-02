@@ -115,8 +115,9 @@ common layout of a dependency's manifest beside the `src/` its users
 import.
 
 **A single file, no manifest.** `kg check --edition 1.1 design.k` treats
-the directory of the first input as the project's root: files under it
-are in the flags' language, the standard library is not. The language
+the directory of the first input as the project's root, the directory it
+is really in if it is a link: files under it are in the flags' language,
+the standard library is not. The language
 server reads manifests only — an editor buffer gets the language its
 `kanagawa.toml` names, or `1.0`.
 

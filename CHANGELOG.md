@@ -60,6 +60,13 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Fixed
 
+- The Neovim plugin's lazy.nvim install sets `submodules = false`, and its
+  vim-plug install points at a local checkout: either would otherwise fetch
+  the whole reference compiler, with CIRCT and LLVM inside it.
+- `cargo xtask dist` and `install` read `KG_BACKEND_DIR`, as everything else
+  does, so they work from a linked worktree without `--backend-dir`.
+- `--edition` and `--feature` reach a file named through a symlink from
+  another directory, with no manifest above it.
 - `kg check` and `kg build` ignored `--edition` and `--feature` for a project
   named through a symlink, and read a later edition's program as edition 1.0.
 - A `kanagawa.toml` saved while a check was finishing could have its error
