@@ -30,6 +30,20 @@
 //! Typed in 2 instances: a template's body has no type of its own.
 //! ```
 //!
+//! # A template defined in another file
+//!
+//! A buffer is answered as its own root, the program its diagnostics run.
+//! A program holds only the instances it makes, so in a file that defines a
+//! template and never uses it — a library's — that program has no copy of
+//! the body, and no type to show inside it. Where the buffer's own program
+//! has nothing to show, the hover asks the programs of the other open
+//! buffers of the project that import the file, in order, as each buffer's
+//! diagnostics left its loop — read, never run — and the first that has an
+//! answer gives it, the file it roots named under it. Where none has, the
+//! hover says the type is not inferred, as before: no program the editor
+//! holds made an instance, and a type of the template's own would be one
+//! the reference never computes.
+//!
 //! # A member after a `.`
 //!
 //! `a.get` names `get` inside `a`'s type, and its type is the one the
@@ -72,16 +86,16 @@
 //! ambiguous name, a caret on punctuation — is a hover of `null`. They are
 //! enumerated with citations on [`kg_db::Db::definition_at`].
 
-use kg_base::{Interner, SymbolPath};
-use kg_db::Definition;
-use kg_db::looped::IrAnswer;
-use kg_resolve::{DeclareFlag, DefKind};
+use kg_base::{FileId, Interner, SymbolPath};
+use kg_db::looped::{EditorLoop, IrAnswer};
+use kg_db::{Db, Definition};
+use kg_resolve::{DeclareFlag, DefKind, ModuleSource};
 use kg_ty::Ty;
 use lsp_types::{Hover, HoverContents, HoverParams, MarkupContent, MarkupKind};
 
 use crate::convert;
-use crate::global_state::GlobalState;
-use crate::handlers::{Answer, instances};
+use crate::global_state::{FileSnapshot, GlobalState};
+use crate::handlers::{Answer, instances, references};
 
 /// Answers with a markdown [`Hover`], or `None` when nothing under the cursor
 /// resolves to a declaration.
@@ -102,7 +116,8 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
     //
     // The file is its own root, matching `GlobalState::frontend_diagnostics`:
     // an editor is looking at one buffer, and the program this is answered
-    // against is the one that buffer entails.
+    // against is the one that buffer entails — the name is resolved there
+    // always, and its type read there first (the module docs).
     let markup = state
         .with_db(snap.file, |db| {
             let roots = [snap.file];
@@ -122,26 +137,59 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
             let name = first.qualified_name.last().map(|n| names.resolve(n).to_string()).unwrap_or_default();
             let declared = declared(db, snap.file, &found, &name);
             let printable = |t: &Ty| shown(t).is_some();
+            // What one loop says at the caret. A member template's call:
+            // the instance it compiles, said as signature help says it —
+            // the member's own declaration is a template, which has no one
+            // signature. A member after a `.` is typed as the receiver's
+            // instance has it; anything else, and a member the loop has
+            // nothing to show for, at its declaration — which for several
+            // declarations is no one answer.
+            let said = |looped: &EditorLoop| match db.member_callee_at(looped, snap.file, offset) {
+                Some(answer) => Some(Said::Callee(answer)),
+                None => db
+                    .member_answer_at(looped, snap.file, offset, &printable)
+                    .or_else(|| (found.len() == 1).then(|| db.ir_answer_of_definition(looped, first, &printable)).flatten())
+                    .map(Said::Typed),
+            };
             // On a buffer that does not parse, the last loop, mapped — or,
             // where there is none, the buffer's own, run once.
-            let looped = db.editor_loop_or_own(&roots, snap.file);
-            // A member template's call: the instance it compiles, said as
-            // signature help says it — the member's own declaration is a
-            // template, which has no one signature.
-            if let Some(answer) = db.member_callee_at(&looped, snap.file, offset) {
-                let (lines, said) = instances::called(looped.looped(), &answer, &name, names);
-                return Some(with_docs(format!("{}\n\n{declared}\n\n{said}", instances::fence(&lines)), docs));
-            }
-            // A member after a `.` is typed as the receiver's instance has
-            // it; anything else, and a member the loop has nothing to show
-            // for, at its declaration — which for several declarations is
-            // no one answer. Where the loop has nothing to show, the
-            // declaration's kind and name are the hover, "not yet
+            let own = db.editor_loop_or_own(&roots, snap.file);
+            // Where the buffer's own program has nothing to show — above all
+            // a template's body this file never instantiates, since a program
+            // holds only the instances it makes — the program of another open
+            // buffer that imports it (`importers`). Where none has anything
+            // either, the declaration's kind and name are the hover, "not yet
             // inferred": the CST engine answered there until sprint W3.7,
             // and what that costs is the plan's W3 entry.
-            let ir = db
-                .member_answer_at(&looped, snap.file, offset, &printable)
-                .or_else(|| (found.len() == 1).then(|| db.ir_answer_of_definition(&looped, first, &printable)).flatten());
+            let (looped, said, through) = match said(&own) {
+                Some(s) => (own, Some(s), None),
+                None => match importers(state, db, &snap).find_map(|(by, l)| Some((said(&l)?, l, by))) {
+                    Some((s, l, by)) => (l, Some(s), Some(by)),
+                    None => (own, None, None),
+                },
+            };
+            // The program that answered, where it is not this file's own:
+            // its instances are that program's, and a reader comparing them
+            // with the file's diagnostics should know.
+            let through = through.map(|by| {
+                format!(
+                    "\n\nAs typed in the program of {}, an open file that imports this one; this file's \
+                     own program has no type here.",
+                    file_link(state, by)
+                )
+            });
+            let through = through.as_deref().unwrap_or_default();
+            let ir = match said {
+                Some(Said::Callee(answer)) => {
+                    let (lines, said) = instances::called(looped.looped(), &answer, &name, names);
+                    return Some(with_docs(
+                        format!("{}\n\n{declared}\n\n{said}{through}", instances::fence(&lines)),
+                        docs,
+                    ));
+                }
+                Some(Said::Typed(answer)) => Some(answer),
+                None => None,
+            };
             // An enum constant's value beside its name, as the loop folded
             // it: `const mode smooth = 1`.
             let name = match (found.len(), db.enum_constant_value(&looped, first)) {
@@ -154,9 +202,9 @@ pub fn hover(state: &GlobalState, params: &HoverParams) -> Answer<Option<Hover>>
                 _ => name,
             };
             let shown = match ir {
-                Some(IrAnswer::Written(ty)) => markdown(&declared, &name, &ty, names),
+                Some(IrAnswer::Written(ty)) => markdown(&declared, &name, &ty, names) + through,
                 Some(IrAnswer::Copies { types, untyped, budget_exhausted }) => {
-                    copies_markdown(&declared, &name, &types, &untyped, budget_exhausted, names)
+                    copies_markdown(&declared, &name, &types, &untyped, budget_exhausted, names) + through
                 }
                 // A template's parameter has no type outside an instance —
                 // the loop types the copies, never the template — and its
@@ -205,12 +253,43 @@ fn import_markdown(state: &GlobalState, root: &kg_syntax::SyntaxNode, offset: kg
         .and_then(|decl| decl.module_path())
         .map(|path| path.syntax().text().to_string().split_whitespace().collect::<String>())
         .unwrap_or_default();
-    let file = state.vfs().path(module).map(|p| p.to_string()).unwrap_or_default();
-    let loaded = match crate::handlers::uri_of(state, module) {
-        Some(uri) => format!("[`{file}`]({})", uri.as_str()),
-        None => format!("`{file}`"),
-    };
-    format!("```kanagawa\nimport {named}\n```\n\n**module** `{named}`, loaded from {loaded}")
+    format!("```kanagawa\nimport {named}\n```\n\n**module** `{named}`, loaded from {}", file_link(state, module))
+}
+
+/// A file as a tooltip names it: its path, linked where it has a URI.
+fn file_link(state: &GlobalState, file: FileId) -> String {
+    let path = state.vfs().path(file).map(|p| p.to_string()).unwrap_or_default();
+    match crate::handlers::uri_of(state, file) {
+        Some(uri) => format!("[`{path}`]({})", uri.as_str()),
+        None => format!("`{path}`"),
+    }
+}
+
+/// What a loop says at the caret.
+enum Said {
+    /// The instance a member template's call compiles.
+    Callee(IrAnswer),
+    /// The type of the member or the declaration the name denotes.
+    Typed(IrAnswer),
+}
+
+/// The loops of the other open buffers of this project whose programs hold
+/// `snap`'s file, in [`references::buffers_of_this_project`]'s order, each
+/// the newest its diagnostics computed ([`kg_db::Db::editor_loop_ready`]):
+/// read, never run. A hover that ran another program's loop would cost what
+/// that buffer's keystroke costs — on `risc-v.k` the better part of a
+/// second — and the buffer's diagnostics run it anyway.
+///
+/// A program holds only the instances it makes, so a template's body is
+/// typed only in a program that instantiates it: answered as its own root,
+/// the file that defines a template and never uses it has no type to show
+/// inside it.
+fn importers<'a>(state: &GlobalState, db: &'a Db, snap: &FileSnapshot) -> impl Iterator<Item = (FileId, EditorLoop)> + 'a {
+    let module = ModuleSource::File(snap.file);
+    references::buffers_of_this_project(state, &snap.settings.root, snap.file)
+        .into_iter()
+        .skip(1)
+        .filter_map(move |by| Some((by, db.editor_loop_ready(&[by]).filter(|l| l.looped().modules.contains(&module))?)))
 }
 
 /// The body of the tooltip: a fenced signature, then the kind and the fully
@@ -785,6 +864,42 @@ class Adder {
         // The caret is on `Aa` in `main.k`; `struct Aa` is declared in `a.k`.
         let out = body(&state, &main, Position::new(4, 5)).expect("the import must resolve");
         assert_eq!(out, "```kanagawa\ntype a::Aa\n```\n\n**struct** `a::Aa`");
+    }
+
+    /// Inside a template defined in one file and instantiated in another,
+    /// the type is the instances' of the program that makes them — another
+    /// open buffer's, as its diagnostics left it — and the hover names that
+    /// program. `y` is `x + N`, `uint33` in `add_n<3>` and `add_n<7>`
+    /// (`tAdd`, `Type.hs:854`: 32 bits and 2 or 3, plus one). Opened alone,
+    /// the file instantiates nothing and the hover says so, as before.
+    /// Red with the hover asking the file's own program only (found
+    /// 2026-10-11 trying the VS Code extension: "Type not yet inferred").
+    #[test]
+    fn inside_a_template_another_open_file_instantiates_its_instances_are_listed() {
+        let state = GlobalState::new();
+        let library = test_uri("lib.k");
+        let main = test_uri("main.k");
+        let lib = "module lib\n    { add_n\n    }\n\ntemplate <auto N>\ninline uint32 add_n(uint32 x)\n{\n    auto y = x + N;\n    return y;\n}\n";
+        state.did_open(library.clone(), lib.to_owned(), 1);
+        let alone = body(&state, &library, Position::new(7, 9)).expect("`y` must resolve");
+        assert_eq!(alone, "**local** `lib::add_n::$::y`\n\nType not yet inferred.");
+
+        let text = "import lib\n\ninline uint32 main(uint32 x)\n{\n    return add_n<3>(x) + add_n<7>(x);\n}\n";
+        state.did_open(main.clone(), text.to_owned(), 1);
+        // As the server has it: an open buffer's diagnostics run its loop.
+        let file = state.file_id(&main).expect("main.k is open");
+        assert!(state.frontend_diagnostics(file, |_| {}).is_some_and(|d| d.is_empty()), "main.k is clean");
+        let out = body(&state, &library, Position::new(7, 9)).expect("`y` must resolve");
+        assert_eq!(
+            out,
+            format!(
+                "```kanagawa\nuint33 y  // add_n<3>, add_n<7>\n```\n\n**local** `lib::add_n::$::y`\n\n\
+                 Typed in 2 instances: a template's body has no type of its own.\n\n\
+                 As typed in the program of [`/kanagawa-lsp-test/main.k`]({}), an open file that imports \
+                 this one; this file's own program has no type here.",
+                main.as_str()
+            )
+        );
     }
 
     /// A parameter's default (edition 1.1) is part of what it is, as an enum

@@ -826,6 +826,32 @@ fn write_dev_version_crate(root: &Path) {
 
 const EDITION_1_1: &str = "[package]\nedition = \"1.1\"\n";
 const NAMED_CALL: &str = "inline uint8 sub(uint8 x, uint8 y) { return x - y; }\n\ninline uint8 f(uint8 p) { return sub(y: p, x: 2); }\n";
+
+/// `--edition` reaches a project however its path is spelled. The files go by
+/// their canonical paths, so a root still spelled through the link held none of
+/// them: `kg check` read a 1.1 program as 1.0. `kg fmt` looks its language up
+/// by the path it was given, so it is held here too, with the root moved. Red
+/// with either left out.
+#[cfg(unix)]
+#[test]
+fn the_language_flags_reach_a_project_through_a_symlink() {
+    let scratch = Scratch::new("edition-symlink");
+    scratch.file_at("real/kanagawa.toml", "[project]\nimplicit-base = false\n");
+    let top = "inline uint8 sub(uint8 x, uint8 y)\n{\n    return x - y;\n}\n\ninline uint8 f(uint8 p)\n{\n    return sub(y: p, x: 2);\n}\n";
+    scratch.file_at("real/top.k", top);
+    std::os::unix::fs::symlink(scratch.path().join("real"), scratch.path().join("link")).expect("symlink");
+    for args in [
+        &["check", "--edition", "1.1", "link/top.k"][..],
+        &["--no-manifest", "check", "--no-implicit-base", "--edition", "1.1", "link/top.k"],
+        &["fmt", "--check", "--edition", "1.1", "link/top.k"],
+    ] {
+        let run = run_in(KG, scratch.path(), args);
+        assert_eq!(run.code, 0, "{args:?}: {}{}", run.stdout, run.stderr);
+    }
+    // And without the flag it is still a program of the reference's language.
+    let run = run_in(KG, scratch.path(), &["check", "link/top.k"]);
+    assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
+}
 const NEEDED: &str = "named arguments need edition 1.1";
 
 /// The compat binary is the reference's command line, and the reference

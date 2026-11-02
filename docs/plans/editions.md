@@ -1,10 +1,10 @@
 # Editions: layering language changes on the frontend, opt-in
 
 *Part of the [plans](README.md). **Plan, 2026-10-29; built 2026-10-30/31
-on the `editions-pilot` branch** (PR #8) at the owner's request: steps 1–4
-— the plumbing, the `editions` gate, and edition `1.1` as a preview of
-four features — with the owner's decisions of those days folded in below
-and marked *as built*. Step 5, freezing an edition, waits on use. The
+at the owner's request, and shipped in 0.2.0** (PR #8, merged
+2026-11-01): steps 1–4 — the plumbing, the `editions` gate, and edition
+`1.1` as a preview of four features — with the owner's decisions of those
+days folded in below and marked *as built*. Step 5, freezing an edition, waits on use. The
 user's pages: [`../editions/`](../editions/README.md). Surveyed at
 `3562431`; every "today" below was read in the code then.*
 
@@ -405,7 +405,7 @@ these differences:
 
 | Question | Assumed meanwhile |
 |---|---|
-| Does kgrust extend the language at all (the roadmap's) | built on `editions-pilot` (2026-10-30/31, PR #8); merging it is the owner's answer |
+| Does kgrust extend the language at all (the roadmap's) | **decided** 2026-11-01: yes, behind editions — the owner merged PR #8 |
 | The first edition's name and the naming scheme | **decided** 2026-10-30: versioned, `1.0` the reference, `1.1` call sites that say what they mean (named arguments, trailing commas, default arguments, named template arguments) |
 | A file-level opt-in for single files without a manifest (a header comment), beyond `--feature` | flags only, applied under the first input's directory; the language server reads manifests only (the owner left single files to the implementer, 2026-10-30) |
 | Whether an edition may also carry *stricter* checks — diagnosing in the frontend what the reference leaves to the backend (the 241 assertions the compat path must not catch early: [`../architecture.md`](../architecture.md), "The scoreboard precedes the work it scores") | allowed, in a major edition only (the owner: "an edition can be stricter, but TBD how much we want to push for that"); none planned |
