@@ -59,9 +59,10 @@ Independent options, roughly in the order recommended.
    until a run's silent and false-alarm buckets are empty.
 2. **Publishing.** A release per platform (`cargo xtask dist`; on Linux the
    backend build wants finishing — at fewer jobs than Docker's 8 GB
-   allowed — and the archive trying), the VS Code extension on a
-   marketplace (it packages already; its publisher and name are open,
-   below), doc tests for Markdown code blocks like upstream's `chkdoc`
+   allowed — and the archive trying; nightly prereleases without the code
+   generator are built by `.github/workflows/nightly.yml`, 2026-11-01),
+   the VS Code extension on a marketplace (it packages already; its
+   publisher and name are open, below), doc tests for Markdown code blocks like upstream's `chkdoc`
    ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
 3. **The loop on more than one core, and its tail rounds.** The loop runs
    on one core where the reference gains 2.2–3.5× from sixteen; `array.k`

@@ -34,7 +34,10 @@ the memory.
 
 Release archives will be published on the
 [Releases page](https://github.com/jptech/kgrust/releases); until the first
-one, [build one yourself](#build-from-source). Unpack it and put its `bin` on
+one, [build one yourself](#build-from-source), or take the
+[nightly](https://github.com/jptech/kgrust/releases/tag/nightly): `main`,
+packaged each night it moves, which checks, formats, edits and documents
+but has no code generator for `kg build`. Unpack it and put its `bin` on
 your `PATH`:
 
 ```sh
@@ -188,6 +191,9 @@ scripts/build-backend.sh                    # → target/backend/dist/bin/libkan
 cargo xtask dist                            # → target/dist/kgrust-<version>-<target>.tar.gz
 cargo xtask install                         # the same tree under ~/.local/share/kgrust, linked into ~/.cargo/bin
 ```
+
+A build from a checkout says so, and which commit it is: `kg --version` prints
+`kg 0.2.0-dev+abc1234`, and a nightly `kg 0.2.0-nightly.20261102+abc1234`.
 
 `cargo xtask install` is the way to put your checkout's `kg` on the `PATH` (`--prefix`
 and `--bin-dir` move either half; run it again to update). `cargo install --path

@@ -689,6 +689,137 @@ fn kg_help_and_version_exit_zero() {
     }
 }
 
+/// A build that names itself (`KG_VERSION`: a release's, a nightly's) prints
+/// that name; every other build says it is a dev build (`build.rs`).
+#[test]
+fn kg_version_is_a_dev_build_unless_the_build_names_itself() {
+    let scratch = Scratch::new("kg-version");
+    let run = run_in(KG, scratch.path(), &["--version"]);
+    let expected = option_env!("KG_VERSION").unwrap_or(env!("KG_DEV_VERSION"));
+    assert_eq!(run.stdout.trim(), format!("kg {expected}"), "{}", run.stderr);
+    let shape = format!("{}-dev", env!("CARGO_PKG_VERSION"));
+    assert!(env!("KG_DEV_VERSION").starts_with(&shape), "{} is not a dev version", env!("KG_DEV_VERSION"));
+}
+
+/// `kanagawa` keeps the reference's own first line, and its second says which
+/// build this is. The `cli` gate is blind to that line (`xtask/src/cli.rs`).
+#[test]
+fn kanagawa_version_names_the_same_build_as_kg() {
+    let scratch = Scratch::new("kanagawa-version");
+    let kg = run_in(KG, scratch.path(), &["--version"]);
+    let version = kg.stdout.trim().strip_prefix("kg ").expect("kg's version line");
+    let kanagawa = run_in(env!("CARGO_BIN_EXE_kanagawa"), scratch.path(), &["--version"]);
+    let second = kanagawa.stdout.lines().nth(1).unwrap_or_default().to_owned();
+    assert_eq!(second, format!("kgrust `kanagawa` compatibility front end {version}"), "{}", kanagawa.stdout);
+}
+
+/// The editor shows the server's version, and it must be `kg`'s.
+#[test]
+fn kg_lsp_reports_kgs_version() {
+    let scratch = Scratch::new("kg-lsp-version");
+    let kg = run_in(KG, scratch.path(), &["--version"]);
+    let version = kg.stdout.trim().strip_prefix("kg ").expect("kg's version line");
+    let session = format!(
+        "{}{}{}",
+        frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"rootUri":null,"capabilities":{}}}"#),
+        frame(r#"{"jsonrpc":"2.0","id":2,"method":"shutdown","params":null}"#),
+        frame(r#"{"jsonrpc":"2.0","method":"exit","params":null}"#),
+    );
+    let out = lsp_session(&session);
+    assert!(out.contains(&format!(r#""version":"{version}""#)), "serverInfo does not say {version}: {out}");
+}
+
+/// A checkout's version must follow its commit however the commit moves, or it
+/// names a commit the build is not. Stale is the failure to fear: nothing else
+/// would notice. So this runs the real `build.rs` over a small crate laid out
+/// like this one (`crates/kg-cli` in a repository), through cargo, since what
+/// decides staleness is cargo honouring the paths the script watches.
+#[test]
+fn a_dev_version_follows_the_commit() {
+    let scratch = Scratch::new("dev-version");
+    let repo = scratch.path().join("repo");
+    write_dev_version_crate(&repo);
+    let git = |dir: &Path, args: &[&str]| {
+        let output = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    let version = |dir: &Path| {
+        let output = Command::new(env!("CARGO"))
+            .args(["run", "--quiet", "--offline", "--manifest-path"])
+            .arg(dir.join("crates/kg-cli/Cargo.toml"))
+            // Each tree its own `target/`: cargo hashes a package by its path
+            // within its workspace, so these would share one build otherwise.
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("KG_VERSION")
+            .output()
+            .expect("cargo");
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    let head = |dir: &Path| format!("9.8.7-dev+{}", git(dir, &["rev-parse", "--short=7", "HEAD"]));
+    let commit = |dir: &Path, message: &str| git(dir, &["commit", "--allow-empty", "-q", "-m", message]);
+
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["add", "."]);
+    commit(&repo, "one");
+    assert_eq!(version(&repo), head(&repo), "the first commit");
+
+    commit(&repo, "two");
+    assert_eq!(version(&repo), head(&repo), "a commit on a branch whose ref is a loose file");
+
+    git(&repo, &["pack-refs", "--all"]);
+    assert_eq!(version(&repo), head(&repo), "the same commit, its ref packed");
+    commit(&repo, "three");
+    assert_eq!(version(&repo), head(&repo), "a commit on a branch whose ref was packed");
+
+    git(&repo, &["checkout", "-q", "--detach", "HEAD~1"]);
+    assert_eq!(version(&repo), head(&repo), "a checkout of an older commit");
+    commit(&repo, "detached");
+    assert_eq!(version(&repo), head(&repo), "a commit on a detached HEAD");
+
+    git(&repo, &["checkout", "-q", "main"]);
+    git(&repo, &["checkout", "-q", "-b", "topic/nested"]);
+    commit(&repo, "four");
+    assert_eq!(version(&repo), head(&repo), "a commit on a branch with a slash");
+
+    // A linked worktree keeps HEAD apart from the refs, as `.claude/worktrees` do.
+    let linked = scratch.path().join("linked");
+    git(&repo, &["worktree", "add", "-q", "-b", "side", linked.to_str().unwrap()]);
+    assert_eq!(version(&linked), head(&linked), "a linked worktree");
+    commit(&linked, "five");
+    assert_eq!(version(&linked), head(&linked), "a commit in a linked worktree");
+
+    // A source tree inside someone else's repository is not at their commit.
+    let outer = scratch.path().join("outer");
+    write_dev_version_crate(&outer.join("vendor/kgrust"));
+    git(&outer, &["init", "-q", "-b", "main"]);
+    git(&outer, &["add", "."]);
+    commit(&outer, "theirs");
+    assert_eq!(version(&outer.join("vendor/kgrust")), "9.8.7-dev", "inside another repository");
+
+    // And an unpacked source archive has no commit at all.
+    let bare = scratch.path().join("bare");
+    write_dev_version_crate(&bare);
+    assert_eq!(version(&bare), "9.8.7-dev", "no repository");
+}
+
+/// The crate [`a_dev_version_follows_the_commit`] builds, with kg-cli's own
+/// `build.rs`, at `crates/kg-cli` under `root`.
+fn write_dev_version_crate(root: &Path) {
+    let dir = root.join("crates/kg-cli");
+    std::fs::create_dir_all(dir.join("src")).expect("the crate's directories");
+    let manifest = "[package]\nname = \"dev-version\"\nversion = \"9.8.7\"\nedition = \"2021\"\n\n[workspace]\n";
+    std::fs::write(dir.join("Cargo.toml"), manifest).expect("Cargo.toml");
+    std::fs::write(dir.join("src/main.rs"), "fn main() { print!(\"{}\", env!(\"KG_DEV_VERSION\")); }\n").expect("main.rs");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/build.rs"), dir.join("build.rs")).expect("build.rs");
+}
+
 // ---------------------------------------------------------------------------
 // Editions (`docs/editions/README.md`)
 // ---------------------------------------------------------------------------

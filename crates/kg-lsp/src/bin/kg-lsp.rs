@@ -15,7 +15,7 @@ static ALLOCATOR: kg_alloc::Allocator = kg_alloc::Allocator;
 
 fn main() -> std::process::ExitCode {
     kg_alloc::purge_eagerly();
-    match kg_lsp::run_server() {
+    match kg_lsp::run_server(env!("CARGO_PKG_VERSION")) {
         Ok(exit) => std::process::ExitCode::from(exit.code() as u8),
         Err(err) => {
             eprintln!("kg-lsp: {err}");

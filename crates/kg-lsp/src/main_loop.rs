@@ -47,10 +47,11 @@ impl ExitCode {
     }
 }
 
-/// Runs the server over stdio. This is what `kg lsp` calls.
-pub fn run_server() -> anyhow::Result<ExitCode> {
+/// Runs the server over stdio, reporting `version` to the editor as its own.
+/// This is what `kg lsp` calls, with `kg --version`'s.
+pub fn run_server(version: &str) -> anyhow::Result<ExitCode> {
     let (connection, io_threads) = Connection::stdio();
-    let exit = run_server_on(connection);
+    let exit = run_server_on(connection, version);
     io_threads.join()?;
     exit
 }
@@ -59,7 +60,7 @@ pub fn run_server() -> anyhow::Result<ExitCode> {
 ///
 /// Split out so the end-to-end test can drive the real loop with
 /// `Connection::memory()` and no process, no pipes and no sleeping.
-pub fn run_server_on(connection: Connection) -> anyhow::Result<ExitCode> {
+pub fn run_server_on(connection: Connection, version: &str) -> anyhow::Result<ExitCode> {
     let (id, params) = connection.initialize_start()?;
     let params: lsp_types::InitializeParams = serde_json::from_value(params)?;
 
@@ -70,7 +71,7 @@ pub fn run_server_on(connection: Connection) -> anyhow::Result<ExitCode> {
 
     let result = serde_json::json!({
         "capabilities": capabilities::server_capabilities(encoding),
-        "serverInfo": { "name": "kg-lsp", "version": env!("CARGO_PKG_VERSION") },
+        "serverInfo": { "name": "kg-lsp", "version": version },
     });
     connection.initialize_finish(id, result)?;
 

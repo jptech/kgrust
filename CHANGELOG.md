@@ -6,10 +6,20 @@ Notable changes to kgrust, newest first. The format follows
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- `kg check` and `kg build` ignored `--edition` and `--feature` for a project
-  named through a symlink, and read a later edition's program as edition 1.0.
+- Nightly prereleases: each night `main` has moved, a `nightly`
+  prerelease of it for Linux (x86_64, arm64) and macOS (Apple silicon),
+  without the code generator, so `kg check`, `fmt`, `lsp` and `doc` work
+  and `kg build` needs `KG_BACKEND_DIR`. A nightly's `kg --version` names
+  its commit (`0.2.0-nightly.20261102+abc1234`). Not releases: those are
+  still tagged by hand after the full gates.
+- A build from a checkout says what it is: `kg --version`, `kanagawa
+  --version`'s second line and the language server's `serverInfo` report
+  `0.2.0-dev+abc1234`, and only `cargo xtask dist --release` the plain
+  `0.2.0`.
+- `cargo xtask dist --label <LABEL>` names the archive
+  `kgrust-<LABEL>-<target>`, and the archive's README states the version.
 
 ### Changed
 
@@ -28,6 +38,8 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Fixed
 
+- `kg check` and `kg build` ignored `--edition` and `--feature` for a project
+  named through a symlink, and read a later edition's program as edition 1.0.
 - A `kanagawa.toml` saved while a check was finishing could have its error
   marked again, in the wrong place, before the fix cleared it: the mark was
   placed by reading the file a second time.
