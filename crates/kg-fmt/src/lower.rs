@@ -572,13 +572,19 @@ impl<'a> Lowerer<'a> {
         self.brace_body(&ch, open, close, at, top)
     }
 
-    /// [`Lowerer::braced`] for a block laid out Allman whether or not the
-    /// author collapsed it ([`Lowerer::one_line_or_allman`]).
+    /// A body laid out Allman whether or not the author collapsed it
+    /// ([`Lowerer::one_line_or_allman`]).
     fn braced_allman(&self, n: &SyntaxNode, at: At) -> Doc {
         let ch = trivia::children(n);
+        if n.parent().is_some_and(|p| p.kind() == ENUM_DECL) {
+            let close = ch.len().saturating_sub(1);
+            // Not "preserve": the author's breaks are the one line being given up.
+            let cfg = ListCfg { preserve: false, ..enum_cfg(&ch, close) };
+            return self.delim_broken(&ch, 0, close, cfg, at);
+        }
         let Some(open) = ch.find(L_CURLY) else { return self.inline(n, at) };
         let close = last_of(&ch, R_CURLY).unwrap_or(ch.len());
-        self.allman(&ch, open, close, at, false)
+        self.allman(&ch, open, close, at, n.kind() == DECL_LIST)
     }
 
     fn brace_body(
@@ -594,7 +600,11 @@ impl<'a> Lowerer<'a> {
             if close > open + 1 {
                 let _pin = self.pin_flat();
                 for i in open + 1..close {
-                    parts.push(Doc::text(" "));
+                    // A field's `;` is the list's child in a `struct` and a
+                    // `union`, and belongs to the field as it does elsewhere.
+                    if ch.kind(i) != SEMICOLON {
+                        parts.push(Doc::text(" "));
+                    }
                     parts.push(self.elem(&ch.elems[i], At::MID));
                 }
                 parts.push(Doc::text(" "));
@@ -880,13 +890,19 @@ impl<'a> Lowerer<'a> {
     /// (`docs/spec/style.md` §2.2).
     fn record(&self, n: &SyntaxNode, at: At) -> Doc {
         let ch = trivia::children(n);
-        self.join(&ch, at, |ch, i| {
+        let sep = |ch: &Children, i: usize| {
             if ch.kind(i) == DECL_LIST {
                 body_sep(&ch.gaps[i], &ch.elems[i])
             } else {
                 (inline_sep(ch.kind(i - 1), ch.kind(i)), 0)
             }
-        })
+        };
+        if let Some(body) = ch.find(DECL_LIST)
+            && self.body_on_its_line(&ch, body)
+        {
+            return self.one_line_or_allman(&ch, at, body, sep);
+        }
+        self.join(&ch, at, sep)
     }
 
     /// The `{ A = 0, B = 1 }` body of an `enum`.
@@ -898,20 +914,7 @@ impl<'a> Lowerer<'a> {
     fn enum_body(&self, n: &SyntaxNode, at: At) -> Doc {
         let ch = trivia::children(n);
         let close = ch.len().saturating_sub(1);
-        let leading = detect_leading(&ch, 0, close);
-        // The body's own indent is supplied by the `enum` header's Allman
-        // break, so the list adds none of its own.
-        let cfg = ListCfg {
-            open_flat: Sep::Tight,
-            open_breaks: false,
-            pad_flat: true,
-            hug: leading && detect_hug(&ch, 0),
-            leading,
-            indent: false,
-            never_break: false,
-            preserve: true,
-        };
-        self.delim(&ch, 0, close, cfg, at)
+        self.delim(&ch, 0, close, enum_cfg(&ch, close), at)
     }
 
     fn init_list(&self, n: &SyntaxNode, at: At) -> Doc {
@@ -1011,39 +1014,45 @@ impl<'a> Lowerer<'a> {
                 _ => (inline_sep(before, here), 0),
             }
         };
-        if kind == FN_DECL
-            && let Some(body) = self.body_on_its_line(&ch)
+        let body = match kind {
+            FN_DECL | FOR_STMT | STATIC_FOR_STMT => ch.len().checked_sub(1),
+            DO_WHILE_STMT => (1..ch.len()).find(|&i| ch.kind(i - 1) == DO_KW),
+            _ => None,
+        };
+        if let Some(body) = body
+            && self.body_on_its_line(&ch, body)
         {
             return self.one_line_or_allman(&ch, at, body, sep);
         }
         self.join(&ch, at, sep)
     }
 
-    /// The index of the body, where it is the last child, the author wrote
-    /// it on one line and on its header's line, and nothing lies between the
-    /// two — `inline uint32 add_one(uint32 x) { return x + 1; }` — and no
-    /// enclosing body the author collapsed holds the line already, whose
-    /// own rule then decides it.
-    fn body_on_its_line(&self, ch: &Children) -> Option<usize> {
-        let body = ch.len().checked_sub(1)?;
-        let SyntaxElement::Node(n) = &ch.elems[body] else { return None };
+    /// Whether the child at `body` is a body the author wrote on one line and
+    /// on its header's line, with nothing between the two — `inline uint32
+    /// add_one(uint32 x) { return x + 1; }` — and no enclosing body the author
+    /// collapsed holds the line already, whose own rule then decides it.
+    fn body_on_its_line(&self, ch: &Children, body: usize) -> bool {
+        let SyntaxElement::Node(n) = &ch.elems[body] else { return false };
         let on_line = !ch.gaps[body].newline && ch.gaps[body].is_empty();
-        (n.kind() == BLOCK_STMT && on_line && self.no_break.get() == 0 && is_collapsed(n)).then_some(body)
+        matches!(n.kind(), BLOCK_STMT | DECL_LIST) && on_line && self.no_break.get() == 0 && is_collapsed(n)
     }
 
-    /// A declaration whose body the author wrote on its line, kept so where
-    /// the whole line fits, and laid out Allman — the house style of 13 375
-    /// bodies to 171 (`docs/spec/style.md` §2.3) — where it does not, its
-    /// header then breaking only as the width demands of the header alone.
+    /// A construct whose body the author wrote on its line, kept so where the
+    /// whole line fits, and laid out Allman — the house style of 13 375 bodies
+    /// to 171 (`docs/spec/style.md` §2.3) — where it does not, its header then
+    /// breaking only as the width demands of the header alone.
     ///
     /// The one decision is the line's. Breaking the header's lists for a
     /// body that stays on the closing `)`'s line — what width alone did —
-    /// left the declaration half split, `( uint32 x` and `) { return x + 1;
+    /// left the construct half split, `( uint32 x` and `) { return x + 1;
     /// }` on lines of their own, and a body over the width on its line
     /// still. Preserving a collapse (§10.2) is preserving the author's one
     /// line, which a line too long to keep has stopped being: the next run
     /// reads the Allman body it is given and keeps it, so the choice is
     /// made once.
+    ///
+    /// What follows the body — an `else`, `do`'s `while`, a `struct`'s `;` —
+    /// counts toward the line where it stays on it.
     ///
     /// The line starts after the header's last break — an attribute on a
     /// line of its own (`[[schedule(…)]]`, §10.8) ends one — so that break
@@ -1076,9 +1085,16 @@ impl<'a> Lowerer<'a> {
         let SyntaxElement::Node(block) = &ch.elems[body] else { unreachable!("`body_on_its_line` found a node") };
         let one_line = Doc::concat([self.gap(&ch.gaps[body], Sep::Space, false), self.elem(&ch.elems[body], At::MID)]);
         let allman = Doc::concat([Doc::hard_line(), self.braced_allman(block, At::after(true))]);
+        let mut after = Vec::with_capacity((ch.len() - body) * 2);
+        for i in body + 1..ch.len() {
+            let (sep, nest) = f(ch, i);
+            after.push(nested(self.gap(&ch.gaps[i], sep, false), nest));
+            after.push(nested(self.elem(&ch.elems[i], At::after(breaks(sep))), nest));
+        }
         Doc::concat([
             Doc::concat(before),
             Doc::concat([Doc::concat(header), Doc::if_broken(one_line, allman)]).group(),
+            Doc::concat(after),
             self.gap(&ch.gaps[ch.len()], Sep::Tight, false),
         ])
     }
@@ -1121,7 +1137,7 @@ impl<'a> Lowerer<'a> {
 
     fn if_stmt(&self, n: &SyntaxNode, at: At) -> Doc {
         let ch = trivia::children(n);
-        self.join(&ch, at, |ch, i| {
+        let sep = |ch: &Children, i: usize| {
             let (before, here) = (ch.kind(i - 1), ch.kind(i));
             match (before, here) {
                 (IF_KW, L_PAREN) => (Sep::Space, 0),
@@ -1130,7 +1146,13 @@ impl<'a> Lowerer<'a> {
                 (R_PAREN, _) => body_sep(&ch.gaps[i], &ch.elems[i]),
                 _ => (inline_sep(before, here), 0),
             }
-        })
+        };
+        if let Some(body) = (1..ch.len()).find(|&i| ch.kind(i - 1) == R_PAREN)
+            && self.body_on_its_line(&ch, body)
+        {
+            return self.one_line_or_allman(&ch, at, body, sep);
+        }
+        self.join(&ch, at, sep)
     }
 
     /// `else` is never written `} else` — 0 occurrences against 329 own-line
@@ -1138,13 +1160,19 @@ impl<'a> Lowerer<'a> {
     /// line (129 occurrences).
     fn else_branch(&self, n: &SyntaxNode, at: At) -> Doc {
         let ch = trivia::children(n);
-        self.join(&ch, at, |ch, i| {
+        let sep = |ch: &Children, i: usize| {
             if matches!(ch.kind(i), IF_STMT | STATIC_IF_STMT) {
                 (Sep::Space, 0)
             } else {
                 body_sep(&ch.gaps[i], &ch.elems[i])
             }
-        })
+        };
+        if let Some(body) = ch.len().checked_sub(1)
+            && self.body_on_its_line(&ch, body)
+        {
+            return self.one_line_or_allman(&ch, at, body, sep);
+        }
+        self.join(&ch, at, sep)
     }
 
     fn while_stmt(&self, n: &SyntaxNode, at: At) -> Doc {
@@ -1279,13 +1307,19 @@ impl<'a> Lowerer<'a> {
 
     fn lambda(&self, n: &SyntaxNode, at: At) -> Doc {
         let ch = trivia::children(n);
-        self.join(&ch, at, |ch, i| {
+        let sep = |ch: &Children, i: usize| {
             if ch.kind(i) == BLOCK_STMT {
                 body_sep(&ch.gaps[i], &ch.elems[i])
             } else {
                 (inline_sep(ch.kind(i - 1), ch.kind(i)), 0)
             }
-        })
+        };
+        if let Some(body) = ch.len().checked_sub(1)
+            && self.body_on_its_line(&ch, body)
+        {
+            return self.one_line_or_allman(&ch, at, body, sep);
+        }
+        self.join(&ch, at, sep)
     }
 
     /// `!x`, `~x`, `-x` bind tight (638 : 0 and 84 : 0); `bitsizeof`,
@@ -1524,6 +1558,22 @@ fn collapsed_span(ch: &Children, open: usize, close: usize) -> bool {
             SyntaxElement::Node(n) => is_collapsed(n),
             SyntaxElement::Token(t) => !t.text().contains('\n'),
         })
+}
+
+/// An `enum` body's list: its own indent is supplied by the `enum` header's
+/// Allman break, so the list adds none.
+fn enum_cfg(ch: &Children, close: usize) -> ListCfg {
+    let leading = detect_leading(ch, 0, close);
+    ListCfg {
+        open_flat: Sep::Tight,
+        open_breaks: false,
+        pad_flat: true,
+        hug: leading && detect_hug(ch, 0),
+        leading,
+        indent: false,
+        never_break: false,
+        preserve: true,
+    }
 }
 
 fn list_mode(ch: &Children, open: usize, close: usize) -> Mode {

@@ -584,6 +584,11 @@ pub struct ManifestProblem {
 struct ConfigStore {
     roots: Vec<Utf8PathBuf>,
     by_manifest: FxHashMap<Utf8PathBuf, Arc<Settings>>,
+    /// Every manifest loaded since the server started, kept across a reload and
+    /// in order: [`ConfigStore::project_importing`] reads them, and neither which
+    /// file a reload reaches first nor which was opened first may change which
+    /// project a library's file belongs to.
+    known: std::collections::BTreeSet<Utf8PathBuf>,
     /// Manifests whose load failed, and the message, pending delivery to the
     /// user. Reported once each: a broken manifest that re-reports on every
     /// keystroke is worse than the original problem.
@@ -619,6 +624,7 @@ impl ConfigStore {
         ConfigStore {
             roots: Vec::new(),
             by_manifest: FxHashMap::default(),
+            known: std::collections::BTreeSet::new(),
             errors: Vec::new(),
             reported: Vec::new(),
             problems: FxHashMap::default(),
@@ -677,6 +683,9 @@ impl ConfigStore {
 
         let manifest = start.as_deref().and_then(kg_config::discover);
         let Some(manifest) = manifest else {
+            if let Some(settings) = path.filter(|p| p.is_absolute()).and_then(|p| self.project_importing(p)) {
+                return settings;
+            }
             if Settings::bundled_library().is_none() && !std::mem::replace(&mut self.said_unmanaged, true) {
                 let above = start.as_deref().and_then(Utf8Path::parent).map(|d| d.to_string()).unwrap_or_default();
                 self.errors.push(format!(
@@ -687,7 +696,33 @@ impl ConfigStore {
             }
             return self.fallback(start.as_deref());
         };
+        self.settings_of(manifest, start.as_deref())
+    }
 
+    /// The project whose `import-dirs` hold `file`, a file with no manifest
+    /// above it: going to a definition in a library outside the root opens one.
+    /// Without this it has the fallback's settings, and with them a `Db` of its
+    /// own, where an import its project resolves reports an error, and from
+    /// which a hover cannot reach the program that instantiates its templates.
+    /// A file several projects import belongs to the first by manifest path.
+    fn project_importing(&mut self, file: &Utf8Path) -> Option<Arc<Settings>> {
+        let file = file.canonicalize_utf8().ok()?;
+        let mut manifests = self.known.clone();
+        manifests.extend(self.roots.iter().filter_map(|root| kg_config::discover(root)));
+        for manifest in manifests {
+            if !manifest.is_file() {
+                continue;
+            }
+            let settings = self.settings_of(manifest.clone(), None);
+            let holds = |dir: &Utf8PathBuf| dir.canonicalize_utf8().is_ok_and(|dir| file.starts_with(dir));
+            if self.by_manifest.contains_key(&manifest) && settings.import_dirs.iter().any(holds) {
+                return Some(settings);
+            }
+        }
+        None
+    }
+
+    fn settings_of(&mut self, manifest: Utf8PathBuf, near: Option<&Utf8Path>) -> Arc<Settings> {
         if let Some(cached) = self.by_manifest.get(&manifest) {
             return Arc::clone(cached);
         }
@@ -711,6 +746,7 @@ impl ConfigStore {
                     }
                 }
                 let settings = Arc::new(settings);
+                self.known.insert(manifest.clone());
                 self.by_manifest.insert(manifest, Arc::clone(&settings));
                 settings
             }
@@ -720,7 +756,7 @@ impl ConfigStore {
                     self.errors.push(format!("{err}"));
                     self.problems.insert(manifest.clone(), refused(&err));
                 }
-                self.fallback(start.as_deref())
+                self.fallback(near)
             }
         }
     }
@@ -766,6 +802,80 @@ pub fn test_uri(name: &str) -> Uri {
 mod tests {
     use super::*;
     use lsp_types::{Position, Range};
+
+    /// A scratch tree: `one/lib.k` under no manifest, and under `a` and `b` two
+    /// projects whose import dirs name `one`, spelled with a `..`.
+    fn two_projects(name: &str) -> (Utf8PathBuf, ConfigStore) {
+        let dir = std::env::temp_dir().join(format!("kg-lsp-importing-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let top = Utf8PathBuf::from_path_buf(dir.canonicalize().unwrap()).unwrap();
+        for project in ["a", "b"] {
+            std::fs::create_dir_all(top.join(project)).unwrap();
+            std::fs::write(top.join(project).join("kanagawa.toml"), "[package]\nedition = \"1.1\"\n\n[project]\nimport-dirs = [\"../one\"]\n").unwrap();
+            std::fs::write(top.join(project).join("main.k"), "\n").unwrap();
+        }
+        std::fs::create_dir_all(top.join("one")).unwrap();
+        std::fs::write(top.join("one/lib.k"), "\n").unwrap();
+        std::fs::create_dir_all(top.join("elsewhere")).unwrap();
+        std::fs::write(top.join("elsewhere/lone.k"), "\n").unwrap();
+        (top, ConfigStore::new())
+    }
+
+    #[test]
+    fn a_library_file_takes_the_settings_of_the_project_that_imports_it() {
+        let (top, mut config) = two_projects("first");
+        let (lib, b) = (top.join("one/lib.k"), top.join("b/main.k"));
+        let b = config.settings_for(Some(&b));
+        assert!(Arc::ptr_eq(&config.settings_for(Some(&lib)), &b));
+        // In the project, not in its edition: a library keeps the reference's.
+        assert_eq!(b.language.language_of(&lib), kg_base::language::Language::REFERENCE);
+        assert_ne!(b.language.language_of(&top.join("b/main.k")), kg_base::language::Language::REFERENCE);
+        // One no project imports keeps the fallback.
+        let lone = config.settings_for(Some(&top.join("elsewhere/lone.k")));
+        assert!(!Arc::ptr_eq(&lone, &b));
+    }
+
+    #[test]
+    fn which_project_a_library_file_belongs_to_does_not_depend_on_what_opened_first() {
+        let (top, mut config) = two_projects("order");
+        let (lib, a, b) = (top.join("one/lib.k"), top.join("a/main.k"), top.join("b/main.k"));
+        let _ = config.settings_for(Some(&b));
+        let a = config.settings_for(Some(&a));
+        assert!(Arc::ptr_eq(&config.settings_for(Some(&lib)), &a), "the first by manifest path");
+    }
+
+    #[test]
+    fn a_library_file_keeps_its_project_across_a_reload() {
+        let (top, mut config) = two_projects("reload");
+        let (lib, b) = (top.join("one/lib.k"), top.join("b/main.k"));
+        let _ = config.settings_for(Some(&b));
+        config.clear();
+        // Reached first after the reload, its project's file not yet asked for.
+        let settings = config.settings_for(Some(&lib));
+        assert_eq!(settings.root, top.join("b"));
+    }
+
+    /// A manifest deleted since it was found is no project, and no error either.
+    #[test]
+    fn a_deleted_project_is_not_reported_from_a_library_file() {
+        let (top, mut config) = two_projects("deleted");
+        let _ = config.settings_for(Some(&top.join("b/main.k")));
+        let manifest = top.join("b/kanagawa.toml");
+        std::fs::remove_file(&manifest).unwrap();
+        config.clear();
+        let _ = config.settings_for(Some(&top.join("one/lib.k")));
+        let errors = config.take_errors();
+        assert!(!errors.iter().any(|e| e.contains(manifest.as_str())), "{errors:?}");
+    }
+
+    #[test]
+    fn a_library_file_finds_the_workspace_s_project_with_nothing_of_it_open() {
+        let (top, mut config) = two_projects("root");
+        config.set_roots(vec![top.join("b")]);
+        let settings = config.settings_for(Some(&top.join("one/lib.k")));
+        assert_eq!(settings.root, top.join("b"));
+    }
 
     #[test]
     fn open_change_close_is_the_overlay_lifecycle() {

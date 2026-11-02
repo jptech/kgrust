@@ -2019,6 +2019,13 @@ be the rule and too deliberate to be noise (`inline void foo(){}` is a legitimat
 > one-liners (`crates/kg-fmt/src/lower.rs`, `one_line_or_allman`). Allman over
 > keeping the line whole and over the width was the owner's choice, 2026-11-01,
 > at the cost of an author's aligned table of one-liners.
+>
+> The same holds for every body written on its header's line, 2026-11-01: `if`,
+> `else`, `for`, `static for`, `do`, a lambda, and a `class`, `struct`, `union` or
+> `enum` body. A bare `{ … }` block has no header to break from, and stays on its
+> line. Over the reference's 471 `.k` files at the default width, 11 move: long
+> lambdas that were half split, and `struct R { T x ; }`, whose stray space was a
+> bug of its own (`kg fmt` against the previous build, `--no-manifest`).
 
 ### 10.3 Column alignment (trailing comments, aligned `=`, aligned commas)
 

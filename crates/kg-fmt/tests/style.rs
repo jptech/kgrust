@@ -211,6 +211,60 @@ fn a_one_line_body_is_kept_where_its_line_fits_and_laid_out_allman_where_not() {
 }
 
 #[test]
+fn every_body_written_on_its_line_is_kept_whole_or_laid_out_allman() {
+    // §10.2, as for a function's: the width used to break the header's lists
+    // around a body left on the `)` line, or leave the line over the width,
+    // and a one-line `enum` took two runs to settle. No corpus file holds these
+    // shapes, so `fmt-check` cannot see them.
+    fn statement(body: &str) -> String {
+        format!("inline void f()\n{{\n{body}}}\n")
+    }
+    let block = "    {\n        go();\n    }\n";
+    let statements: &[(usize, &str, String)] = &[
+        (20, "    if (x == yyyy) { go(); }\n", format!("    if (x == yyyy)\n{block}")),
+        (
+            30,
+            "    if (check(aaaaaaaa, bbbbbbbb)) { go(); }\n",
+            format!("    if (check\n        ( aaaaaaaa\n        , bbbbbbbb\n        ))\n{block}"),
+        ),
+        (20, "    if (x == yyyy) { go(); }\n    else { go(); }\n", format!("    if (x == yyyy)\n{block}    else {{ go(); }}\n")),
+        (20, "    if (x) { go(); }\n    else { go(); go(); }\n", "    if (x) { go(); }\n    else\n    {\n        go();\n        go();\n    }\n".to_owned()),
+        (28, "    if (x) { go(); }\n    else if (x == yyyy) { go(); }\n", format!("    if (x) {{ go(); }}\n    else if (x == yyyy)\n{block}")),
+        (25, "    static if (x == yyyy) { go(); }\n", format!("    static if (x == yyyy)\n{block}")),
+        (30, "    for (const auto i : 10) { go(); }\n", format!("    for (const auto i : 10)\n{block}")),
+        (35, "    static for (const auto i : 10) { go(); }\n", format!("    static for (const auto i : 10)\n{block}")),
+        (28, "    do { go(); } while (x == yyyy);\n", "    do\n    {\n        go();\n    } while (x == yyyy);\n".to_owned()),
+        (28, "    apply([](uint32 a) { go(); });\n", "    apply([](uint32 a)\n    {\n        go();\n    });\n".to_owned()),
+        (32, "    const auto l = [](uint32 a) { go(); };\n", "    const auto l = [](uint32 a)\n    {\n        go();\n    };\n".to_owned()),
+    ];
+    for (width, one, allman) in statements {
+        let (one, allman) = (statement(one), statement(allman));
+        assert_eq!(fmt_at(100, &one), one, "kept where it fits");
+        assert_eq!(fmt_at(*width, &one), allman, "laid out Allman at {width}");
+        assert_eq!(fmt_at(*width, &allman), allman, "and that is settled");
+    }
+    let declarations = [
+        ("class c { public: uint32 a; }\n", "class c\n{\npublic:\n    uint32 a;\n}\n"),
+        ("struct s { uint32 a; uint32 b; }\n", "struct s\n{\n    uint32 a;\n    uint32 b;\n}\n"),
+        ("struct s { uint32 a; };\n", "struct s\n{\n    uint32 a;\n};\n"),
+        ("union u { uint32 a; uint32 b; }\n", "union u\n{\n    uint32 a;\n    uint32 b;\n}\n"),
+        ("enum e : uint8 { a, b }\n", "enum e : uint8\n{\n    a,\n    b\n}\n"),
+        ("enum e : uint8 { a = 1, b = 2 }\n", "enum e : uint8\n{\n    a = 1,\n    b = 2\n}\n"),
+    ];
+    for (one, allman) in declarations {
+        assert_eq!(fmt_at(100, one), one, "kept where it fits");
+        assert_eq!(fmt_at(15, one), allman, "laid out Allman");
+        assert_eq!(fmt_at(15, allman), allman, "and that is settled");
+    }
+    // Methods are a list of declarations, with the blank line between them, and
+    // each then decides its own line.
+    let methods = "class c { inline void m() {} inline void n() {} }\n";
+    let spread = "class c\n{\n    inline void m() {}\n\n    inline void n() {}\n}\n";
+    assert_eq!(fmt_at(30, methods), spread);
+    assert_eq!(fmt_at(30, spread), spread);
+}
+
+#[test]
 fn nothing_breaks_inside_a_body_written_on_one_line() {
     // An `else` (§2.2), a `switch`'s brace (§2.6) and the declaration after
     // `template <…>` (§3.2) go on lines of their own — but not inside a body

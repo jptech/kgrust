@@ -729,6 +729,99 @@ fn errors(published: &PublishDiagnosticsParams) -> Vec<&str> {
 /// save, and the open file's diagnostics follow — without a restart. The
 /// client's file watcher is what tells the server; the database that answers
 /// has to be one built from the new manifest.
+/// A library beyond the project's root, its files under no manifest: going to a
+/// definition in one is how a user meets this. The file is the project's, so an
+/// import only the project's `import-dirs` resolve still resolves, and a hover
+/// reaches the program that instantiates its templates. Red with
+/// `ConfigStore::project_importing` left out.
+#[test]
+fn a_library_beyond_the_root_belongs_to_the_project_that_imports_it() {
+    let dir = std::env::temp_dir().join(format!("kg-lsp-e2e-library-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let top = camino::Utf8PathBuf::from_path_buf(dir.canonicalize().unwrap()).unwrap();
+    for sub in ["project", "one", "two"] {
+        std::fs::create_dir_all(top.join(sub)).unwrap();
+    }
+    std::fs::write(
+        top.join("project/kanagawa.toml"),
+        "[package]\nedition = \"1.1\"\n\n[project]\nimport-dirs = [\"../one\", \"../two\"]\nimplicit-base = false\n",
+    )
+    .unwrap();
+    std::fs::write(top.join("two/other.k"), "module other\n    { One\n    }\n\nconst uint32 One = 1;\n").unwrap();
+    let helper = "module helper\n    { add_n\n    }\n\nimport other\n\ntemplate <auto N>\ninline uint32 add_n(uint32 x)\n{\n    auto y = x + N;\n    return cast<uint32>(y + One);\n}\n";
+    std::fs::write(top.join("one/helper.k"), helper).unwrap();
+    let main = "import helper\n\ninline uint32 f(uint32 x)\n{\n    return add_n<3>(x);\n}\n";
+    std::fs::write(top.join("project/main.k"), main).unwrap();
+
+    let mut client = Client::start();
+    let mut seen = Vec::new();
+    let folder = lsp_types::WorkspaceFolder {
+        uri: kg_lsp::uri::path_to_uri(&top.join("project")).unwrap(),
+        name: "project".to_owned(),
+    };
+    let id = client.request::<req::Initialize>(InitializeParams {
+        workspace_folders: Some(vec![folder]),
+        ..InitializeParams::default()
+    });
+    let _: serde_json::Value = result(client.response(&id, &mut seen));
+    client.notify::<notif::Initialized>(InitializedParams {});
+
+    let open = |client: &Client, uri: &Uri, text: &str| {
+        client.notify::<notif::DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "kanagawa".to_owned(),
+                version: 1,
+                text: text.to_owned(),
+            },
+        });
+    };
+    // Before any of the project's own files, as a restored session does.
+    let library = kg_lsp::uri::path_to_uri(&top.join("one/helper.k")).unwrap();
+    open(&client, &library, helper);
+    let entry = kg_lsp::uri::path_to_uri(&top.join("project/main.k")).unwrap();
+    open(&client, &entry, main);
+
+    // On `y`, typed only in `main.k`'s `add_n<3>`, once `main.k`'s loop has run.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let typed = loop {
+        let id = client.request::<req::HoverRequest>(HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: library.clone() },
+                position: Position { line: 9, character: 9 },
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        });
+        let hover: Option<Hover> = result(client.response(&id, &mut seen));
+        let HoverContents::Markup(text) = hover.expect("`y` must resolve").contents else { panic!("markup") };
+        if text.value.contains("uint33 y") {
+            break text.value;
+        }
+        assert!(std::time::Instant::now() < deadline, "never typed: {}", text.value);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    assert!(typed.contains("add_n<3>"), "{typed}");
+
+    let id = client.request::<req::Shutdown>(());
+    let _ = client.response(&id, &mut seen);
+    client.notify::<notif::Exit>(());
+    assert_eq!(client.finish(&mut seen), kg_lsp::ExitCode::Ok);
+
+    // The project's import dirs resolve `other`: never an error, at any publish.
+    let published: Vec<PublishDiagnosticsParams> = seen
+        .iter()
+        .filter(|n| n.method == notif::PublishDiagnostics::METHOD)
+        .map(|n| serde_json::from_value(n.params.clone()).unwrap())
+        .collect();
+    let of_library: Vec<_> = published.iter().filter(|p| p.uri == library).collect();
+    assert!(!of_library.is_empty(), "the library file was checked");
+    for params in of_library {
+        assert_eq!(errors(params), Vec::<&str>::new());
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn a_manifest_edit_reaches_the_open_files_diagnostics() {
     let dir = std::env::temp_dir().join(format!("kg-lsp-e2e-manifest-{}", std::process::id()));

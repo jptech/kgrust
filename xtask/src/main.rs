@@ -291,7 +291,7 @@ enum Cmd {
         #[arg(long, env = "KANAGAWA_ROOT", default_value = "third_party/kanagawa")]
         kanagawa_root: std::path::PathBuf,
         /// The backend library's directory (`scripts/build-backend.sh`'s).
-        #[arg(long, default_value = "target/backend/dist/bin")]
+        #[arg(long, env = "KG_BACKEND_DIR", default_value = "target/backend/dist/bin")]
         backend_dir: std::path::PathBuf,
         /// Where the staged directory and the archive are written.
         #[arg(long, default_value = "target/dist")]
@@ -319,7 +319,7 @@ enum Cmd {
         #[arg(long, env = "KANAGAWA_ROOT", default_value = "third_party/kanagawa")]
         kanagawa_root: std::path::PathBuf,
         /// The backend library's directory (`scripts/build-backend.sh`'s).
-        #[arg(long, default_value = "target/backend/dist/bin")]
+        #[arg(long, env = "KG_BACKEND_DIR", default_value = "target/backend/dist/bin")]
         backend_dir: std::path::PathBuf,
         /// Where the tree is staged (replaced on each run). Default: `~/.local/share/kgrust`.
         #[arg(long)]
@@ -841,6 +841,19 @@ fn dispatch(command: Cmd) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `KG_BACKEND_DIR` is the backend's override everywhere (`AGENTS.md`); a
+    /// linked worktree has no `target/backend` of its own, and these two took
+    /// only the flag.
+    #[test]
+    fn dist_and_install_take_the_backend_from_the_environment() {
+        let cli = <Cli as clap::CommandFactory>::command();
+        for name in ["dist", "install"] {
+            let command = cli.find_subcommand(name).unwrap();
+            let arg = command.get_arguments().find(|a| a.get_id() == "backend_dir").unwrap();
+            assert_eq!(arg.get_env(), Some(std::ffi::OsStr::new("KG_BACKEND_DIR")), "{name}");
+        }
+    }
 
     fn conformance(args: &[&str]) -> Cmd {
         Cli::try_parse_from(["xtask", "conformance"].iter().chain(args)).unwrap().command

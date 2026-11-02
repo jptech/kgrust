@@ -66,6 +66,7 @@ that reads a call's arguments by position, it writes each default the call
 leaves out into the call (`crates/kg-sem/src/named.rs`), so the backend is
 given the whole call.
 
+<!-- invalid -->
 ```kanagawa
 uint8 a = scale(p);                       // scale(p, Step + 1, false, Mode::Run)
 uint8 b = scale(p, 1);                    // scale(p, 1, false, Mode::Run)

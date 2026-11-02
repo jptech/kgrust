@@ -827,6 +827,18 @@ fn resolve(
             if let Some(root) = settings.language.root() {
                 settings.language = settings.language.rooted_at(&canonical(root));
             }
+            // With no manifest the project is the first input's directory, and
+            // for a link to a file that is the directory the file is really in.
+            // Not where a manifest stands above it: the map stops at its root,
+            // and would never reach the package that names the file's language.
+            let real = paths.first().map(|p| canonical(Utf8Path::new(p))).filter(|p| p.is_file());
+            if resolved.manifest_path.is_none()
+                && let Some(real) = real
+                && let Some(dir) = real.parent()
+                && (global.no_manifest || kg_config::discover(&real).is_none())
+            {
+                settings.language = settings.language.rooted_at(dir);
+            }
             Some(resolved)
         }
         Err(message) => {

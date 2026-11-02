@@ -17,6 +17,7 @@ Alone, on any edition: `[language] features = ["named-template-arguments"]`.
 The standard library's FIFO takes four parameters, the last two with
 defaults:
 
+<!-- invalid -->
 ```kanagawa
 template <typename T, auto Size, bool EnqueueBlocking = true, bool DequeueBlocking = true>
 class FIFO { … }
@@ -25,12 +26,14 @@ class FIFO { … }
 In 1.0, a FIFO that does not block on dequeue must spell out the default
 before it, and the reader must count to tell which `bool` is which:
 
+<!-- invalid -->
 ```kanagawa
 FIFO<uint8, 4, true, false> _queue;
 ```
 
 In 1.1:
 
+<!-- invalid -->
 ```kanagawa
 FIFO<uint8, Size: 4, DequeueBlocking: false> _queue;
 ```
@@ -59,6 +62,7 @@ parameters left out are substituted as the reference substitutes those
 past the last argument written, and the positional instance goes on to
 be instantiated as any other.
 
+<!-- invalid -->
 ```kanagawa
 template <typename T, auto Size = 4, bool Wide = false, auto Shift = Size + 1>
 class Buffer { … }

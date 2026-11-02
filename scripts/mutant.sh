@@ -33,6 +33,8 @@ trap restore EXIT INT TERM
 python3 - "$file" "$old" "$new" <<'EOF' || exit 2
 import sys
 path, old, new = sys.argv[1:4]
+if old == new:
+    sys.exit(f"mutant: the mutation changes nothing: `{old}`")
 text = open(path, encoding="utf-8").read()
 n = text.count(old)
 if n != 1:

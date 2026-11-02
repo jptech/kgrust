@@ -60,6 +60,22 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Fixed
 
+- A library file outside your project, opened by going to a definition in it,
+  now belongs to the project that imports it, so it no longer reports false
+  errors on a source build, and hover reaches the program that instantiates its
+  templates.
+- `kg fmt` no longer half splits a too-long one-line `if`, `else`, `for`, `do` or
+  lambda, or leaves a `class` or `struct` body over the width. As for a function,
+  the line stays whole where it fits, and is laid out Allman where it doesn't.
+- `kg fmt` settles a too-long one-line `enum` in one run, not two, and no longer
+  writes `uint32 x ;` in a one-line `struct` or `union`.
+- The Neovim plugin's lazy.nvim install sets `submodules = false`, and its
+  vim-plug install points at a local checkout: either would otherwise fetch
+  the whole reference compiler, with CIRCT and LLVM inside it.
+- `cargo xtask dist` and `install` read `KG_BACKEND_DIR`, as everything else
+  does, so they work from a linked worktree without `--backend-dir`.
+- `--edition` and `--feature` reach a file named through a symlink from
+  another directory, with no manifest above it.
 - `kg check` and `kg build` ignored `--edition` and `--feature` for a project
   named through a symlink, and read a later edition's program as edition 1.0.
 - A `kanagawa.toml` saved while a check was finishing could have its error

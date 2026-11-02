@@ -578,6 +578,23 @@ const DOCUMENTED: &str = include_str!("../../kg-doc/tests/fixtures/documented.k"
 /// `kg doc --check`: a guide's code blocks and a source's doc comments'
 /// through the frontend, each failure at the block's own line of the file
 /// that holds it, in `check`'s formats — and no site written.
+/// Our own edition pages, checked as a user checks theirs. The fragments among
+/// their blocks say so (`<!-- invalid -->`), so a whole example that stops
+/// compiling turns this red.
+#[test]
+fn the_edition_pages_code_blocks_check() {
+    let Some(root) = corpus_root() else {
+        kg_base::corpus_absent("no corpus; set KANAGAWA_ROOT");
+        return;
+    };
+    let library = root.join("library");
+    let library = library.to_str().expect("a UTF-8 path");
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let run = run_in(KG, &repo, &["--no-manifest", "doc", "--check", "--edition", "1.1", "-I", library, "docs/editions"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("no problems found"), "{}", run.stdout);
+}
+
 #[test]
 fn kg_doc_check_points_into_the_documentation_and_writes_nothing() {
     let scratch = Scratch::new("doc-check");
@@ -929,6 +946,55 @@ fn the_language_flags_reach_a_project_through_a_symlink() {
     let run = run_in(KG, scratch.path(), &["check", "link/top.k"]);
     assert_eq!(run.code, 1, "{}{}", run.stdout, run.stderr);
 }
+
+/// A link to one file, in a directory the file is not in: with no manifest, the
+/// project the flags reach is where the file really is. Red with the re-rooting
+/// in `resolve` left out; the package's rows, with its guard.
+#[cfg(unix)]
+#[test]
+fn the_language_flags_reach_a_file_through_a_symlink() {
+    let scratch = Scratch::new("edition-file-symlink");
+    let top = "inline uint8 sub(uint8 x, uint8 y)\n{\n    return x - y;\n}\n\ninline uint8 f(uint8 p)\n{\n    return sub(y: 1, x: p);\n}\n";
+    scratch.file_at("real/top.k", top);
+    scratch.file_at("up/kanagawa.toml", "[package]\nedition = \"1.1\"\n\n[project]\nimplicit-base = false\n");
+    scratch.file_at("up/down/top.k", top);
+    scratch.file_at("old/kanagawa.toml", "[project]\nimplicit-base = false\n");
+    scratch.file_at("old/top.k", top);
+    scratch.file_at("managed/kanagawa.toml", "[package]\nedition = \"1.1\"\n\n[project]\nimplicit-base = false\n");
+    std::os::unix::fs::symlink(scratch.path().join("real/top.k"), scratch.path().join("managed/link.k")).expect("symlink");
+    let elsewhere = scratch.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("mkdir");
+    for (target, link) in [("real", "link"), ("up/down", "up"), ("old", "old")] {
+        std::os::unix::fs::symlink(scratch.path().join(target).join("top.k"), elsewhere.join(format!("{link}.k")))
+            .expect("symlink");
+    }
+    for args in [
+        &["check", "--no-implicit-base", "--edition", "1.1", "elsewhere/link.k"][..],
+        &["--no-manifest", "check", "--no-implicit-base", "--edition", "1.1", "elsewhere/link.k"],
+        &["fmt", "--check", "--edition", "1.1", "elsewhere/link.k"],
+        &["expand", "--no-implicit-base", "--edition", "1.1", "elsewhere/link.k"],
+        // `--no-manifest` reads no package's language, so the flags reach it.
+        &["--no-manifest", "check", "--no-implicit-base", "--edition", "1.1", "elsewhere/old.k"],
+        // A package above the file still names its language, flags or none.
+        &["check", "--no-implicit-base", "elsewhere/up.k"],
+    ] {
+        let run = run_in(KG, scratch.path(), args);
+        assert_eq!(run.code, 0, "{args:?}: {}{}", run.stdout, run.stderr);
+    }
+    for args in [
+        // Without the flag it is still a program of the reference's language.
+        &["check", "--no-implicit-base", "elsewhere/link.k"][..],
+        // And a package of 1.0 stays 1.0: the flags reach the project, not it.
+        &["check", "--no-implicit-base", "--edition", "1.1", "elsewhere/old.k"],
+        // A manifest beside the link is the project, and the file is not in it.
+        &["check", "managed/link.k"],
+    ] {
+        let run = run_in(KG, scratch.path(), args);
+        assert_eq!(run.code, 1, "{args:?}: {}{}", run.stdout, run.stderr);
+        assert!(run.stdout.contains(NEEDED), "{args:?}: {}", run.stdout);
+    }
+}
+
 const NEEDED: &str = "named arguments need edition 1.1";
 
 /// The compat binary is the reference's command line, and the reference

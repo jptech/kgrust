@@ -21,6 +21,7 @@ The plugin is the `editors/nvim` directory of this repository.
 {
   'jptech/kgrust',
   lazy = false,
+  submodules = false,
   config = function(plugin)
     vim.opt.rtp:append(plugin.dir .. '/editors/nvim')
     require('kgrust').setup()
@@ -28,7 +29,11 @@ The plugin is the `editors/nvim` directory of this repository.
 }
 ```
 
-**vim-plug:** `Plug 'jptech/kgrust', { 'rtp': 'editors/nvim' }`
+`submodules = false` matters: lazy.nvim fetches submodules by default, and this
+repository's one is the whole reference compiler, with CIRCT and LLVM inside it.
+
+**vim-plug** fetches submodules with no way to turn that off, so point it at a
+checkout you already have: `Plug '/path/to/kgrust/editors/nvim'`.
 
 **Without a plugin manager**, link the directory into a package:
 
