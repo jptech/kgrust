@@ -12,7 +12,8 @@ Notable changes to kgrust, newest first. The format follows
   prerelease of it for Linux (x86_64, arm64) and macOS (Apple silicon),
   without the code generator, so `kg check`, `fmt`, `lsp` and `doc` work
   and `kg build` needs `KG_BACKEND_DIR`. A nightly's `kg --version` names
-  its commit (`0.2.0-nightly.20261102+abc1234`). Not releases: those are
+  its commit (`0.2.0-nightly.20261102+abc1234`), and its notes list the
+  pull requests merged since the last nightly. Not releases: those are
   still tagged by hand after the full gates.
 - A build from a checkout says what it is: `kg --version`, `kanagawa
   --version`'s second line and the language server's `serverInfo` report

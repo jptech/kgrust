@@ -60,7 +60,8 @@ depends on; none is scheduled.
   build` then wants `KG_BACKEND_DIR`); `kg --version` names the commit,
   as it does from any checkout (`0.2.0-dev+abc1234`,
   `crates/kg-cli/build.rs`), and only `cargo xtask dist --release` says
-  the plain version.
+  the plain version. Its notes list what landed since the last nightly
+  (`scripts/nightly_notes.py`).
 - **The extension is not published.** A Marketplace / Open VSX release
   that bundles or downloads `kg` per platform is what puts the editor in
   front of anyone. The reference ships its own VS Code package

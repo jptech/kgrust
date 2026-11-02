@@ -37,9 +37,9 @@ Release archives will be published on the
 [Releases page](https://github.com/jptech/kgrust/releases); until the first
 one, [build one yourself](#build-from-source), or take the
 [nightly](https://github.com/jptech/kgrust/releases/tag/nightly): `main`,
-packaged each night it moves, which checks, formats, edits and documents
-but has no code generator for `kg build`. Unpack it and put its `bin` on
-your `PATH`:
+packaged each night it moves, with a list of what changed. It checks, formats,
+edits and documents, but has no code generator for `kg build`. Unpack it and
+put its `bin` on your `PATH`:
 
 ```sh
 tar -xzf kgrust-0.2.0-aarch64-apple-darwin.tar.gz
