@@ -25,7 +25,7 @@ the memory.
 | `kg build` | Compile to SystemVerilog through Kanagawa's code generator |
 | `kg lsp` | The language server: live diagnostics, inferred bit widths, navigation, rename |
 | `kg fmt` | Format sources, every comment kept |
-| `kg doc` | A searchable documentation site from your doc comments |
+| `kg doc` | A searchable documentation site from your doc comments; `--check` checks the Kanagawa code blocks in your docs |
 | `kg explain` | The reference for an error code or a warning |
 | `kg board` | A design on a board, or on a simulated one: generated wiring, a Python API, cocotb, bitstreams |
 | `kanagawa` | A drop-in replacement for the reference compiler's command line |

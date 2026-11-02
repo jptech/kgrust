@@ -62,7 +62,7 @@ Independent options, roughly in the order recommended.
    allowed — and the archive trying; nightly prereleases without the code
    generator are built by `.github/workflows/nightly.yml`, 2026-11-01),
    the VS Code extension on a marketplace (it packages already; its
-   publisher and name are open, below), doc tests for Markdown code blocks like upstream's `chkdoc`
+   publisher and name are open, below)
    ([`plans/developer-tooling.md`](plans/developer-tooling.md)).
 3. **The loop on more than one core, and its tail rounds.** The loop runs
    on one core where the reference gains 2.2–3.5× from sixteen; `array.k`

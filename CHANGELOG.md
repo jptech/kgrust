@@ -23,6 +23,17 @@ Notable changes to kgrust, newest first. The format follows
 - A Neovim plugin (`editors/nvim`, Neovim 0.11+). `.k` files open as
   Kanagawa, with highlighting generated from the parser's keyword list,
   indentation that follows `kg fmt`'s layout, and `kg lsp` attached.
+- `kg doc --check [PATH]...` checks the Kanagawa code blocks in your
+  documentation and writes nothing. It reads fenced blocks tagged `kanagawa`,
+  in Markdown files and in the doc comments `kg doc` renders; untagged blocks
+  are passed over and counted, or read too with `--all-blocks`. A block may
+  be a whole file or the body of a function. `<!-- invalid -->` on the line before the fence skips it, and
+  `module a.b` on its first line lets later blocks import it. Errors point at
+  the block's own line in the file that holds it, in `kg check`'s formats, and
+  the exit code is 1. These are the conventions of upstream's `chkdoc`, and
+  `--all-blocks` takes the blocks it takes. The check runs the frontend only,
+  so what only the backend rejects still needs `kg build`. Upstream's four
+  checked documents pass: 319 blocks, plus the 12 they mark invalid.
 
 ### Changed
 

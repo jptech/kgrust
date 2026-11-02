@@ -531,7 +531,9 @@ dependencies = [
  "kg-base",
  "kg-config",
  "kg-db",
+ "kg-diag",
  "kg-syntax",
+ "kg-vfs",
  "pulldown-cmark",
  "serde_json",
 ]

@@ -18873,3 +18873,54 @@ Moved in the same change, unmeasured: `report_manifests` takes its lock before i
 the list, so a list read before a reload cannot be sent after the reload's. The A/B
 gives that no credit (0 of 90,000 with or without it); it is there because the order
 was wrong.
+
+## What the documentation's code blocks are — 2026-11-01
+
+`kg doc --check` ports upstream's `chkdoc` (`spec/cli.md` §8.9). Four things
+about it look arbitrary until you have run it.
+
+**Only the tag says a block is Kanagawa, unless you ask for `chkdoc`'s rule.**
+`chkdoc` compiles everything but `C++`, `bash` and `md`, which is right only
+for its four documents: `sandcastle.md`'s `cpp` blocks are Kanagawa, and
+`BUILDING.md`'s seven untagged shell blocks would be 265 errors if it were ever
+in the list. Untagged-means-Kanagawa was the first default, since all of
+upstream's checked blocks are untagged; the owner turned it down the same day
+as a dangerous default for ordinary READMEs. So the default takes `kanagawa`
+alone, `--all-blocks` is `chkdoc`'s rule, and an untagged block passed over is
+counted and said, so that a check of nothing does not pass for a clean one: over
+upstream's four documents the default checks 0 and says 319 were passed over. In
+doc comments the library's two untagged fences are an import line
+(`data/vector.k:9-11`) and a hex key (`data/random/toeplitz.k:18-27`), so there
+the tag is needed even under `--all-blocks`. The library has no tagged block today, so a
+walk of `library/` checks no doc comment: 128 files, 10 blocks checked, all
+from `processor/risc_v/user-guide.md`. That walk also exits 1 on
+`processor/risc_v/verification.md`, which is not UTF-8 and holds no fence.
+
+**The notes are once per block because of that shell.** A block that is not
+Kanagawa recovers into hundreds of errors, and `chkdoc` prints all four
+attempts'. Here one attempt speaks, the one whose first error is furthest into
+the block, and only its first diagnostic carries the note naming the block.
+The attempts' order decides nothing else: any attempt that compiles passes.
+
+**Stripping the markers grades the opt-outs.** With `<!-- invalid -->` removed
+from `programming-guide.md`, this frontend rejects 10 of the 12 blocks. The
+other two (2026-11-01, `kg-oracle --errors` and the reference compiler on the
+extracted programs):
+
+- The closure capture at the original line 3235 is accepted by the reference
+  too, as a function's body. The guide calls it illegal; only the marker keeps
+  `chkdoc` from finding out. Nothing here is wrong.
+- The `static if` with `x` twice, at line 3957, is `Error 33` from the
+  reference's backend and silent from `kg-oracle`. That is the blind spot of a
+  frontend-only check (`known-divergences.md` #43).
+
+**A block's module lasts for its file.** `chkdoc` leaves `a/b.k` in its working
+directory, so a later document could import it by accident. Here it is an
+overlay beside the document and gone when that document is done. No upstream
+document depends on the difference: all four pass with it.
+
+Grade: `kg doc --check --all-blocks --no-manifest -I <library> -D
+MemoryLength=32 --target-device mock -v` over copies of the four documents, 331
+blocks, 319 passed (218 as a whole file, 101 as a body, none needing
+`mini-base.k`), 12 skipped, 0 failed. Without the define, the one block naming
+`MemoryLength` fails, as it would under `chkdoc`.

@@ -17,11 +17,7 @@ use pulldown_cmark::{CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd, 
 /// documents it, where one does.
 pub fn to_html(text: &str, link: &dyn Fn(&str) -> Option<String>) -> String {
     let markdown = kg_syntax::to_commonmark(text, kg_syntax::Headings::Keep);
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_FOOTNOTES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_HEADING_ATTRIBUTES;
-    let events: Vec<Event<'_>> = Parser::new_ext(&markdown, options).collect();
+    let events: Vec<Event<'_>> = Parser::new_ext(&markdown, options()).collect();
     let mut out: Vec<Event<'_>> = Vec::with_capacity(events.len());
     let mut folded = false;
     let mut in_link = 0usize;
@@ -88,6 +84,12 @@ pub fn to_html(text: &str, link: &dyn Fn(&str) -> Option<String>) -> String {
     let mut html_out = String::with_capacity(markdown.len() * 3 / 2);
     html::push_html(&mut html_out, out.into_iter());
     html_out
+}
+
+/// The CommonMark extensions documentation is read with — by the site, and
+/// by `kg doc --check` finding the code blocks the site shows as code.
+pub(crate) fn options() -> Options {
+    Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_HEADING_ATTRIBUTES
 }
 
 /// The first paragraph of `text` as plain text, for an index or a search
