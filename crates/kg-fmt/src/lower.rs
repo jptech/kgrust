@@ -181,6 +181,17 @@ impl<'a> Lowerer<'a> {
         FlatPin(&self.no_break)
     }
 
+    /// The break before something the house style puts on a line of its
+    /// own — an `else` (§2.2), a `switch`'s brace (§2.6), the declaration
+    /// after `template <…>` (§3.2) — or a space inside a body the author
+    /// collapsed, which is one line by definition. Broken there, the body
+    /// came out half split, `{ if (x == 0) return 1;` above `else return
+    /// x; }`, and the next run, finding it no longer collapsed, laid it out
+    /// Allman: two runs, two layouts.
+    fn own_line(&self) -> Sep {
+        if self.no_break.get() > 0 { Sep::Space } else { Sep::Hard }
+    }
+
     /// Lowers a whole file.
     pub(crate) fn file(&self, root: &SyntaxNode) -> Doc {
         self.node(root, At::ITEM)
@@ -561,6 +572,15 @@ impl<'a> Lowerer<'a> {
         self.brace_body(&ch, open, close, at, top)
     }
 
+    /// [`Lowerer::braced`] for a block laid out Allman whether or not the
+    /// author collapsed it ([`Lowerer::one_line_or_allman`]).
+    fn braced_allman(&self, n: &SyntaxNode, at: At) -> Doc {
+        let ch = trivia::children(n);
+        let Some(open) = ch.find(L_CURLY) else { return self.inline(n, at) };
+        let close = last_of(&ch, R_CURLY).unwrap_or(ch.len());
+        self.allman(&ch, open, close, at, false)
+    }
+
     fn brace_body(
         &self,
         ch: &Children,
@@ -569,12 +589,8 @@ impl<'a> Lowerer<'a> {
         at: At,
         top: bool,
     ) -> Doc {
-        let head = Doc::concat([
-            self.gap(&ch.gaps[open], Sep::Tight, at.line_start),
-            self.elem(&ch.elems[open], at),
-        ]);
         if collapsed_span(ch, open, close) {
-            let mut parts = vec![head];
+            let mut parts = vec![self.opener(ch, open, at)];
             if close > open + 1 {
                 let _pin = self.pin_flat();
                 for i in open + 1..close {
@@ -586,13 +602,22 @@ impl<'a> Lowerer<'a> {
             parts.push(self.closer(ch, close));
             return Doc::concat(parts);
         }
+        self.allman(ch, open, close, at, top)
+    }
+
+    /// `{`, the items a line each one level in, `}` on a line of its own.
+    fn allman(&self, ch: &Children, open: usize, close: usize, at: At, top: bool) -> Doc {
         let order: Vec<usize> = (open + 1..close).collect();
         Doc::concat([
-            head,
+            self.opener(ch, open, at),
             self.items(ch, &order, Some(close), At::MID, top).nest(self.indent),
             Doc::hard_line(),
             self.closer(ch, close),
         ])
+    }
+
+    fn opener(&self, ch: &Children, open: usize, at: At) -> Doc {
+        Doc::concat([self.gap(&ch.gaps[open], Sep::Tight, at.line_start), self.elem(&ch.elems[open], at)])
     }
 
     fn closer(&self, ch: &Children, close: usize) -> Doc {
@@ -910,8 +935,9 @@ impl<'a> Lowerer<'a> {
 
     fn template_decl(&self, n: &SyntaxNode, at: At) -> Doc {
         let ch = trivia::children(n);
+        let after_params = self.own_line();
         self.join(&ch, at, |ch, i| {
-            if ch.kind(i - 1) == TEMPLATE_PARAM_LIST { (Sep::Hard, 0) } else { (Sep::Space, 0) }
+            if ch.kind(i - 1) == TEMPLATE_PARAM_LIST { (after_params, 0) } else { (Sep::Space, 0) }
         })
     }
 
@@ -956,7 +982,7 @@ impl<'a> Lowerer<'a> {
     fn attributed(&self, n: &SyntaxNode, at: At) -> Doc {
         let ch = trivia::children(n);
         let kind = n.kind();
-        self.join(&ch, at, move |ch, i| {
+        let sep = move |ch: &Children, i: usize| {
             let (before, here) = (ch.kind(i - 1), ch.kind(i));
             if before == ATTR_LIST {
                 return (if ch.gaps[i].newline { Sep::Hard } else { Sep::Space }, 0);
@@ -984,7 +1010,77 @@ impl<'a> Lowerer<'a> {
                 DO_WHILE_STMT => self.do_while_sep(ch, i),
                 _ => (inline_sep(before, here), 0),
             }
-        })
+        };
+        if kind == FN_DECL
+            && let Some(body) = self.body_on_its_line(&ch)
+        {
+            return self.one_line_or_allman(&ch, at, body, sep);
+        }
+        self.join(&ch, at, sep)
+    }
+
+    /// The index of the body, where it is the last child, the author wrote
+    /// it on one line and on its header's line, and nothing lies between the
+    /// two — `inline uint32 add_one(uint32 x) { return x + 1; }` — and no
+    /// enclosing body the author collapsed holds the line already, whose
+    /// own rule then decides it.
+    fn body_on_its_line(&self, ch: &Children) -> Option<usize> {
+        let body = ch.len().checked_sub(1)?;
+        let SyntaxElement::Node(n) = &ch.elems[body] else { return None };
+        let on_line = !ch.gaps[body].newline && ch.gaps[body].is_empty();
+        (n.kind() == BLOCK_STMT && on_line && self.no_break.get() == 0 && is_collapsed(n)).then_some(body)
+    }
+
+    /// A declaration whose body the author wrote on its line, kept so where
+    /// the whole line fits, and laid out Allman — the house style of 13 375
+    /// bodies to 171 (`docs/spec/style.md` §2.3) — where it does not, its
+    /// header then breaking only as the width demands of the header alone.
+    ///
+    /// The one decision is the line's. Breaking the header's lists for a
+    /// body that stays on the closing `)`'s line — what width alone did —
+    /// left the declaration half split, `( uint32 x` and `) { return x + 1;
+    /// }` on lines of their own, and a body over the width on its line
+    /// still. Preserving a collapse (§10.2) is preserving the author's one
+    /// line, which a line too long to keep has stopped being: the next run
+    /// reads the Allman body it is given and keeps it, so the choice is
+    /// made once.
+    ///
+    /// The line starts after the header's last break — an attribute on a
+    /// line of its own (`[[schedule(…)]]`, §10.8) ends one — so that break
+    /// is outside the choice and does not force it.
+    fn one_line_or_allman(
+        &self,
+        ch: &Children,
+        at: At,
+        body: usize,
+        f: impl Fn(&Children, usize) -> (Sep, isize),
+    ) -> Doc {
+        let seps: Vec<(Sep, isize)> = (0..body).map(|i| if i == 0 { (Sep::Tight, 0) } else { f(ch, i) }).collect();
+        let line = (1..body).rev().find(|&i| breaks(seps[i].0)).unwrap_or(0);
+        let nested = |d: Doc, nest: isize| if nest == 0 { d } else { d.nest(nest) };
+        let (mut before, mut header) = (Vec::with_capacity(line * 2 + 1), Vec::with_capacity((body - line) * 2));
+        for (i, &(sep, nest)) in seps.iter().enumerate() {
+            let child = if i == 0 { at } else { At::after(breaks(sep)) };
+            let gap = nested(self.gap(&ch.gaps[i], sep, i == 0 && at.line_start), nest);
+            let elem = nested(self.elem(&ch.elems[i], child), nest);
+            if i < line {
+                before.push(gap);
+                before.push(elem);
+            } else {
+                // The gap before the line's first element is the break that
+                // starts the line.
+                if i == line { &mut before } else { &mut header }.push(gap);
+                header.push(elem);
+            }
+        }
+        let SyntaxElement::Node(block) = &ch.elems[body] else { unreachable!("`body_on_its_line` found a node") };
+        let one_line = Doc::concat([self.gap(&ch.gaps[body], Sep::Space, false), self.elem(&ch.elems[body], At::MID)]);
+        let allman = Doc::concat([Doc::hard_line(), self.braced_allman(block, At::after(true))]);
+        Doc::concat([
+            Doc::concat(before),
+            Doc::concat([Doc::concat(header), Doc::if_broken(one_line, allman)]).group(),
+            self.gap(&ch.gaps[ch.len()], Sep::Tight, false),
+        ])
     }
 
     fn loop_sep(&self, ch: &Children, i: usize) -> (Sep, isize) {
@@ -1030,7 +1126,7 @@ impl<'a> Lowerer<'a> {
             match (before, here) {
                 (IF_KW, L_PAREN) => (Sep::Space, 0),
                 (L_PAREN, _) | (_, R_PAREN) => (Sep::Tight, 0),
-                (_, ELSE_BRANCH) => (Sep::Hard, 0),
+                (_, ELSE_BRANCH) => (self.own_line(), 0),
                 (R_PAREN, _) => body_sep(&ch.gaps[i], &ch.elems[i]),
                 _ => (inline_sep(before, here), 0),
             }
@@ -1087,7 +1183,7 @@ impl<'a> Lowerer<'a> {
         }
         // `case` sits one level inside the switch brace, its body one further
         // (`docs/spec/style.md` §2.6: 251 : 123).
-        parts.push(Doc::hard_line());
+        parts.push(self.sep(self.own_line(), false, false));
         parts.push(self.brace_body(&ch, open, close, At::MID, false));
         for i in close + 1..ch.len() {
             parts.push(self.gap(&ch.gaps[i], Sep::Tight, false));

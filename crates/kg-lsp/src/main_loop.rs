@@ -479,8 +479,11 @@ fn report_manifests(
     for message in state.take_config_errors() {
         crate::log(MessageType::WARNING, format!("kanagawa.toml: {message}"));
     }
-    let problems: FxHashMap<_, _> = state.manifest_problems().into_iter().collect();
+    // The lock before the list: the lane reports as it finishes a check, beside
+    // the main loop reloading. A list read first could be sent after a newer
+    // one, putting a fixed manifest's mark back and saying it again.
     let mut shown = lock(shown);
+    let problems: FxHashMap<_, _> = state.manifest_problems().into_iter().collect();
     for path in shown.keys().filter(|p| !problems.contains_key(*p)) {
         if let Some(uri) = crate::uri::path_to_uri(path) {
             send_diagnostics(sender, handlers::cleared_diagnostics(&uri));

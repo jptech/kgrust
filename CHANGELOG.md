@@ -21,6 +21,30 @@ Notable changes to kgrust, newest first. The format follows
   keystroke comes ~16% sooner; `float.k` and `risc-v.k` gain 2–4%, with
   memory unchanged.
 
+### Fixed
+
+- A `kanagawa.toml` saved while a check was finishing could have its error
+  marked again, in the wrong place, before the fix cleared it: the mark was
+  placed by reading the file a second time.
+- Hover inside a template defined in another file said "Type not yet
+  inferred": a file is answered as its own program, which instantiates
+  only what the file itself uses. Where that program has no type to show,
+  the hover now reads the program of another open file that imports it,
+  lists that program's instances, and names the file. That loop is read,
+  never run: with `risc-v.k` open, a hover in the library's `core.k`
+  answers in 0.88 ms (median of 50), as its "not inferred" did in 0.86.
+- The outline listed an exported class twice, the class and its `export`
+  (and an `extern` one likewise). The class is listed once, `export` in its
+  detail; an export of an instance (`export Ring<4>;`), or of a type
+  declared in another file, keeps an entry of its own.
+- `kg fmt` (and editor formatting) half split a function body written on
+  one line. Where the line was too long, it broke the parameters and left
+  the body on the `)` line, `) { return x + 1; }`; it now keeps the line
+  whole where it fits and lays the body out Allman where it does not. And
+  an `else`, a `switch`'s brace or the declaration after `template <…>`
+  inside a one-line body went to a line of their own, which the next run
+  then laid out differently again; they stay on the line.
+
 ## 0.2.0 — language editions, 2026-10-31
 
 The first release since the published state. Its headline is language
