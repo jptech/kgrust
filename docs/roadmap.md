@@ -99,9 +99,7 @@ Independent options, roughly in the order recommended.
    abbreviated templates); a library file beyond the manifest's root has no
    project, so going to a definition in one reports false errors on a source
    build, and hover there cannot reach the program that imports it (journal,
-   2026-11-01); the formatter's half split in an `if` with a long condition
-   and a lambda with long parameters, which keep their one-line bodies on
-   the closing `)`'s line; moving the parser's template checks onto the
+   2026-11-01); moving the parser's template checks onto the
    sorted lowering (a verdict change, through `errors` and `conformance`);
    the 18 recovery positions where ours would mislead (divergence #30);
    the one-shot memory peak; `kg explain` prose for the backend's codes;

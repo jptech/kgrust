@@ -60,6 +60,11 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Fixed
 
+- `kg fmt` no longer half splits a too-long one-line `if`, `else`, `for`, `do` or
+  lambda, or leaves a `class` or `struct` body over the width. As for a function,
+  the line stays whole where it fits, and is laid out Allman where it doesn't.
+- `kg fmt` settles a too-long one-line `enum` in one run, not two, and no longer
+  writes `uint32 x ;` in a one-line `struct` or `union`.
 - The Neovim plugin's lazy.nvim install sets `submodules = false`, and its
   vim-plug install points at a local checkout: either would otherwise fetch
   the whole reference compiler, with CIRCT and LLVM inside it.
