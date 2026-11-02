@@ -247,8 +247,6 @@ def draft(root, archives, since=None, repo=None, force=False):
             "archives": table,
             "install_notes": install_notes,
             "parity": parity_table,
-            "readme": f"{url}/blob/{tag}/README.md",
-            "divergences": f"{url}/blob/{tag}/docs/known-divergences.md",
             "changelog": changelog,
             "pull_requests": pull_requests(repo, since, until, tag),
         },

@@ -22,7 +22,7 @@ kg --version    # kg {{version}}
 
 {{parity}}
 
-For speed against the reference, see [Parity and speed]({{readme}}#parity-and-speed); for every deliberate difference, [known divergences]({{divergences}}).
+For speed against the reference, see [Parity and speed](https://github.com/jptech/kgrust/blob/v{{version}}/README.md#parity-and-speed); for every deliberate difference, [known divergences](https://github.com/jptech/kgrust/blob/v{{version}}/docs/known-divergences.md).
 
 ## What changed
 

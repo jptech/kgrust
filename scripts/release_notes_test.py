@@ -330,8 +330,8 @@ class Draft(unittest.TestCase):
         self.assertIn("| macOS (Apple silicon) |", notes)
         self.assertIn("**2681/2681**", notes)
         self.assertIn("kgrust-0.3.0-<target>.tar.gz", notes)
-        self.assertIn(f"{URL}/blob/v0.3.0/README.md#parity-and-speed", notes)
-        self.assertIn(f"{URL}/blob/v0.3.0/docs/known-divergences.md", notes)
+        self.assertIn("https://github.com/jptech/kgrust/blob/v0.3.0/README.md#parity-and-speed", notes)
+        self.assertIn("https://github.com/jptech/kgrust/blob/v0.3.0/docs/known-divergences.md", notes)
         self.assertIn("- A feature, wrapped over two lines", notes)
         self.assertIn(f"- The change ([#7]({URL}/pull/7))", notes)
 

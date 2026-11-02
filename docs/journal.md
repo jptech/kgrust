@@ -19043,16 +19043,49 @@ guess was symbols. The ELF's sections say otherwise: 48.7 MiB of `.debug_*`, fro
 `release`'s `debug = 1`, and 1.1 of symbols. macOS leaves debug info out of the binary,
 so the difference had been invisible on the machine the archives were tried on.
 
-`strip = true` on `ship`, read from the pull request's own nightly run,
-`gh run download`: `kg` and `kanagawa` 9.6 and 4.8 MiB on x86_64 (from 59.5 and 31), 8.2
-and 4.2 on arm64, 7.9 and 4.1 on macOS (from 9.4 and 4.9); the archives 6.9, 6.3 and
-6.1 MiB (from 24–26 on Linux, 6 on macOS). Not generating the debug info either was
-measured and left out: cold `cargo build --profile ship`, interleaved, 82 and 91 s with
-it, 97 and 83 s without; peak 2.4 against 1.9 GiB. No time saved.
+`strip = true` was tried first, and then the maintainer chose `strip = "debuginfo"`:
+while the project is experimental, a bug report's backtrace should name functions. On a
+small program under this profile with `RUST_BACKTRACE=1`, `symbols` leaves a backtrace
+no frames at all and `debuginfo` names the function that panicked, for about 1 MiB a
+binary. Read from the pull request's own runs, `gh run download`:
 
-The output is the same: `cargo xtask dist` with the backend, unpacked outside the
-checkout, against the unstripped `kg` at the same commit, over four designs through
-`kg build`. A first comparison reported nine files different: `-o` is a prefix, and
-the probe had given the two builds different ones. With the same prefix, 30 of 32
-files are identical, and the other two, `PathLength` reports, differ only in where the
-bundled library was unpacked.
+| | `kg` | `kanagawa` | Archive | `kg` under `strip = true` |
+|---|---:|---:|---:|---:|
+| Linux x86_64 | 10.6 MiB (from 59.5) | 5.4 (from 31) | 7.3 (from 24–26) | 9.6 |
+| Linux arm64 | 9.8 | 5.0 | 6.8 (from 24–26) | 8.2 |
+| macOS | 8.9 (from 9.4) | 4.6 (from 4.9) | 6.5 (from 6) | 7.9 |
+
+Not generating the debug info either was measured and left out: cold `cargo build
+--profile ship`, interleaved, 82 and 91 s with it, 97 and 83 s without; peak 2.4 against
+1.9 GiB. No time saved.
+
+The output is the same: `cargo xtask dist --release` with the backend, unpacked outside
+the checkout, against the unstripped `kg`, over four designs through `kg build`. A first
+comparison reported nine files different: `-o` is a prefix, and the probe had given the
+two builds different ones. With the same prefix, all 14 `.sv` are byte-identical, and of
+the 32 files only two `PathLength` reports differ, in where the bundled library was
+unpacked.
+
+**A release.** Still published by a person. A nightly cannot be promoted, because its
+binaries report `0.2.0-nightly…`, so the workflow, dispatched with `release`, builds
+archives that report the plain version and keeps them as artifacts; its `publish` job
+does not run. They have no code generator, like every archive built on the free runners,
+and the notes' table says so per platform, so a release can mix them with this machine's
+archive that has one.
+
+`scripts/release_notes.py draft` fills `.github/release-template.md` from what is already
+written down, and leaves a `TODO(release)` only for the highlights, which nothing can read
+off. It refuses an archive that reports another version, because a plain `cargo xtask
+dist` names its archive by the version too and reports `-dev+<commit>`.
+
+Three traps in the text. A release's notes keep every newline as `<br>`, so the wrapped
+changelog is unwrapped. A wrapped line that opens with `<kbd>` looked like a block of HTML,
+and stayed broken until `<` was dropped as a block's start. And `check-links.py` reads
+tracked files only, so a new file's bad link passes until it is added: `{{readme}}#…` in
+the template went red only in CI, and the template now spells its links out.
+
+Checked 2026-11-01, on a real dispatch, run 41388366038: all three archives report `0.2.0`
+in their smoke tests, `publish` skipped, the `nightly` tag and the releases unmoved; the
+script on its artifacts and this repository's 0.2.0 section, through `gh api markdown`, 4
+sections, 2 tables, 2 details blocks, no `<br>`, no loose list, no relative link. The
+printed `gh release create --draft` has not been run: that makes a draft on GitHub.
