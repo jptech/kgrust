@@ -27,6 +27,7 @@ kg-hir.workspace = true
 # gives a desugared lambda (`Function.hs:248`).
 kg-ty.workspace = true
 kg-db.workspace = true
+kg-expand.workspace = true
 kg-sem.workspace = true
 kg-fmt.workspace = true
 kg-config.workspace = true

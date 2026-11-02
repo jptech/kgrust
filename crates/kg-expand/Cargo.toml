@@ -1,0 +1,37 @@
+[package]
+name = "kg-expand"
+description = "A program of a later language edition as the reference program it stands for: the text `kg expand` writes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+[lib]
+# No doc tests in this workspace — examples are unit tests (AGENTS.md).
+doctest = false
+
+[dependencies]
+kg-base.workspace = true
+kg-config.workspace = true
+kg-const.workspace = true
+kg-db.workspace = true
+kg-diag.workspace = true
+kg-hir.workspace = true
+kg-parser.workspace = true
+kg-resolve.workspace = true
+kg-syntax.workspace = true
+kg-ty.workspace = true
+# The proof: the expansion's walk against the program's, through the trace
+# backend, which links no C++ (`kg_ptbridge::trace`).
+kg-ptbridge.workspace = true
+kg-backend-sys.workspace = true
+
+[lints]
+workspace = true

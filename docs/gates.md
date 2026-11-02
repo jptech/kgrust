@@ -132,8 +132,8 @@ filtered run writes no ledger.
 
 `cargo xtask editions` grades the language beyond the reference
 ([`editions/`](editions/README.md); the design,
-[`plans/editions.md`](plans/editions.md) §6), pass/fail, in ~8 s; in
-`fast.sh`'s diagnostics tier and `gates.sh`. **Needs `oracle/build.sh`**
+[`plans/editions.md`](plans/editions.md) §6), pass/fail, in ~12 s; in
+`fast.sh`'s diagnostics tier and `gates.sh`, which adds `--every-list`. **Needs `oracle/build.sh`**
 (`kg-oracle`) for the reference's verdicts; `--no-oracle` grades the rest
 without it, which is what CI runs (`scripts/ci.sh`). Its fixtures are
 `tests/editions/<feature>/`, each read in edition 1.0 with that feature
@@ -144,14 +144,27 @@ feature it has, so that features are also graded together:
   `doc/` and `tools/` parses to the same tree, with the same errors, with
   every feature on as with none (481 files, 2026-10-31; the one not UTF-8,
   `test/syntax/imports/binary.k`, is skipped and named; `doc/` holds none);
+- **identity** — every one of those files, read with every feature on,
+  `kg expand`s to its own bytes: 405, the other 76 no program for a syntax
+  error in them or what they import. With `--every-list` the 353 that check
+  clean come to the same bytes with every list read off the loop's trees, the
+  path a program with a default takes (`cargo xtask editions --every-list`,
+  2026-11-01);
 - **claims** — every fixture is rejected by `kg-oracle --errors` and by
-  `kg` in edition 1.0 (23, `cargo xtask editions`, 2026-11-01);
+  `kg` in edition 1.0 (29, `cargo xtask editions`, 2026-11-01);
 - **twins** — each `accept/x.k` checks clean in its suite's language, its
   hand-written `x.ref.k` is accepted by the oracle and by edition 1.0, and
   the two walk through the trace backend call for call, locations aside
   (10);
 - **rejections** — each `reject/x.k` gives exactly the errors its
-  `// expect-error L:C: message` lines list, in order (13).
+  `// expect-error L:C: message` lines list, in order, from `kg check` and from
+  `kg expand` alike (13);
+- **expansions** — each `accept/x.k`'s `kg expand` text checks clean in edition
+  1.0, is accepted by `kg-oracle --errors`, and walks as the twin call for call
+  (10); written under `target/editions-expand/` for the oracle;
+- **refusals** — each `refuse/x.k` checks clean in its suite's language, is a
+  claim, and `kg expand` refuses exactly what its `// expect-refusal L:C:
+  message` lines list, in order (6).
 
 Blind to: a feature that acts after the parse — every feature so far acts
 only where the parser built its construct, which is what makes a parse
@@ -161,7 +174,9 @@ walked, not built: the backend's output was compared by hand
 ([named arguments](editions/1.1/named-arguments.md),
 [named template arguments](editions/1.1/named-template-arguments.md)).
 Blind, too, to a pin move that renames a library parameter a 1.1 call
-names: the corpus is 1.0 code. Each check proven red by a planted
+names: the corpus is 1.0 code. `kg expand`'s fixtures are one file each, so a
+project of several is graded by `kg`'s process tests and each expansion's own
+proof, and the oracle is asked of it only by hand. Each check proven red by a planted
 mutation, 2026-10-30; the edition suite's, 2026-10-31.
 
 ### `conformance` and `strict-ledger`

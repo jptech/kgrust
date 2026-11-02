@@ -34,6 +34,14 @@ Notable changes to kgrust, newest first. The format follows
   `--all-blocks` takes the blocks it takes. The check runs the frontend only,
   so what only the backend rejects still needs `kg build`. Upstream's four
   checked documents pass: 319 blocks, plus the 12 they mark invalid.
+- `kg expand` shows the reference program a later edition's program stands
+  for: your own text, with only the edition's constructs rewritten, and
+  comments and layout left alone. One file goes to stdout; `--out DIR` writes
+  every file of the project. What cannot be written exactly is refused, naming
+  the construct, with nothing written, and every expansion is checked in
+  edition 1.0 and walked into the backend against the program before it is
+  given. A program using nothing of a later edition comes back byte for byte,
+  unchecked. See [`docs/editions/`](docs/editions/README.md#kg-expand).
 
 ### Changed
 

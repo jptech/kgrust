@@ -71,6 +71,7 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-10-31 | A later edition's syntax in a file without it is one error naming the edition and how to opt in, and the parse goes on as the feature's would: the verdict stays the reference's, the message is ours ([`known-divergences.md`](known-divergences.md) #42) | "An edition the user cannot see is not opted into — 2026-10-31" |
 | 2026-11-01 | The incremental walk forgets what no walk reads any more — an asker walked since without asking, a unit no walk reaches (`Units::forget`) — and what it forgets may only turn a skip into a walk, or a kept count into a count; a new set beside the units forgets with them | "A memory that never forgets is the coarse check again — 2026-11-01" |
 | 2026-11-01 | A write in place reports its weight to the kept symbol maps (`Filed::weighed`, `symbols::unbounded`). A bounded one walks again only the records that reach the node written; an unbounded one, or one nobody weighed, discards the module's store, which is exact but costs a whole walk. A new reader of a node that does not walk it, as a template reads its declaration, is recorded beside the records | "A cache its own writer threw away — 2026-11-01" |
+| 2026-11-01 | `kg expand` edits the user's text, it never prints a tree. What the loop placed is read off its final trees, so `kg check` records nothing for it; a default is written as its folded, typed value; and an expansion is given only once read back in edition 1.0, checked clean and walked call for call against the program, or it is refused | "What the loop placed, read back: `kg expand` — 2026-11-01" |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -18924,3 +18925,56 @@ MemoryLength=32 --target-device mock -v` over copies of the four documents, 331
 blocks, 319 passed (218 as a whole file, 101 as a body, none needing
 `mini-base.k`), 12 skipped, 0 failed. Without the define, the one block naming
 `MemoryLength` fails, as it would under `chkdoc`.
+
+## What the loop placed, read back: `kg expand` — 2026-11-01
+
+`kg expand` prints the reference program a later edition's program stands
+for: the user's own text, with only the constructs rewritten
+([`plans/editions.md`](plans/editions.md) §4.4). Four decisions a later
+reader would otherwise rediscover.
+
+**Nothing records the edits.** The obvious design has `named.rs` and
+`deduce.rs` write down what they did. They need not: the final trees already
+say. A call's arguments keep the range of the list they were written in and
+each its own, a default wears the list's range alone, and an instance's type
+holds every argument, named. Reading them after the loop costs `kg check`
+nothing, and it reads what the walk reads, a copy per instance. The cross-check
+is `cargo xtask editions --every-list`, which sends the 353 reference programs
+that check clean down that path though they need no edit: every call read back
+as written, on the first run, closure calls and all.
+
+**A default is its value, typed.** The twins write `Step + 1` as declared, but
+declared text may mean something else at the call, or nothing. The value is
+what the call was given. A bare one is not enough: `3` is a `uint2`, the
+default's `Step + 1` of a `uint8` folds to a `uint9`, and the walks part at
+`ParseUintType`, so it is `3u9`. A negative typed one is the unary minus whose
+fold gives it back, found by search, since no literal is negative. An integer
+template argument is its value alone: the instance is keyed by it
+(`X<3>`, `X<3u9>` and `X<K + 1>` walk the same).
+
+**Every expansion is proved, and that is not paranoia.** Spelling an enum's
+constant needs a name, and only reading the text back says what the name means
+where it lands; so the expansion is read in edition 1.0, must check clean and
+must walk call for call as the program does, or it is refused. The first program
+that tried something unplanned found a case no design review had:
+`uint32 by = bitsizeof(Pair<M: 5>)`. Its text checks clean in 1.0 and is another
+program, since the default was the only thing that made `Pair<1, 5>`, which
+the backend walks (`refuse/instance-in-default.k`). The proof compares
+locations out, so it also says that a program whose walk leaned on a column
+would be refused, not misprinted; none did, `assert`, `print` and lambdas
+included.
+
+**What is refused is what a text cannot say**, and the list is longer than the
+plan's examples: instances that place a list differently, a list nothing
+compiles (an uninstantiated template, a `static if` branch not kept, one folded
+into a constant, where the loop leaves no copy to read), a positional call of a
+function with a default in such a place (its default is about to go), a skipped
+template argument naming a class. A reorder is never among them: `named.rs`
+already makes one two arguments could tell apart `kg check`'s error, so a
+reorder that reaches `kg expand` is the text reordered, and the walks agree.
+
+Graded by `cargo xtask editions` (2026-11-01): 405 reference files byte-identical,
+76 no program for a syntax error, 10 expansions checking clean, accepted by
+`kg-oracle` and walking as their twins, 6 refusal fixtures. `kg check` is
+unchanged by construction: no file under `kg-sem`, `kg-hir`, `kg-db` or
+`kg-parser` was touched.

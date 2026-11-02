@@ -1369,6 +1369,11 @@ warning switches and 27 (28) of the 90 other flags are exercised; 7 warning swit
 > design it started from. The differences:
 >
 > * The commands are `check`, `build`, `fmt`, `lsp`, `doc` (alias `docs`),
+>   `expand` (a later edition's program as the reference program it stands
+>   for: one root's file to stdout, or with `-o, --out <DIR>` every file of the
+>   project under the directory; diagnostics on stderr, exit 1 for a program
+>   with errors or one refused, 2 for a usage error;
+>   [`editions/`](../editions/README.md#kg-expand), 2026-11-01),
 >   `dump` (`tokens|cst|ast|ir|instances` — the debugging window §9.3's
 >   `--emit ast`/`typed-ast` rows proposed), `explain` (takes `1`, `E27`,
 >   `Warning 12` or a warning name; `--list`) and `board` (a manifest's
@@ -1459,7 +1464,7 @@ Every `kg build`/`kg check` flag below is *also* accepted under its legacy spell
 hidden clap alias, so existing CMake glue keeps working; the canonical modern spelling is
 what `--help` shows.
 
-### 9.2 Shared source-resolution options (`build`, `check`, `fmt`, `doc`, `lsp` via manifest)
+### 9.2 Shared source-resolution options (`build`, `check`, `expand`, `fmt`, `doc`, `lsp` via manifest)
 
 As built, `--edition <VERSION>` and `--feature <NAME>` join these, with
 `package.edition` and `language.features` as their manifest keys (§9's

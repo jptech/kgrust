@@ -18,11 +18,13 @@ one caller.
                     ┌──────────── kg-cli ────────────┐
                     │  kg build / check / fmt / lsp  │   ┌── kanagawa (compat binary)
                     │  kg doc / dump / explain       │
+                    │  kg expand                     │
                     │  kg board ─▶ kg-board (flows)  │   │   ~92 legacy flags
                     └────────────────┬───────────────┘   └────────┬───────────
                                      │                            │
       kg-lsp ────────────────────────┤                            │
       kg-doc ────────────────────────┤                            │
+      kg-expand ─────────────────────┤                            │
       kg-fmt ──────┐                 ▼                            ▼
                    │   ┌──────────── kg-db (queries) ────────────────────┐
                    │   │ parse · resolve · the parser's checks · pass 1  │
@@ -62,9 +64,10 @@ one caller.
 | `kg-abi-gen` | done; not in a plain `cargo build` | bindgen over the reference's C headers, once: the generators `xtask codegen` writes the two crates above with, and the configuration `kg-ptrace`'s build script uses |
 | `kg-ptrace` | done; not in a plain `cargo build` | The interposer: a shim backend logging every ParseTree call the reference makes; its build script needs the reference and libclang |
 | `kg-pttrace` | done | The call-trace format both sides of `ptdiff` read and write |
-| `kg-cli` | done | `kg` (check, build, fmt, lsp, doc, dump, explain, board) and the argv-compatible `kanagawa`; `kg build`'s `[hw]` and `-Z hw.*` through the compat binary's flag table |
+| `kg-cli` | done | `kg` (check, build, fmt, lsp, doc, expand, dump, explain, board) and the argv-compatible `kanagawa`; `kg build`'s `[hw]` and `-Z hw.*` through the compat binary's flag table |
 | `kg-board` | built 2026-10-17 | `kg board`'s flows once `kg build` has written a board's RTL: the interface description (`interface`), the generated core and its host bridge (`wrapper`), the Python module (`python`), Verilator testbenches and `serve`, cocotb (`test`), gate-level simulation, the icestorm and Vivado flows, programming, `kg board new` ([`plans/board-tooling.md`](plans/board-tooling.md)) |
 | `kg-doc` | done | `kg doc`: a static site from the doc comments — a page per module in the reference generator's structure, linked signatures, folded examples, a search over every declaration; Markdown by `pulldown-cmark`. `kg doc --check`: the Kanagawa code blocks in documentation through the frontend (`kg_doc::check`) |
+| `kg-expand` | built 2026-11-01 | `kg expand`: a later edition's program as the reference program it stands for, by minimal edits of its own text, what the loop placed read off its final trees and each expansion proved by reading it back in edition 1.0 and comparing the walks ([`editions/`](editions/README.md#kg-expand)) |
 | `kg-lsp` | done; latency open | Language server on `lsp-server`: diagnostics, quick fixes, goto-definition and type definition, hover (with the declaration's documentation), references, rename, completion (documentation on resolve), signature help, inlay hints, symbols (document and workspace), folding, selection ranges, highlight, semantic tokens. Queries never block the message loop. Diagnostics land twice where the program-wide loop runs past four rounds — its fourth round's, then its fixpoint's, `kg check`'s — from one run on a thread of its own, which an edit cancels; every other feature reads the newest of the two ready (`PassBudget::Layered`, `kg_db::layered`, sprint W7.6) |
 | `kg-fmt` | done | Comment-preserving formatter over the CST, with a verifier that refuses any edit that changes the program |
 | `kg-alloc` | done | The binaries' allocator (mimalloc), declared by `kg`, `kanagawa`, `kg-lsp` and `xtask`; `purge_eagerly`, which the language server calls once so an idle editor returns what its last check freed. No library names an allocator |

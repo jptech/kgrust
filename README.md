@@ -26,6 +26,7 @@ the memory.
 | `kg lsp` | The language server: live diagnostics, inferred bit widths, navigation, rename |
 | `kg fmt` | Format sources, every comment kept |
 | `kg doc` | A searchable documentation site from your doc comments; `--check` checks the Kanagawa code blocks in your docs |
+| `kg expand` | A later edition's program as the reference program it stands for |
 | `kg explain` | The reference for an error code or a warning |
 | `kg board` | A design on a board, or on a simulated one: generated wiring, a Python API, cocotb, bitstreams |
 | `kanagawa` | A drop-in replacement for the reference compiler's command line |
@@ -117,7 +118,8 @@ add(1, 2,)                   // a trailing comma
 ```
 
 Each feature is rewritten inside the frontend into the program edition `1.0` would have
-written, so the code generator gets exactly what the reference compiler would give it.
+written, so the code generator gets exactly what the reference compiler would give it,
+and `kg expand` shows you that program, your own text with only those constructs rewritten.
 `kanagawa` never opts in. [The editions](docs/editions/README.md) lists every feature,
 how to take one alone, and what each edition adds.
 

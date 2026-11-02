@@ -135,6 +135,67 @@ every other command); `kg board`'s interface reader. `kg dump` reads one
 file and no manifest: its language is the flags' alone. A change to a
 manifest's edition reparses the files it governs, in the editor too.
 
+### `kg expand`
+
+`kg expand` shows the reference program a later edition's program stands
+for: your own text, with only the edition's constructs rewritten. Trailing
+commas are dropped, labels are removed and arguments put in their parameters'
+order, defaults are written into the calls that leave them out, and named
+template arguments are put in their places. Comments and layout elsewhere stay
+as they are (a comment between two arguments stays where it is when they swap),
+and a file that uses nothing of a later edition comes back byte for byte.
+
+```kanagawa
+// edition 1.1                              // kg expand
+const uint8 Step = 2;                       const uint8 Step = 2;
+
+uint32 scale(                               uint32 scale(
+    uint32 value,                               uint32 value,
+    uint32 factor = 1,                          uint32 factor,
+    uint32 offset = Step + 1,                   uint32 offset
+)                                           )
+{ … }                                       { … }
+
+scale(offset: 5, value: a);                 scale(a, 1, 5);
+scale(a, 3);                                scale(a, 3, 3u9);
+Buffer<Fast: true> b;                       Buffer<8, 16, true> b;
+```
+
+A default is written as the value the compiler folded it to, its type kept:
+`3u9` is what `Step + 1` is, a `uint9`. The declared text may not mean the same
+where the call stands.
+
+One file goes to stdout, the program and nothing else, with anything else
+said on stderr. `--out DIR` (`-o`) writes every file of the project the program
+reaches under the directory, at its path in the project, and never over the
+sources; two roots need it. A file of the project is one under its root and
+under no other package's manifest: a dependency with a manifest of its own and
+the standard library keep their own language and are not written, so a project
+whose dependency is in a later edition expands to a program that still needs
+that dependency's expansion.
+
+**What cannot be written exactly is refused**, naming the construct, and no
+file is written; the command exits 1:
+
+| Refused | Why |
+|---|---|
+| a list the template's instances place differently | a default naming the template's parameter is another value in each instance, and one text cannot say both |
+| a labelled list, or a call by position of a function with a default, that nothing compiles | a template no one instantiates, a `static if` branch not kept, a list folded into a constant: nothing says where the arguments go |
+| a skipped template argument that is not an integer, a `bool` or one of the language's types | edition 1.0 must write it to reach the ones after, and a class's name may not mean the same there |
+| a default that means another thing where it lands | an enum's constant whose name a nearer declaration shadows |
+| a default whose expression makes an instance no other text makes | without the default, the program has no reason for it |
+
+Every expansion is proved before it is given: read in edition 1.0 it must
+check clean and walk into the backend call for call as the program does.
+A program with an error gives `kg check`'s errors, and no text, and so does an
+evaluation order only the labels could keep
+([named arguments](1.1/named-arguments.md#order-of-evaluation)).
+
+A program that uses nothing of a later edition has nothing to expand and proves
+nothing. It comes back byte for byte and exits 0 unchecked, a type error and all;
+`kg check` is what says whether it is right. Only a syntax error stops it, since a
+file that does not parse cannot be shown to use nothing.
+
 ## How an edition is built
 
 Every extension lives in the frontend and is gone before the backend:

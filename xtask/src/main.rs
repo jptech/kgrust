@@ -471,8 +471,9 @@ enum Cmd {
         max_tests: usize,
     },
     /// Grade the language beyond the reference: every feature neutral over the
-    /// corpus, its fixtures claimed, walked as their twins, and rejected as
-    /// expected (`docs/editions/README.md`).
+    /// corpus, its fixtures claimed, walked as their twins, rejected as expected,
+    /// and expanded by `kg expand` to their twins or refused as expected
+    /// (`docs/editions/README.md`).
     Editions {
         /// Path to the reference checkout.
         #[arg(long, env = "KANAGAWA_ROOT", default_value = "third_party/kanagawa")]
@@ -485,6 +486,11 @@ enum Cmd {
         /// reference, can run.
         #[arg(long)]
         no_oracle: bool,
+        /// Read every list of each reference program that checks clean off the
+        /// loop's trees, as `kg expand` reads a program with a default: slower,
+        /// and what the full gates ask for.
+        #[arg(long)]
+        every_list: bool,
     },
     /// Prove the formatter is idempotent and layout-only over the whole corpus.
     FmtCheck {
@@ -812,7 +818,7 @@ fn dispatch(command: Cmd) -> Result<()> {
         Cmd::FmtCheck { kanagawa_root, width, verbose } => {
             fmtgate::run(&kanagawa_root, width, verbose)
         }
-        Cmd::Editions { kanagawa_root, verbose, no_oracle } => editions::run(&kanagawa_root, verbose, no_oracle),
+        Cmd::Editions { kanagawa_root, verbose, no_oracle, every_list } => editions::run(&kanagawa_root, verbose, no_oracle, every_list),
         Cmd::Errors { kanagawa_root, filter, max_failures, verbose } => {
             errors::run(&kanagawa_root, filter.as_deref(), max_failures, verbose)
         }

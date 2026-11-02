@@ -25,7 +25,7 @@ written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10
   arguments, each rewritten inside the frontend into the program `1.0`
   would have written. Graded by the `editions` gate; the user's pages are
   [`editions/`](editions/README.md).
-- **The tools:** `kg check`, `build`, `fmt`, `lsp`, `doc`, `dump`,
+- **The tools:** `kg check`, `build`, `fmt`, `lsp`, `doc`, `expand`, `dump`,
   `explain`, `board`, and the argv-compatible `kanagawa`; a release
   archive from `cargo xtask dist` (and `cargo xtask install`, the same
   tree linked into `~/.cargo/bin`); the VS Code extension in
@@ -153,8 +153,8 @@ reference's; `kanagawa` never opts in.
 `kanagawa.toml`, versioned: `1.0` is the reference, a minor edition only
 adds. Per package, so a library and its users each keep their own; every
 extension desugars inside the frontend to reference Kanagawa, so the
-ParseTree walk and the backend never change, and a `kg expand` (not
-built) could print the reference program at any time. Planned in
+ParseTree walk and the backend never change, and `kg expand` prints the
+reference program at any time ([`editions/`](editions/README.md#kg-expand)). Planned in
 [`plans/editions.md`](plans/editions.md); **shipped in 0.2.0** (PR #8,
 merged 2026-11-01, which answered whether kgrust extends the language at
 all: below, under the decisions): edition `1.1`, a preview — named

@@ -465,6 +465,7 @@ dependencies = [
  "kg-db",
  "kg-diag",
  "kg-doc",
+ "kg-expand",
  "kg-fmt",
  "kg-hir",
  "kg-lsp",
@@ -536,6 +537,24 @@ dependencies = [
  "kg-vfs",
  "pulldown-cmark",
  "serde_json",
+]
+
+[[package]]
+name = "kg-expand"
+version = "0.2.0"
+dependencies = [
+ "kg-backend-sys",
+ "kg-base",
+ "kg-config",
+ "kg-const",
+ "kg-db",
+ "kg-diag",
+ "kg-hir",
+ "kg-parser",
+ "kg-ptbridge",
+ "kg-resolve",
+ "kg-syntax",
+ "kg-ty",
 ]
 
 [[package]]
@@ -1200,6 +1219,7 @@ dependencies = [
  "kg-config",
  "kg-db",
  "kg-diag",
+ "kg-expand",
  "kg-fmt",
  "kg-hir",
  "kg-parser",
