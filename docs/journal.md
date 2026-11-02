@@ -72,6 +72,7 @@ maintainer, and `CLAUDE.md` is today's `AGENTS.md`
 | 2026-11-01 | The incremental walk forgets what no walk reads any more — an asker walked since without asking, a unit no walk reaches (`Units::forget`) — and what it forgets may only turn a skip into a walk, or a kept count into a count; a new set beside the units forgets with them | "A memory that never forgets is the coarse check again — 2026-11-01" |
 | 2026-11-01 | A write in place reports its weight to the kept symbol maps (`Filed::weighed`, `symbols::unbounded`). A bounded one walks again only the records that reach the node written; an unbounded one, or one nobody weighed, discards the module's store, which is exact but costs a whole walk. A new reader of a node that does not walk it, as a template reads its declaration, is recorded beside the records | "A cache its own writer threw away — 2026-11-01" |
 | 2026-11-01 | `kg expand` edits the user's text, it never prints a tree. What the loop placed is read off its final trees, so `kg check` records nothing for it; a default is written as its folded, typed value; and an expansion is given only once read back in edition 1.0, checked clean and walked call for call against the program, or it is refused | "What the loop placed, read back: `kg expand` — 2026-11-01" |
+| 2026-11-01 | A file with no manifest above it belongs to the first project, by manifest path, whose `import-dirs` hold it, and keeps the reference's language ([`ConfigStore::project_importing`](../crates/kg-lsp/src/global_state.rs)) | [journal](#one-rule-for-a-body-on-its-line-and-a-library-files-project--2026-11-01) |
 | ongoing | Deliberate differences from the reference, each with its cost | [`known-divergences.md`](known-divergences.md) |
 
 ---
@@ -18978,3 +18979,45 @@ Graded by `cargo xtask editions` (2026-11-01): 405 reference files byte-identica
 `kg-oracle` and walking as their twins, 6 refusal fixtures. `kg check` is
 unchanged by construction: no file under `kg-sem`, `kg-hir`, `kg-db` or
 `kg-parser` was touched.
+
+## One rule for a body on its line, and a library file's project — 2026-11-01
+
+**The half split was one bug at nine sites.** The entry above fixed a function's
+body and left `if` and lambdas. Probing each shape in its own file found more: `for`,
+`static for`, `do` and `else` broke the same way, and a `class` or `struct` body
+stayed over the width. Two were not known at all. A too-long one-line `enum` took
+two runs to settle, a formatter that is not idempotent under a `fmt-check` green at
+every width; and any one-line `struct` or `union` was written `uint32 x ;`, its `;`
+being the list's child there and the collapsed path spacing every child. Over the
+reference's 471 `.k` files, `kg fmt` against the previous build moves 11, the long
+lambdas in `library/` and `test/`, and one `struct R { T x ; }`. No corpus file has a
+one-line `enum` too long for the width, which is why `crates/kg-fmt/tests/style.rs`
+holds these, and `fmt-check` cannot. A bare `{ … }` block has no header to break
+from, and stays on its line over the width. My first probe of this reported no such
+`struct` bug: its file had a syntax error elsewhere, so it was skipped and left
+as written. Probe one shape to a file.
+
+**A library file's project.** A file with no manifest above it now takes the settings
+of a project whose `import-dirs` hold it, and with them its `Db`: `data/optional.k`,
+reached by going to a definition from a scratch project on a source build, reported
+`Can't find file: data/order.k` and now reports nothing (over stdio, against the
+0.1.0 source build for the first; `kg-lsp`'s `e2e` holds it). It stays in the
+reference's language, whatever the project's edition. Which project must not depend
+on what was asked first, so `ConfigStore::known` keeps every manifest loaded across a
+reload, the workspace's root is asked too, and the first by manifest path answers.
+Not fixed: with no workspace folder, a library file opened before any file of its
+project has the fallback's settings until the next publish, and opening the project
+publishes only its own file.
+
+**A link to one file.** With no manifest, `--edition` reaches the first input's
+directory, and for a link that is now the directory the file is really in. Not where
+a manifest stands above it: `LanguageMap::walk` stops at the root, so a root moved
+under a package would have stopped short of the manifest that names its language.
+
+**A mutation that plants nothing reads as a survivor.** In zsh, `${old/f(1)/g}`
+takes `(1)` as a glob group, matches nothing and leaves `new` equal to `old`; three
+"survivors" of a real test were that. `scripts/mutant.sh` now refuses such a mutation,
+exit 2, as the usage error it is.
+
+Checked 2026-11-01: `cargo test --workspace --profile quick`, 2135 passed;
+`cargo xtask fmt-check --width` 100, 80, 60, 40 and 25, 405/405; 26 mutants caught.
