@@ -7,7 +7,7 @@
 #                          #   conformance, fmt-check, lint, editions without
 #                          #   kg-oracle) and codegen --check
 #   scripts/ci.sh lint     # clippy, the documentation's links, and the tests
-#                          #   of the nightly's release notes
+#                          #   of the release notes, a nightly's and a release's
 #
 # This repository's Rust code only — the whole workspace but kg-ptrace,
 # whose build script compiles against the reference's headers — sized for
@@ -78,6 +78,7 @@ run_lint() {
   step "clippy" cargo clippy --locked "${workspace[@]}" --all-targets -- -D warnings
   step "links" python3 scripts/check-links.py
   step "nightly notes" python3 -B scripts/nightly_notes_test.py
+  step "release notes" python3 -B scripts/release_notes_test.py
 }
 
 case $job in

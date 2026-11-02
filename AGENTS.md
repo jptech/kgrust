@@ -144,7 +144,7 @@ the documentation's own rules close [`docs/README.md`](docs/README.md).
 on Linux for every push and pull request, on macOS for `main` — sized for
 GitHub's free runners: `test` (the quick tests, `corpus`, `conformance`,
 `fmt-check`, `lint`, `editions --no-oracle`, `codegen --check`) and `lint` (clippy,
-`check-links.py`, the nightly notes' tests), over the workspace but `kg-ptrace`. It covers this
+`check-links.py`, the release notes' tests), over the workspace but `kg-ptrace`. It covers this
 repository's Rust code, and builds neither the backend nor the reference
 — keep it that way; the parity gates stay local. `scripts/ci.sh` runs the
 same on your machine. **Nightly prereleases**
@@ -219,13 +219,22 @@ parameter upstream renamed breaks every 1.1 call that names it, which no
 gate sees: read the library's diff for renamed parameters, and say so in
 the changelog.
 
-**Releasing.** Set the version in `Cargo.toml`'s `[workspace.package]`; full
-gates green on `main`; `scripts/build-backend.sh`; `cargo xtask dist
---release` (any other build says `-dev+<commit>`); smoke-test the unpacked
-archive outside the checkout, nothing configured (`kg --version` exactly the
-version, `kg check`, `kg build`, `kg doc` on a small design); add the
-[`CHANGELOG.md`](CHANGELOG.md) entry; tag `vX.Y.Z` on `main`; attach each
-platform's archive and `.sha256` to the release.
+**Releasing.** Only a person publishes a release. Set the version in
+`Cargo.toml`'s `[workspace.package]` and write its
+[`CHANGELOG.md`](CHANGELOG.md) section (`## X.Y.Z — name, date`, a paragraph on
+what it is for, then its lists); full gates green on `main`, and `docs/status.md`
+rendered from them. Then the archives, one per platform: this machine's, with the
+code generator, from `scripts/build-backend.sh` and `cargo xtask dist --release`
+(any other build says `-dev+<commit>`); the pipeline's three, without it, from
+`gh workflow run nightly.yml --ref main -f release=true` and `gh run download
+<id> -D target/release-archives`. Smoke-test what this machine can run, unpacked
+outside the checkout, nothing configured (`kg --version` exactly the version,
+`kg check`, `kg doc` on a small design, `kg build` with the code generator).
+`scripts/release_notes.py draft --archives <dir>` fills in
+[the template](.github/release-template.md) from all that and leaves a
+`TODO(release)` for the highlights. Write them, run `scripts/release_notes.py
+check <file>` and the `gh release create --draft` command it printed, read the
+draft on GitHub, and publish it there, which tags `vX.Y.Z`.
 
 ## Lessons
 

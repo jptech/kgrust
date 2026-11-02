@@ -17,6 +17,11 @@
 # builds the archives and smoke-tests them, and publishes nothing; the archives
 # are kept as the run's artifacts, and the list is in the run's summary and log.
 #
+# Dispatched with `release`, it builds and smoke-tests archives that report the
+# plain version, and keeps them as the run's artifacts. It publishes nothing: a
+# person drafts the notes from them, reads the draft and publishes it (AGENTS.md,
+# "Releasing"). They have no code generator either.
+#
 # Actions are pinned by commit, their release named beside it.
 name: Nightly
 
@@ -24,6 +29,11 @@ on:
   schedule:
     - cron: "17 6 * * *"
   workflow_dispatch:
+    inputs:
+      release:
+        description: Archives that report the plain version, for a release made by hand. Publishes nothing.
+        type: boolean
+        default: false
   pull_request:
     paths:
       - .github/workflows/nightly.yml
@@ -60,10 +70,12 @@ jobs:
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
         run: |
           sha=$(git rev-parse HEAD)
           base=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
           version="$base-nightly.$(date -u +%Y%m%d)+$(git rev-parse --short=7 HEAD)"
+          [[ $RELEASE != true ]] || version=$base
           build=true
           # Cleared on failure: with no such tag, `gh` still prints the 404's
           # JSON on stdout, which would read as a commit to compare from.
@@ -76,7 +88,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "$version at $sha: build=$build"
-          if [[ $build == true ]]; then
+          if [[ $build == true && $RELEASE != true ]]; then
             changes=$(python3 -B scripts/nightly_notes.py "$GITHUB_REPOSITORY" "$last" "$sha")
             # Random, so that no commit's subject can end the value early.
             delimiter=$(openssl rand -hex 16)
@@ -105,7 +117,8 @@ jobs:
     env:
       # What `kg --version` reports (kg-cli's `VERSION`).
       KG_VERSION: ${{ needs.plan.outputs.version }}
-      ARCHIVE: kgrust-nightly-${{ matrix.target }}
+      ARCHIVE: kgrust-${{ inputs.release && needs.plan.outputs.version || 'nightly' }}-${{ matrix.target }}
+      RELEASE: ${{ inputs.release }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,7 +135,12 @@ jobs:
           key: ${{ hashFiles('Cargo.toml', '.cargo/config.toml') }}
           save-if: ${{ github.event_name != 'pull_request' }}
       - name: Archive
-        run: cargo xtask dist --no-backend --label nightly
+        run: |
+          if [[ $RELEASE == true ]]; then
+            cargo xtask dist --no-backend --release
+          else
+            cargo xtask dist --no-backend --label nightly
+          fi
       - name: Smoke test, unpacked outside the checkout
         run: |
           smoke="$RUNNER_TEMP/smoke"
@@ -148,7 +166,7 @@ jobs:
   publish:
     name: publish the nightly
     needs: [plan, build]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !inputs.release
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # The only job that writes: the `nightly` tag and its release.
