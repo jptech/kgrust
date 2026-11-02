@@ -20,6 +20,9 @@ Notable changes to kgrust, newest first. The format follows
   `0.2.0`.
 - `cargo xtask dist --label <LABEL>` names the archive
   `kgrust-<LABEL>-<target>`, and the archive's README states the version.
+- A Neovim plugin (`editors/nvim`, Neovim 0.11+). `.k` files open as
+  Kanagawa, with highlighting generated from the parser's keyword list,
+  indentation that follows `kg fmt`'s layout, and `kg lsp` attached.
 
 ### Changed
 

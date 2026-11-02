@@ -170,6 +170,10 @@ what it shows is what `kg build` will do:
 `npm install && npx @vscode/vsce package`, install the `.vsix`, and keep `kg` on
 your `PATH`.
 
+**Neovim** (0.11+): the plugin is in [`editors/nvim`](editors/nvim/README.md): the
+filetype, highlighting and indentation, with `kg lsp` attached. With lazy.nvim, add
+`'jptech/kgrust'` with the two-line `config` its README gives.
+
 **Any other editor:** point its LSP client at `kg lsp` (stdio) for `*.k` files.
 
 ## Build from source

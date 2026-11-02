@@ -30,7 +30,7 @@ written when it ended ([`history/handoff-2026-10-11.md`](history/handoff-2026-10
   archive from `cargo xtask dist` (and `cargo xtask install`, the same
   tree linked into `~/.cargo/bin`); the VS Code extension in
   `editors/vscode`, which packages (`npm run package`) and installs
-  locally.
+  locally, and a Neovim plugin in `editors/nvim`.
 - **Published** at [github.com/jptech/kgrust](https://github.com/jptech/kgrust),
   with no release yet (`0.2.0` is `Cargo.toml`'s version, untagged), and
   with CI on every push and pull request (`scripts/ci.sh`: the Rust code
