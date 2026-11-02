@@ -60,6 +60,10 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Fixed
 
+- A library file outside your project, opened by going to a definition in it,
+  now belongs to the project that imports it, so it no longer reports false
+  errors on a source build, and hover reaches the program that instantiates its
+  templates.
 - `kg fmt` no longer half splits a too-long one-line `if`, `else`, `for`, `do` or
   lambda, or leaves a `class` or `struct` body over the width. As for a function,
   the line stays whole where it fits, and is laid out Allman where it doesn't.
