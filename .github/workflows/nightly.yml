@@ -15,7 +15,7 @@
 #
 # A pull request that changes this file, the notes or the archive's layout
 # builds the archives and smoke-tests them, and publishes nothing; the archives
-# are kept as the run's artifacts, and the list is in the run's summary.
+# are kept as the run's artifacts, and the list is in the run's summary and log.
 #
 # Actions are pinned by commit, their release named beside it.
 name: Nightly
@@ -85,7 +85,7 @@ jobs:
               echo "$changes"
               echo "$delimiter"
             } >> "$GITHUB_OUTPUT"
-            echo "$changes" >> "$GITHUB_STEP_SUMMARY"
+            echo "$changes" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
   build:

@@ -139,9 +139,9 @@ debug = 1
 #
 # Stripped: `release`'s `debug = 1` left 49 of the Linux `kg`'s 59.5 MiB in
 # `.debug_*` sections, where macOS keeps debug info out of the binary (the
-# first nightly, 2026-11-01). `debug = false` as well saves no build time, only
-# 0.5 GiB of its peak. A panic still names its file and line; a backtrace no
-# longer names functions.
+# first nightly, 2026-11-01); stripped, it is 9.6. `debug = false` as well saves
+# no build time, only 0.5 GiB of its peak. A panic still names its file and
+# line; a backtrace no longer names functions.
 [profile.ship]
 inherits = "release"
 lto = "fat"

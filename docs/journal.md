@@ -19021,3 +19021,38 @@ exit 2, as the usage error it is.
 
 Checked 2026-11-01: `cargo test --workspace --profile quick`, 2135 passed;
 `cargo xtask fmt-check --width` 100, 80, 60, 40 and 25, 405/405; 26 mutants caught.
+
+## What a nightly says changed, and a Linux binary that was mostly debug info — 2026-11-01
+
+**The list.** A nightly's notes open with what landed since the last one
+(`scripts/nightly_notes.py`, from `gh api compare`). GitHub's own generated notes are
+close and not usable here: they leave out a commit pushed straight to `main`, write
+`by @author` on every line, and link a comparison of tags, which goes empty because
+this tag moves every night. The list is made in `plan`, so a pull request that changes
+the workflow shows it without publishing anything.
+
+Three things the API does, each read off it rather than assumed. On a 404, `gh api
+--jq` still prints the error's JSON on stdout, so `last=$(gh api … || true)` held text
+that read as a commit: harmless while it was only compared, not once it named a range.
+`Buffer<Fast>` renders as `Buffer`, the tag removed without a trace, which a language
+with this syntax will meet in a title. And `\@name` still mentions its owner, each
+time the release is made again; only a code span stops it (`gh api markdown`).
+
+**The size.** The first nightly's Linux `kg` was 59.5 MiB against macOS's 9.4, and the
+guess was symbols. The ELF's sections say otherwise: 48.7 MiB of `.debug_*`, from
+`release`'s `debug = 1`, and 1.1 of symbols. macOS leaves debug info out of the binary,
+so the difference had been invisible on the machine the archives were tried on.
+
+`strip = true` on `ship`, read from the pull request's own nightly run,
+`gh run download`: `kg` and `kanagawa` 9.6 and 4.8 MiB on x86_64 (from 59.5 and 31), 8.2
+and 4.2 on arm64, 7.9 and 4.1 on macOS (from 9.4 and 4.9); the archives 6.9, 6.3 and
+6.1 MiB (from 24–26 on Linux, 6 on macOS). Not generating the debug info either was
+measured and left out: cold `cargo build --profile ship`, interleaved, 82 and 91 s with
+it, 97 and 83 s without; peak 2.4 against 1.9 GiB. No time saved.
+
+The output is the same: `cargo xtask dist` with the backend, unpacked outside the
+checkout, against the unstripped `kg` at the same commit, over four designs through
+`kg build`. A first comparison reported nine files different: `-o` is a prefix, and
+the probe had given the two builds different ones. With the same prefix, 30 of 32
+files are identical, and the other two, `PathLength` reports, differ only in where the
+bundled library was unpacked.

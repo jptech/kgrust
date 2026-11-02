@@ -46,6 +46,10 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Changed
 
+- Archives are stripped (`strip = true` on the `ship` profile). Debug info was
+  most of Linux's binaries: `kg` goes from 59.5 to 9.6 MiB, and a Linux archive
+  from 24–26 to 6–7. A panic still names its file and line; a backtrace no
+  longer names functions.
 - Inference does less over again, with identical results. It walks again
   only the declarations that read what a rebuilt symbol map moved, and it
   forgets the ones no walk reaches any more. On `risc-v.k`, `kg check`
