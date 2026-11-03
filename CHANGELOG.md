@@ -12,8 +12,16 @@ Notable changes to kgrust, newest first. The format follows
   prerelease of it for Linux (x86_64, arm64) and macOS (Apple silicon),
   without the code generator, so `kg check`, `fmt`, `lsp` and `doc` work
   and `kg build` needs `KG_BACKEND_DIR`. A nightly's `kg --version` names
-  its commit (`0.2.0-nightly.20261102+abc1234`). Not releases: those are
+  its commit (`0.2.0-nightly.20261102+abc1234`), and its notes list the
+  pull requests merged since the last nightly. Not releases: those are
   still tagged by hand after the full gates.
+- A release's notes can be drafted rather than typed:
+  `scripts/release_notes.py draft` fills `.github/release-template.md` from the
+  changelog, the gates' numbers, the archives and the pull requests since the
+  last tag, and refuses an archive that reports another version. A person
+  writes the highlights and publishes. `gh workflow run nightly.yml -f
+  release=true` builds archives that report the plain version, and publishes
+  nothing.
 - A build from a checkout says what it is: `kg --version`, `kanagawa
   --version`'s second line and the language server's `serverInfo` report
   `0.2.0-dev+abc1234`, and only `cargo xtask dist --release` the plain
@@ -45,6 +53,9 @@ Notable changes to kgrust, newest first. The format follows
 
 ### Changed
 
+- Archives carry no debug info (`strip = "debuginfo"` on the `ship` profile),
+  which was most of Linux's binaries: `kg` goes from 59.5 to 10.6 MiB, and a
+  Linux archive from 24–26 to about 7. Backtraces still name functions.
 - Inference does less over again, with identical results. It walks again
   only the declarations that read what a rebuilt symbol map moved, and it
   forgets the ones no walk reaches any more. On `risc-v.k`, `kg check`

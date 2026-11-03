@@ -19021,3 +19021,71 @@ exit 2, as the usage error it is.
 
 Checked 2026-11-01: `cargo test --workspace --profile quick`, 2135 passed;
 `cargo xtask fmt-check --width` 100, 80, 60, 40 and 25, 405/405; 26 mutants caught.
+
+## What a nightly says changed, and a Linux binary that was mostly debug info — 2026-11-01
+
+**The list.** A nightly's notes open with what landed since the last one
+(`scripts/nightly_notes.py`, from `gh api compare`). GitHub's own generated notes are
+close and not usable here: they leave out a commit pushed straight to `main`, write
+`by @author` on every line, and link a comparison of tags, which goes empty because
+this tag moves every night. The list is made in `plan`, so a pull request that changes
+the workflow shows it without publishing anything.
+
+Three things the API does, each read off it rather than assumed. On a 404, `gh api
+--jq` still prints the error's JSON on stdout, so `last=$(gh api … || true)` held text
+that read as a commit: harmless while it was only compared, not once it named a range.
+`Buffer<Fast>` renders as `Buffer`, the tag removed without a trace, which a language
+with this syntax will meet in a title. And `\@name` still mentions its owner, each
+time the release is made again; only a code span stops it (`gh api markdown`).
+
+**The size.** The first nightly's Linux `kg` was 59.5 MiB against macOS's 9.4, and the
+guess was symbols. The ELF's sections say otherwise: 48.7 MiB of `.debug_*`, from
+`release`'s `debug = 1`, and 1.1 of symbols. macOS leaves debug info out of the binary,
+so the difference had been invisible on the machine the archives were tried on.
+
+`strip = true` was tried first, and then the maintainer chose `strip = "debuginfo"`:
+while the project is experimental, a bug report's backtrace should name functions. On a
+small program under this profile with `RUST_BACKTRACE=1`, `symbols` leaves a backtrace
+no frames at all and `debuginfo` names the function that panicked, for about 1 MiB a
+binary. Read from the pull request's own runs, `gh run download`:
+
+| | `kg` | `kanagawa` | Archive | `kg` under `strip = true` |
+|---|---:|---:|---:|---:|
+| Linux x86_64 | 10.6 MiB (from 59.5) | 5.4 (from 31) | 7.3 (from 24–26) | 9.6 |
+| Linux arm64 | 9.8 | 5.0 | 6.8 (from 24–26) | 8.2 |
+| macOS | 8.9 (from 9.4) | 4.6 (from 4.9) | 6.5 (from 6) | 7.9 |
+
+Not generating the debug info either was measured and left out: cold `cargo build
+--profile ship`, interleaved, 82 and 91 s with it, 97 and 83 s without; peak 2.4 against
+1.9 GiB. No time saved.
+
+The output is the same: `cargo xtask dist --release` with the backend, unpacked outside
+the checkout, against the unstripped `kg`, over four designs through `kg build`. A first
+comparison reported nine files different: `-o` is a prefix, and the probe had given the
+two builds different ones. With the same prefix, all 14 `.sv` are byte-identical, and of
+the 32 files only two `PathLength` reports differ, in where the bundled library was
+unpacked.
+
+**A release.** Still published by a person. A nightly cannot be promoted, because its
+binaries report `0.2.0-nightly…`, so the workflow, dispatched with `release`, builds
+archives that report the plain version and keeps them as artifacts; its `publish` job
+does not run. They have no code generator, like every archive built on the free runners,
+and the notes' table says so per platform, so a release can mix them with this machine's
+archive that has one.
+
+`scripts/release_notes.py draft` fills `.github/release-template.md` from what is already
+written down, and leaves a `TODO(release)` only for the highlights, which nothing can read
+off. It refuses an archive that reports another version, because a plain `cargo xtask
+dist` names its archive by the version too and reports `-dev+<commit>`.
+
+Three traps in the text. A release's notes keep every newline as `<br>`, so the wrapped
+changelog is unwrapped. A wrapped line that opens with `<kbd>` looked like a block of HTML,
+and stayed broken until `<` was dropped as a block's start. And `check-links.py` reads
+tracked files only, so a new file's bad link passes until it is added: `{{readme}}#…` in
+the template went red only in CI, and the template now spells its links out.
+
+Checked 2026-11-01, on a real dispatch, run 41388366038: all three archives report `0.2.0`
+in their smoke tests, `publish` skipped, the `nightly` tag and the releases unmoved; the
+script on its artifacts and this repository's 0.2.0 section, through `gh api markdown`, 4
+sections, 2 tables, 2 details blocks, no `<br>`, no loose list, no relative link. The
+printed `gh release create --draft` has not been run: that makes a draft on GitHub.
